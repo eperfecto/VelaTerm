@@ -137,7 +137,7 @@ export function CommitBox({
             aria-label={t("git.ask.commit", agentLabel)}
             onClick={onAskAgent}
           >
-            <Icons.sparkle size={13} />
+            <Icons.aiCommitMessage size={13} />
           </button>
         )}
         <button type="button" className="git-commit-btn" disabled={!canCommit} onClick={() => void submit()}>

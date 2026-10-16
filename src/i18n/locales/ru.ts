@@ -522,6 +522,10 @@ const ru: typeof en = {
   "settings.appearance": "Внешний вид", // Appearance
   "settings.accent": "Акцент", // Accent
   "settings.accentAuto": "Как тема", // Follow theme
+  "settings.iconTheme": "Значки", // Icons
+  "settings.iconThemeClassic": "Классические", // Classic
+  "settings.iconThemeMaterial": "Material", // Material
+  "settings.iconThemeFluent": "Fluent", // Fluent
   "settings.density": "Плотность", // Density
   "settings.densityCompact": "Плотно", // Compact
   "settings.densityRegular": "Обычно", // Regular

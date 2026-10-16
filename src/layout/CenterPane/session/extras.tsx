@@ -207,7 +207,7 @@ export function ChipPopover({
         <span className="sv-chip-glyph">{glyph}</span>
         <span className="sv-chip-label">{label}</span>
         {badge}
-        <Icons.chevD size={12} />
+        <Icons.chevronDown size={12} />
       </button>
       {open && (
         <div
@@ -243,7 +243,7 @@ export function McpChip({ sessionId, codex = false, disabled = false }: { sessio
   const connected = servers?.filter((s) => s.status === "connected").length;
   return (
     <ChipPopover
-      glyph={<Icons.connect size={14} />}
+      glyph={<Icons.mcp size={14} />}
       label="MCP"
       title={disabled ? t("chat.chipAgentNotRunning") : t("chat.mcp.tooltip")}
       // A disabled chip carries no badge: the count belongs to a process that is gone.
@@ -359,7 +359,7 @@ export function TasksChip({
   const running = tasks.filter((task) => !isTaskFinished(task)).length;
   return (
     <ChipPopover
-      glyph={<Icons.layers size={14} />}
+      glyph={<Icons.tasks size={14} />}
       label={t("chat.tasks.label")}
       title={disabled ? t("chat.chipAgentNotRunning") : t("chat.tasks.tooltip")}
       badge={!disabled && running > 0 ? <span className="sv-chip-badge">{running}</span> : undefined}
@@ -368,7 +368,7 @@ export function TasksChip({
     >
       {busy ? (
         <button className="sv-popover-wide" onClick={onBackgroundAll}>
-          <Icons.download size={12} />
+          <Icons.runInBackground size={12} />
           {t("chat.tasks.backgroundAll")}
         </button>
       ) : null}
@@ -413,7 +413,7 @@ export function RetryLine({ retry }: { retry: ChatApiRetry }) {
   const seconds = Math.max(1, Math.round(retry.delayMs / 1000));
   return (
     <div className="sv-retry">
-      <Icons.restart size={12} />
+      <Icons.retry size={12} />
       {t("chat.retry.line", retry.attempt, retry.maxRetries, seconds, retry.message)}
     </div>
   );
@@ -434,7 +434,7 @@ export function AutoContinueBar({ waiting, onCancel }: { waiting: ChatAutoContin
       : t("chat.autoContinue.generic", time);
   return (
     <div className="sv-notify sv-notify-high" role="status">
-      <Icons.restart size={12} />
+      <Icons.autoContinue size={12} />
       <span className="sv-notify-text" title={at.toLocaleString(locale)}>{text}</span>
       <button className="vlx-btn" onClick={onCancel}>{t("common.cancel")}</button>
     </div>
@@ -456,7 +456,7 @@ export function NotificationBar({
     <div className={`sv-notify sv-notify-${priority}`} role="status">
       <span className="sv-notify-text">{text}</span>
       <button className="sv-notify-close" onClick={onClose} aria-label={t("chat.notify.dismiss")}>
-        <Icons.x size={12} />
+        <Icons.close size={12} />
       </button>
     </div>
   );

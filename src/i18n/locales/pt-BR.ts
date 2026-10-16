@@ -513,6 +513,10 @@ const ptBR: typeof en = {
   "settings.appearance": "Aparência", // Appearance
   "settings.accent": "Destaque", // Accent
   "settings.accentAuto": "Seguir o tema", // Follow theme
+  "settings.iconTheme": "Ícones", // Icons
+  "settings.iconThemeClassic": "Clássico", // Classic
+  "settings.iconThemeMaterial": "Material", // Material
+  "settings.iconThemeFluent": "Fluent", // Fluent
   "settings.density": "Densidade", // Density
   "settings.densityCompact": "Compacta", // Compact
   "settings.densityRegular": "Normal", // Regular

@@ -197,7 +197,7 @@ export function ControlChip<T extends string>({
       >
         <span className="sv-chip-glyph">{glyph}</span>
         {label ? <span className="sv-chip-label">{label}</span> : null}
-        <Icons.chevD size={12} />
+        <Icons.chevronDown size={12} />
       </button>
       {open && (
         // Anchored to the bottom edge: this row lives at the bottom of the pane.

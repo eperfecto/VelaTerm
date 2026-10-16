@@ -15,6 +15,7 @@ import type {
   VisualSettings,
 } from "../theme";
 import type { SessionEngine, SessionKind } from "../types";
+import { DEFAULT_ICON_THEME, normalizeIconTheme, type IconThemeId } from "../icons/registry";
 
 /** User-configurable background keep-alive tab limit, defaulting to 32. */
 export const DEFAULT_MAX_LIVE_TABS = 32;
@@ -117,6 +118,7 @@ export const SETTINGS_KEY = "vlx-settings";
 export interface PersistedSettings {
   darkStyle: DarkStyle;
   accent: AccentChoice;
+  iconTheme: IconThemeId;
   density: Density;
   paneStyle: PaneStyle;
   dividerStyle: DividerStyle;
@@ -260,6 +262,7 @@ export const COMPOSER_INLINE_CHIPS_REVISION = 1;
 const SETTINGS_DEFAULTS: PersistedSettings = {
   darkStyle: "classic",
   accent: "auto",
+  iconTheme: DEFAULT_ICON_THEME,
   density: "regular",
   paneStyle: "flush",
   dividerStyle: "subtle",
@@ -376,6 +379,7 @@ export function loadSettings(): PersistedSettings {
     const merged = { ...SETTINGS_DEFAULTS, ...parsed };
     // Retired comparison styles and missing preferences use the single supported dark palette.
     merged.darkStyle = "classic";
+    merged.iconTheme = normalizeIconTheme(merged.iconTheme);
     merged.chatFontFamily = typeof merged.chatFontFamily === "string" ? merged.chatFontFamily.trim() || null : null;
     merged.chatFontSize = normalizeTextSize(merged.chatFontSize, DEFAULT_CONVERSATION_FONT_SIZE);
     merged.chatLineHeight = normalizeTextLineHeight(merged.chatLineHeight);
@@ -452,6 +456,7 @@ export function saveSettings(s: PersistedSettings) {
 export const visualOf = (s: PersistedSettings): VisualSettings => ({
   darkStyle: s.darkStyle,
   accent: s.accent,
+  iconTheme: s.iconTheme,
   density: s.density,
   paneStyle: s.paneStyle,
   dividerStyle: s.dividerStyle,

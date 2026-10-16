@@ -73,6 +73,7 @@ import {
   type SidebarTreeTab,
   type SidebarViewPaneNode,
 } from "../layout/LeftSidebar/sidebarTreeLayout";
+import type { IconThemeId } from "../icons/registry";
 import {
   applyTheme,
   applyVisual,
@@ -1123,6 +1124,7 @@ interface TermStore {
   // Vlinx appearance settings, driven by `data-*` attributes and persisted in `vlx-settings`.
   darkStyle: DarkStyle;
   accent: AccentChoice;
+  iconTheme: IconThemeId;
   density: Density;
   paneStyle: PaneStyle;
   dividerStyle: DividerStyle;
@@ -1577,6 +1579,7 @@ interface TermStore {
   // Persisted Vlinx appearance settings applied through `data-*` attributes.
   setDarkTheme: (style: DarkStyle) => void;
   setAccent: (v: AccentChoice) => void;
+  setIconTheme: (v: IconThemeId) => void;
   setDensity: (v: Density) => void;
   setPaneStyle: (v: PaneStyle) => void;
   setDividerStyle: (v: DividerStyle) => void;
@@ -1804,6 +1807,7 @@ function persistAndApplyVisual(getState: () => TermStore) {
   const ps: PersistedSettings = {
     darkStyle: s.darkStyle,
     accent: s.accent,
+    iconTheme: s.iconTheme,
     density: s.density,
     paneStyle: s.paneStyle,
     dividerStyle: s.dividerStyle,
@@ -4835,6 +4839,10 @@ export const useTermStore = create<TermStore>((set, get) => ({
   },
   setAccent: (v) => {
     set({ accent: v });
+    persistAndApplyVisual(get);
+  },
+  setIconTheme: (v) => {
+    set({ iconTheme: v });
     persistAndApplyVisual(get);
   },
   setDensity: (v) => {

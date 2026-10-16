@@ -84,7 +84,7 @@ const STATUS_SEGS = [
   },
   {
     st: "background",
-    icon: Icons.layers,
+    icon: Icons.backgroundStatus,
     pulse: true,
     color: "var(--status-background)",
     labelKey: "tree.filterBackground",
@@ -147,7 +147,7 @@ export function PortsSeg() {
         s.setInspectorTab("ports");
       }}
     >
-      <Icons.connect size={11} />
+      <Icons.ports size={11} />
       {t("statusbar.ports", count)}
     </span>
   );
@@ -230,7 +230,7 @@ export function StatusBar() {
       <PortsSeg />
       {web?.running && (
         <span className="seg web-on" title={t("statusbar.webTooltip", web.url ?? "")}>
-          <Icons.globe size={11} />:{web.port}
+          <Icons.webServer size={11} />:{web.port}
         </span>
       )}
       <VelaSkillsSeg />
@@ -252,7 +252,7 @@ function UpdateSeg() {
   const { prompt, stage } = useUpdateState();
   if (!prompt) return null;
 
-  let Icon = Icons.download;
+  let Icon = Icons.updateDownload;
   let color = "var(--accent)";
   let label: string;
   switch (stage.kind) {
@@ -270,7 +270,7 @@ function UpdateSeg() {
       label = t("statusbar.updateInstalling");
       break;
     case "ready":
-      Icon = Icons.restart;
+      Icon = Icons.updateReady;
       label = t("statusbar.updateReady");
       break;
     case "error":
@@ -315,7 +315,7 @@ function VelaSkillsSeg() {
       title={t("statusbar.updateTooltip")}
       onClick={openVelaSkillsModal}
     >
-      <Icons.sparkle size={11} />
+      <Icons.skillsUpdate size={11} />
       {t("statusbar.skillsAvailable")}
     </span>
   );
@@ -496,7 +496,7 @@ function BackgroundTabsSeg() {
                     closeLiveTab(tabId);
                   }}
                 >
-                  <Icons.x size={12} />
+                  <Icons.close size={12} />
                 </span>
               </div>
             );
@@ -740,7 +740,7 @@ export function PermissionSeg() {
                     gap: 5,
                   }}
                 >
-                  <Icons.restart size={12} />
+                  <Icons.appRestart size={12} />
                   {t("statusbar.permRestartNow")}
                 </button>
               </div>

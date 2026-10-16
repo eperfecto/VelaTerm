@@ -73,7 +73,7 @@ export function MobileRecordedConversation({ session, cwd }: { session: Session;
         aria-label={sending ? t("chat.submission.sending") : t("session.send")}
         title={sending ? t("chat.submission.sending") : t("session.send")}
         onPointerDown={e => e.preventDefault()}>
-        <Icons.arrowRight size={20} />
+        <Icons.send size={20} />
       </button>
       </div>
     </form>}

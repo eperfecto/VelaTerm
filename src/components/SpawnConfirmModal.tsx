@@ -270,7 +270,7 @@ export function SpawnConfirmModal() {
           {taskImages.attachments.map(image => <div className="launch-image" key={image.id} title={image.name}>
             <img src={dataUrl(image)} alt={image.name} />
             <button type="button" className="launch-image-remove" title={t("chat.attach.remove")} disabled={submitting || accepted || taskImages.busy} onClick={() => taskImages.remove(image.id)}>
-              <Icons.close size={12} />
+              <Icons.remove size={12} />
             </button>
           </div>)}
         </div>}

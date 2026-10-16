@@ -132,6 +132,12 @@ importers:
         specifier: ^5.0.2
         version: 5.0.14(@types/react@19.2.15)(react@19.2.6)
     devDependencies:
+      '@fluentui/svg-icons':
+        specifier: 1.1.344
+        version: 1.1.344
+      '@material-symbols/svg-400':
+        specifier: 0.48.0
+        version: 0.48.0
       '@tailwindcss/vite':
         specifier: ^4.0.0
         version: 4.3.0(vite@7.3.3(@types/node@26.0.0)(jiti@2.7.0)(lightningcss@1.32.0))
@@ -681,6 +687,9 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
+  '@fluentui/svg-icons@1.1.344':
+    resolution: {integrity: sha512-rasjaq4hBXzRS25pSY9gaqwY7NdvZJCz7G/rtpwF6mCmg2R+9TnySLhHbR+sOpkMP/IDDG28XvxRcNEQ/lJYoQ==}
+
   '@fontsource/jetbrains-mono@5.2.8':
     resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
 
@@ -791,6 +800,9 @@ packages:
 
   '@marijn/find-cluster-break@1.0.2':
     resolution: {integrity: sha512-l0h88YhZFyKdXIFNfSWpyjStDjGHwZ/U7iobcK1cQQD8sejsONdQtTVU+1wVN1PBw40PiiHB1vA5S7VTfQiP9g==}
+
+  '@material-symbols/svg-400@0.48.0':
+    resolution: {integrity: sha512-W20MjbiDbLJQ5yi4CPz2y6lCZ9bk3pJ1d5Ra+uErvtj/guVrCNfcYyMZn3KqHpDyyKVfBGkuGHVcdi5h+5+EqA==}
 
   '@mermaid-js/parser@1.1.1':
     resolution: {integrity: sha512-VuHdsYMK1bT6X2JbcAaWAhugTRvRBRyuZgd+c22swUeI9g/ntaxF7CY7dYarhZovofCbUNO0G7JesfmNtjYOCw==}
@@ -4533,6 +4545,8 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
+  '@fluentui/svg-icons@1.1.344': {}
+
   '@fontsource/jetbrains-mono@5.2.8': {}
 
   '@humanfs/core@0.19.2':
@@ -4689,6 +4703,8 @@ snapshots:
       - supports-color
 
   '@marijn/find-cluster-break@1.0.2': {}
+
+  '@material-symbols/svg-400@0.48.0': {}
 
   '@mermaid-js/parser@1.1.1':
     dependencies:

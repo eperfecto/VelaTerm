@@ -423,7 +423,7 @@ export function SearchConsole({
                     flex: "0 0 auto",
                   }}
                 >
-                  {isCollapsed ? <Icons.chevR size={13} /> : <Icons.chevD size={13} />}
+                  {isCollapsed ? <Icons.chevronRight size={13} /> : <Icons.chevronDown size={13} />}
                 </button>
                 <button
                   type="button"
@@ -572,10 +572,10 @@ export function SearchConsole({
             {t("search.matchPosition", activeIndex + 1, flat.length)}
           </span>
           <button className="icon-btn sm" title={t("common.prev")} onClick={prev}>
-            <Icons.chevD size={14} style={{ transform: "rotate(180deg)" }} />
+            <Icons.chevronDown size={14} style={{ transform: "rotate(180deg)" }} />
           </button>
           <button className="icon-btn sm" title={t("common.next")} onClick={next}>
-            <Icons.chevD size={14} />
+            <Icons.chevronDown size={14} />
           </button>
           <div style={{ flex: 1 }} />
           {onOpenSession && active && !active.hit.archived && (

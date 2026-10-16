@@ -79,7 +79,7 @@ export function FolderPickerModal({
         <div className="fp-head">
           <span className="fp-title">{title}</span>
           <button type="button" className="icon-btn" aria-label={t("common.cancel")} title={t("common.cancel")} onClick={cancel}>
-            <Icons.x size={14} />
+            <Icons.close size={14} />
           </button>
         </div>
         <ExecutionContext fs={browser.fs} />

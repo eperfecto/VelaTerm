@@ -11,7 +11,7 @@
 //! for the capture and results are kept on `window.__vlxScreenshotLast`.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import Icons from "../components/Icons";
+import Icons, { Icon, type IconName } from "../components/Icons";
 import {
   onScreenshotFocusChanged,
   screenshotClose,
@@ -91,7 +91,7 @@ interface TextDraft {
   value: string;
 }
 
-const TOOLS: { tool: Tool; icon: keyof typeof Icons; label: I18nKey }[] = [
+const TOOLS: { tool: Tool; icon: IconName; label: I18nKey }[] = [
   { tool: "rect", icon: "shotRect", label: "screenshot.rect" },
   { tool: "ellipse", icon: "shotEllipse", label: "screenshot.ellipse" },
   { tool: "arrow", icon: "shotArrow", label: "screenshot.arrow" },
@@ -516,7 +516,6 @@ export function ScreenshotApp() {
         >
           <div className="shot-bar">
             {TOOLS.map((item) => {
-              const Icon = Icons[item.icon];
               return (
                 <button
                   key={item.tool}
@@ -527,7 +526,7 @@ export function ScreenshotApp() {
                     setTool(tool === item.tool ? null : item.tool);
                   }}
                 >
-                  <Icon size={17} />
+                  <Icon name={item.icon} size={17} />
                 </button>
               );
             })}
@@ -536,7 +535,7 @@ export function ScreenshotApp() {
               <Icons.undo size={17} />
             </button>
             <button className="shot-btn" title={`${t("screenshot.save")} (${MOD}S)`} disabled={busy} onClick={() => void finish("save")}>
-              <Icons.download size={17} />
+              <Icons.save size={17} />
             </button>
             <span className="shot-sep" />
             <button className="shot-btn" title={`${t("screenshot.cancel")} (Esc)`} onClick={() => void close()}>

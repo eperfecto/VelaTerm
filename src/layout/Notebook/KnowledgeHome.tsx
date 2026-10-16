@@ -19,7 +19,7 @@ export function KnowledgeHome({ overview }: { overview: NotebookOverview }) {
     {running.map(state => {
       const vault = overview.vaults.find(item => item.id === state.vaultId);
       return <MemoryLink key={state.vaultId} className="nb-import-chip nb-import-chip-wide" route={notebookRoute(state.vaultId, "imports")} title={state.current}>
-        <Icons.upload size={12} /><span>{vault?.name ?? state.destination} · {t("nb.importProgress", String(state.done), String(state.files))}</span>
+        <Icons.notebookImport size={12} /><span>{vault?.name ?? state.destination} · {t("nb.importProgress", String(state.done), String(state.files))}</span>
         <progress max={1} value={state.bytes ? state.sent / state.bytes : 1} />
       </MemoryLink>;
     })}
@@ -27,7 +27,7 @@ export function KnowledgeHome({ overview }: { overview: NotebookOverview }) {
       <section className="nb-home-group">
         <h2>{t("memory.globalMemory")}</h2>
         <div className="nb-vault-grid">
-          <MemoryLink className="nb-vault-card" route="library" values={knowledgeSelection} aria-label={t("memory.globalMemory")}><Icons.layers size={24} /><div><p>{t("nb.generatedHint")}</p></div><Icons.arrowRight /></MemoryLink>
+          <MemoryLink className="nb-vault-card" route="library" values={knowledgeSelection} aria-label={t("memory.globalMemory")}><Icons.memoryGlobal size={24} /><div><p>{t("nb.generatedHint")}</p></div><Icons.arrowRight /></MemoryLink>
         </div>
       </section>
       <section className="nb-home-group">

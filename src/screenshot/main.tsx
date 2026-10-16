@@ -3,10 +3,13 @@
 
 import ReactDOM from "react-dom/client";
 import { initI18n } from "../i18n";
+import { followStoredIconTheme } from "../icons/activeTheme";
 import { ScreenshotApp } from "./ScreenshotApp";
 import "./screenshot.css";
 
 document.addEventListener("contextmenu", (event) => event.preventDefault(), { capture: true });
+// The overlay has no settings store, so it follows icon theme changes saved by the main window directly.
+followStoredIconTheme();
 
 void initI18n().finally(() => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(<ScreenshotApp />);

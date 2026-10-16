@@ -312,7 +312,7 @@ export function PublicSharingPanel() {
           {options && (
             <section className="public-sharing-card" aria-labelledby="public-sharing-active-title">
               <div className="public-sharing-section-heading">
-                <span className="public-sharing-section-icon"><Icons.globe aria-hidden="true" size={16} /></span>
+                <span className="public-sharing-section-icon"><Icons.publicShare aria-hidden="true" size={16} /></span>
                 <h4 id="public-sharing-active-title">{t("remote.active")}</h4>
                 <span className="public-sharing-count" aria-label={`${links.length}`}>{links.length}</span>
               </div>

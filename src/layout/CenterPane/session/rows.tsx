@@ -119,7 +119,7 @@ function MessageCopyButton({ text }: { text: string }) {
       aria-busy={status === "copying"}
       onClick={() => void copy()}
     >
-      {status === "copied" ? <Icons.check size={16} /> : status === "failed" ? <Icons.x size={16} /> : <Icons.copy size={16} />}
+      {status === "copied" ? <Icons.check size={16} /> : status === "failed" ? <Icons.failed size={16} /> : <Icons.copy size={16} />}
       <span className="sv-sr" aria-live="polite">{status === "copied" || status === "failed" ? label : ""}</span>
     </button>
   );
@@ -257,7 +257,7 @@ export function TurnHead({
       aria-expanded={!fold.collapsed}
       onClick={() => onToggleFold(fold)}
     >
-      <Icons.chevR size={11} className={fold.collapsed ? "sv-caret" : "sv-caret sv-caret-open"} />
+      <Icons.chevronRight size={11} className={fold.collapsed ? "sv-caret" : "sv-caret sv-caret-open"} />
       {label}
     </button>
   ) : null;
@@ -369,7 +369,7 @@ export function MessageBubble({
             aria-expanded={rewindMenu}
             onClick={() => setRewindMenu((open) => !open)}
           >
-            <Icons.restart size={16} />
+            <Icons.chatRewind size={16} />
           </button>
           {rewindMenu && !rewindDisabledReason ? (
             <span className="sv-rewind-menu">
@@ -488,7 +488,7 @@ function MessageEditor({ text, images = [], disabled, onCancel, onSend }: {
       {attachments.map((image, index) => <div className="sv-attach-item" key={"attachmentId" in image ? image.attachmentId : index}>
         <ChatImageView image={image} className="sv-attach-thumb" alt="" />
         <button type="button" className="sv-attach-drop" disabled={disabled || busy}
-          title={t("chat.attach.remove")} aria-label={t("chat.attach.remove")} onClick={() => remove(index)}><Icons.x size={10} /></button>
+          title={t("chat.attach.remove")} aria-label={t("chat.attach.remove")} onClick={() => remove(index)}><Icons.remove size={10} /></button>
       </div>)}
     </div> : null}
     {note ? <div className="sv-attach-note" role="status">{note}</div> : null}
@@ -511,7 +511,7 @@ export function ReasoningRow({ text }: { text: string }) {
   return (
     <div className="sv-thinking">
       <button className="sv-thinking-head" onClick={() => setOpen((v) => !v)}>
-        <Icons.chevR size={12} className={open ? "sv-caret sv-caret-open" : "sv-caret"} />
+        <Icons.chevronRight size={12} className={open ? "sv-caret sv-caret-open" : "sv-caret"} />
         {t("session.thinking")}
       </button>
       {open && (
@@ -602,7 +602,7 @@ export function ToolCard({
       {/* The caret leads the line rather than trailing it: at the far end of a wide pane it sits a screen
           away from the name it opens, and reads as a stray glyph rather than as a disclosure. */}
       <button className="sv-tool-head" onClick={() => setOpen((v) => !v)}>
-        <Icons.chevR size={12} className={open ? "sv-caret sv-caret-open" : "sv-caret"} />
+        <Icons.chevronRight size={12} className={open ? "sv-caret sv-caret-open" : "sv-caret"} />
         <span className="sv-tool-name">{subagent?.title ?? name ?? t("session.toolUnknown")}</span>
         {summary ? <span className="sv-tool-summary">{summary}</span> : null}
         <span className="sv-tool-spacer" />
@@ -688,7 +688,7 @@ export function ToolRunCard({
   return (
     <div className="sv-run">
       <button className="sv-run-head" onClick={onToggle} title={t("chat.toolRun.tooltip")}>
-        <Icons.chevR size={12} className={open ? "sv-caret sv-caret-open" : "sv-caret"} />
+        <Icons.chevronRight size={12} className={open ? "sv-caret sv-caret-open" : "sv-caret"} />
         <span className="sv-run-count">{t("chat.toolRun.count", calls.length)}</span>
         <span className="sv-run-summary">{runSummaryText(calls)}</span>
         <span className="sv-tool-spacer" />

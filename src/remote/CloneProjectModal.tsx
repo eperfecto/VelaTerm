@@ -186,7 +186,7 @@ export function CloneProjectModal() {
           <span className="fp-title">{t("clone.title")}</span>
           {!cloning && (
             <button type="button" className="icon-btn" aria-label={t("common.cancel")} title={t("common.cancel")} onClick={() => setOpen(false)}>
-              <Icons.x size={14} />
+              <Icons.close size={14} />
             </button>
           )}
         </div>
@@ -237,7 +237,7 @@ export function CloneProjectModal() {
           <div className="fp-branch">
             <button type="button" className="fp-branch-toggle" aria-expanded={branchOpen} aria-controls="clone-branch"
               onClick={() => setBranchOpen(v => !v)}>
-              {branchOpen ? <Icons.chevD size={16} /> : <Icons.chevR size={16} />}
+              {branchOpen ? <Icons.chevronDown size={16} /> : <Icons.chevronRight size={16} />}
               <span>{t("clone.branch")}<small>{branch || t("clone.defaultBranch")}</small></span>
             </button>
             {branchOpen && <label className="fp-field" id="clone-branch">

@@ -136,7 +136,7 @@ export function KnowledgeTreeRow({ name, route, values, depth, selected, icon, e
       } : {})}
     >
       {onToggle ? <button type="button" className="nb-tree-chevron" aria-label={name} aria-expanded={expanded} onClick={onToggle}>
-        {expanded ? <Icons.chevD size={12} /> : <Icons.chevR size={12} />}
+        {expanded ? <Icons.chevronDown size={12} /> : <Icons.chevronRight size={12} />}
       </button> : <span className="nb-tree-chevron" />}
       {renaming ? renameInput : onActivate
         ? <button type="button" className="nb-tree-open" title={title ?? name} aria-current={selected ? "page" : undefined} onClick={onActivate}>{label}</button>

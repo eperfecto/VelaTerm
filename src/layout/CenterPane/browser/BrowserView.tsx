@@ -256,11 +256,11 @@ export function BrowserView({ tab, hidden }: { tab: BrowserTab; hidden: boolean 
           </ToolBtn>
           {tab.loading ? (
             <ToolBtn title={t("browser.stop")} onClick={() => void browserStop(tab.id)}>
-              <Icons.x size={14} />
+              <Icons.browserStop size={14} />
             </ToolBtn>
           ) : (
             <ToolBtn title={t("browser.reload")} onClick={() => void browserReload(tab.id)}>
-              <Icons.restart size={14} />
+              <Icons.browserReload size={14} />
             </ToolBtn>
           )}
         </div>
@@ -284,11 +284,11 @@ export function BrowserView({ tab, hidden }: { tab: BrowserTab; hidden: boolean 
             </ToolBtn>
             {tab.loading ? (
               <ToolBtn title={t("browser.stop")} onClick={() => void browserStop(tab.id)}>
-                <Icons.x size={14} />
+                <Icons.browserStop size={14} />
               </ToolBtn>
             ) : (
               <ToolBtn title={t("browser.reload")} onClick={() => void browserReload(tab.id)}>
-                <Icons.restart size={14} />
+                <Icons.browserReload size={14} />
               </ToolBtn>
             )}
             <input

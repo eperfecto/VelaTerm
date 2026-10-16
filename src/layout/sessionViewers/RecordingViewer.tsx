@@ -215,14 +215,14 @@ export function RecordingViewer({
           title={t("common.prev")}
           onClick={() => searchRef.current?.findPrevious(query, SEARCH_OPTS)}
         >
-          <Icons.chevD size={14} style={{ transform: "rotate(180deg)" }} />
+          <Icons.chevronDown size={14} style={{ transform: "rotate(180deg)" }} />
         </button>
         <button
           className="icon-btn sm"
           title={t("common.next")}
           onClick={() => searchRef.current?.findNext(query, SEARCH_OPTS)}
         >
-          <Icons.chevD size={14} />
+          <Icons.chevronDown size={14} />
         </button>
       </div>
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>

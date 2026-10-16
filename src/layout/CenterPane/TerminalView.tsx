@@ -314,7 +314,7 @@ export const TerminalView = memo(function TerminalView({
                 focusTerminal(session.id);
               }}
             >
-              <Icons.restart size={14} />
+              <Icons.terminalRedraw size={14} />
             </button>
             <button
               title={labelWithCombo(t("term.splitRight"), "splitRight", shortcutOverrides)}
@@ -579,7 +579,7 @@ function ShellPicker({ session }: { session: Session }) {
       >
         <Icons.terminal size={11} />
         <span className="shell-pick-name">{current}</span>
-        <Icons.chevD size={9} />
+        <Icons.chevronDown size={9} />
       </button>
       {/* This must be portalled to body. The pill lives in the pane header, and `.pane` carries
           `contain: layout`, which makes it the containing block for position:fixed descendants and clips

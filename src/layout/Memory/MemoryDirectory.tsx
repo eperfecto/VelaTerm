@@ -92,7 +92,7 @@ function SessionEntries({ projectId, sessionId, selected, revision }: { projectI
   const groupSession = sessionId === "__manual__" ? "" : sessionId;
   const row = (entry: { id: string; title: string; version: number; sessionId?: string }) => <KnowledgeTreeRow key={entry.id} name={entry.title} title={entry.title} route={`entry/${entry.id}`} depth={3}
     target={{ key: treeKey.memoryEntry(entry.id), kind: "memoryEntry", id: entry.id, title: entry.title, version: entry.version, sessionId: entry.sessionId ?? groupSession }}
-    values={{ ...knowledgeSelection, memoryProject: projectId, memorySession: sessionId }} selected={entry.id === selected} icon={<Icons.sparkle size={15} />} />;
+    values={{ ...knowledgeSelection, memoryProject: projectId, memorySession: sessionId }} selected={entry.id === selected} icon={<Icons.memoryEntry size={15} />} />;
   return <ul className="nb-tree-branches">
     {(!data || error) && <li><LoadState error={error} reload={reload} /></li>}
     {entries.map(row)}

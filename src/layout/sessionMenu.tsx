@@ -816,14 +816,14 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
       ? [{
           label: `${t("importSessions.title")}…`,
           href: importSessionsUrl(projectId),
-          icon: <Icons.restart size={14} />,
+          icon: <Icons.sessionImport size={14} />,
           onClick: () => openImportSessions(projectId),
         }]
       : []),
     // Resume remains adjacent to creation actions in the Session section.
     {
       label: t("tree.resumeSession"),
-      icon: <Icons.restart size={14} />,
+      icon: <Icons.sessionResume size={14} />,
       onClick: () =>
         setDialog({ type: "resumeSession", projectId, groupId, parentSessionId }),
     },
@@ -896,7 +896,7 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
       statusView?.statusFilter
         ? {
             label: t("tree.refreshStatusMatch"),
-            icon: <Icons.restart size={14} />,
+            icon: <Icons.refresh size={14} />,
             onClick: () =>
               useTermStore
                 .getState()
@@ -1083,7 +1083,7 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
     if (sessionRec && sessionRec.kind !== "terminal") {
       items.push({
         label: t("sessionTitle.menu"),
-        icon: <Icons.sparkle size={14} />,
+        icon: <Icons.aiSessionTitle size={14} />,
         disabled: !sessionRec.agentSessionId && sessionRec.engine !== "chat",
         href: smartRenameUrl(sessionRec.id),
         onClick: event => { event.preventDefault(); navigateSmartRename(sessionRec.id); },

@@ -395,7 +395,7 @@ export function SessionInfo({
             {session.name}
           </span>
           <button className="icon-btn sm" title={t("common.close")} onClick={onClose}>
-            <Icons.x size={14} />
+            <Icons.close size={14} />
           </button>
         </div>
 
@@ -566,7 +566,7 @@ export function GroupInfo({ id, onClose }: { id: string; onClose: () => void }) 
             {group.name}
           </span>
           <button className="icon-btn sm" title={t("common.close")} onClick={onClose}>
-            <Icons.x size={14} />
+            <Icons.close size={14} />
           </button>
         </div>
 
@@ -695,7 +695,7 @@ export function ProjectInfo({ id, onClose }: { id: string; onClose: () => void }
             {project.name}
           </span>
           <button className="icon-btn sm" title={t("common.close")} onClick={onClose}>
-            <Icons.x size={14} />
+            <Icons.close size={14} />
           </button>
         </div>
 

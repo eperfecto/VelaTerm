@@ -133,7 +133,7 @@ function ImportSessions({ projectId, onClose }: { projectId: string; onClose: ()
               onChange={(e) => setSearch(e.target.value)} />
           </div>
           <button type="button" className="vlx-btn" onClick={() => { setNotice(""); refresh(); }} disabled={busy || loading}>
-            <Icons.restart size={14} />{t("common.refresh")}
+            <Icons.refresh size={14} />{t("common.refresh")}
           </button>
         </div>
         <div className="import-sessions-selection">

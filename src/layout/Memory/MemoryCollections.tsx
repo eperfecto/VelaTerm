@@ -128,9 +128,9 @@ export function MemoryCollections({ sessionId }: { sessionId: string }) {
     if (id === sessionId) memoryNavigate(memoryUrl("collections", { memoryCollectionProject: project?.id ?? null }));
   };
   const actions = (target: Session) => <>
-    <button type="button" className="memory-toolbar-button" title={t("archive.restore")} aria-label={t("archive.restore")} onClick={() => void restore(target.id)}><Icons.restart size={14} aria-hidden="true" /></button>
+    <button type="button" className="memory-toolbar-button" title={t("archive.restore")} aria-label={t("archive.restore")} onClick={() => void restore(target.id)}><Icons.archiveRestore size={14} aria-hidden="true" /></button>
     <MemoryLink route={`compile/${target.id}`} className="memory-toolbar-button" title={t("memory.add")} aria-label={t("memory.add")}><MemoryIcon size={14} /></MemoryLink>
-    {canExportContext(target) && <button type="button" className="memory-toolbar-button" title={t("archive.export")} aria-label={t("archive.export")} onClick={() => void exportSessionToFile(target)}><Icons.download size={14} aria-hidden="true" /></button>}
+    {canExportContext(target) && <button type="button" className="memory-toolbar-button" title={t("archive.export")} aria-label={t("archive.export")} onClick={() => void exportSessionToFile(target)}><Icons.archiveExport size={14} aria-hidden="true" /></button>}
     <button type="button" className="memory-toolbar-button" title={t("archive.deleteForever")} aria-label={t("archive.deleteForever")} style={{ color: "var(--status-error)" }} onClick={() => void remove(target.id)}><Icons.trash size={14} aria-hidden="true" /></button>
   </>;
   const totalSessions = data?.projects.reduce((sum, item) => sum + item.sessions.length, 0) ?? 0;
@@ -154,7 +154,7 @@ export function MemoryCollections({ sessionId }: { sessionId: string }) {
         </label>
         <div className="memory-browser-filters">
           {query.trim() && <span className="memory-browser-count">{search.loading ? t("search.searching") : t("search.summary", totalMatches, matchedSessions)}</span>}
-          <button type="button" className="memory-toolbar-button" aria-label={t("common.refresh")} title={t("common.refresh")} onClick={refresh}><Icons.restart size={15} aria-hidden="true" /></button>
+          <button type="button" className="memory-toolbar-button" aria-label={t("common.refresh")} title={t("common.refresh")} onClick={refresh}><Icons.refresh size={15} aria-hidden="true" /></button>
         </div>
       </div>}
     </div>

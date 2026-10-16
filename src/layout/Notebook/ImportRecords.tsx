@@ -50,13 +50,13 @@ export function ImportRecords({id}:{id:string}) {
   const records=data?.imports??[];
   return <div className="nb-library nb-imports-library">
     <header><div><div className="nb-eyebrow">{t("nb.notes")}</div><h1>{t("nb.imports")}</h1></div><button className="btn" onClick={()=>setRevision(v=>v+1)}>{t("common.refresh")}</button></header>
-    {!data?<NotebookError error={error} retry={()=>setRevision(v=>v+1)}/>:!records.length?<div className="nb-empty-state"><Icons.upload size={36}/><h2>{t("nb.imports")}</h2><p>{t("nb.importsEmpty")}</p></div>:<div className="nb-import-record-list">
+    {!data?<NotebookError error={error} retry={()=>setRevision(v=>v+1)}/>:!records.length?<div className="nb-empty-state"><Icons.notebookImport size={36}/><h2>{t("nb.imports")}</h2><p>{t("nb.importsEmpty")}</p></div>:<div className="nb-import-record-list">
       {records.map(record=>{
         const live=record.status==="running"?running:undefined;
         const seconds=record.finishedAt?Math.max(1,Math.round((record.finishedAt-record.createdAt)/1000)):0;
         return <article className={`nb-import-record ${record.status}`} key={record.id}>
           <div className="nb-import-record-head">
-            <Icons.upload size={16}/>
+            <Icons.notebookImport size={16}/>
             <div className="nb-import-record-title"><strong>{record.destination||t("nb.importRoot")}</strong><span className={`nb-import-status ${record.status}`}>{t(STATUS_KEYS[record.status]??"nb.importStatusFailed")}</span></div>
             <time>{memoryTime(record.createdAt)}</time>
             {record.status!=="running"&&(confirming===record.id

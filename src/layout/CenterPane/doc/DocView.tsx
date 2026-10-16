@@ -578,7 +578,7 @@ function TextDocView({ tab, hidden }: { tab: DocTab; hidden: boolean }) {
             aria-expanded={sideVisible}
             onClick={() => setSideVisible((v) => !v)}
           >
-            {sideVisible ? <Icons.panelLeftFill size={14} /> : <Icons.panelLeft size={14} />}
+            {sideVisible ? <Icons.panelLeftOpen size={14} /> : <Icons.panelLeftClosed size={14} />}
           </button>
         )}
         <span className="title">{tab.title}</span>

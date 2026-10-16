@@ -170,7 +170,7 @@ export function GlobalSearch() {
                 : ""}
           </span>
           <button className="icon-btn sm" title={t("common.close")} onClick={close}>
-            <Icons.x size={14} />
+            <Icons.close size={14} />
           </button>
         </div>
 

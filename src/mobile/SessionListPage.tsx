@@ -42,7 +42,7 @@ const INDENT_STEP = 14;
 const INDENT_BASE = 8;
 
 function Chevron({ open }: { open: boolean }) {
-  return open ? <Icons.chevD size={13} /> : <Icons.chevR size={13} />;
+  return open ? <Icons.chevronDown size={13} /> : <Icons.chevronRight size={13} />;
 }
 
 /** Status-filter chips subscribe to high-frequency runtime/notification state without rerendering the full list. */
@@ -405,7 +405,7 @@ export function SessionListPage({ onOpen, loading=false, error=null, onRefresh }
                 title={tr("tree.clearSearch")}
                 onClick={() => setTreeFilter("")}
               >
-                <Icons.x size={13} />
+                <Icons.clear size={13} />
               </button>
             )}
           </div>

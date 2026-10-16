@@ -95,7 +95,7 @@ type TreeRow =
     };
 
 function Chevron({ open }: { open: boolean }) {
-  return open ? <Icons.chevD size={13} /> : <Icons.chevR size={13} />;
+  return open ? <Icons.chevronDown size={13} /> : <Icons.chevronRight size={13} />;
 }
 
 /** Emoji marker rendered between the node icon and its name. Unmarked nodes render nothing and consume no width.
@@ -1464,7 +1464,7 @@ export function ProjectTree(h: TreeHandlers) {
             }}
           >
             <span className="spin" style={{ display: "inline-flex" }}>
-              <Icons.restart size={12} />
+              <Icons.loading size={12} />
             </span>
             {t("common.loading")}
           </div>
@@ -1502,7 +1502,7 @@ export function ProjectTree(h: TreeHandlers) {
             {t("tree.openProject")}
           </button>
           <button className="empty-action" onClick={() => setCloneModalOpen(true)}>
-            <Icons.git size={14} />
+            <Icons.gitClone size={14} />
             {t("tree.cloneProject")}
           </button>
           <a className="empty-action" href={collectionDialogUrl("create")} onClick={event => {

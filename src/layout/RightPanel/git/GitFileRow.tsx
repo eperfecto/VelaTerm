@@ -4,7 +4,7 @@
 //! tooltip; the Changes modal shows the selected path in full above the comparison. In tree view
 //! the folder rows above already say where a file lives, so the directory is left out.
 
-import Icons from "../../../components/Icons";
+import Icons, { Icon } from "../../../components/Icons";
 import { fileIcon } from "../fileIcons";
 import { useT } from "../../../i18n";
 import { statusLetter } from "../../../components/diff/changeStatus";
@@ -76,7 +76,6 @@ export function GitFileRow({
   const t = useT();
   const letter = statusLetter(file.status);
   const spec = fileIcon(file.path, file.path.endsWith("/"));
-  const FileIcon = Icons[spec.icon];
   const fullPath = file.originalPath ? `${file.originalPath} → ${file.path}` : file.path;
   const slash = file.path.lastIndexOf("/");
   const dir = tree ? "" : slash >= 0 ? file.path.slice(0, slash + 1) : "";
@@ -93,7 +92,7 @@ export function GitFileRow({
       style={depth ? { paddingLeft: 24 + depth * GIT_TREE_INDENT } : undefined}
     >
       <button type="button" className="git-row-main" onClick={onOpen} disabled={!onOpen}>
-        <span className="git-file-icon" style={{ color: spec.color }}><FileIcon size={15} /></span>
+        <span className="git-file-icon" style={{ color: spec.color }}><Icon name={spec.icon} size={15} /></span>
         <span className="nm">
           <span className="base">{base || dir}</span>
           {(file.originalPath || dir) && <span className="dir">{file.originalPath ? `${file.originalPath} →` : dir}</span>}
@@ -113,7 +112,7 @@ export function GitFileRow({
             {confirmLabel}
           </button>
           <button type="button" onClick={onCancelConfirm} title={cancelLabel} aria-label={cancelLabel}>
-            <Icons.x size={12} />
+            <Icons.cancel size={12} />
           </button>
         </span>
       ) : (
@@ -169,7 +168,7 @@ export function GitDirRow({
       style={{ paddingLeft: 8 + depth * GIT_TREE_INDENT }}
     >
       <button type="button" className="git-row-main" onClick={onToggle} aria-expanded={open}>
-        <span className="tw">{open ? <Icons.chevD size={11} /> : <Icons.chevR size={11} />}</span>
+        <span className="tw">{open ? <Icons.chevronDown size={11} /> : <Icons.chevronRight size={11} />}</span>
         <span className="git-file-icon git-dir-icon">{open ? <Icons.folderOpen size={14} /> : <Icons.folder size={14} />}</span>
         <span className="nm"><span className="base">{name}</span></span>
         <span className="n git-dir-count">{count}</span>

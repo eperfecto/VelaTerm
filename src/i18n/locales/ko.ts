@@ -512,6 +512,10 @@ const ko: typeof en = {
   "settings.appearance": "외관", // Appearance
   "settings.accent": "강조색", // Accent
   "settings.accentAuto": "테마 따름", // Follow theme
+  "settings.iconTheme": "아이콘", // Icons
+  "settings.iconThemeClassic": "클래식", // Classic
+  "settings.iconThemeMaterial": "Material", // Material
+  "settings.iconThemeFluent": "Fluent", // Fluent
   "settings.density": "밀도", // Density
   "settings.densityCompact": "조밀", // Compact
   "settings.densityRegular": "보통", // Regular

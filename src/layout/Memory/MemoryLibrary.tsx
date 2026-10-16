@@ -55,7 +55,7 @@ export function MemoryLibrary({ selected, children }: { selected: string; childr
           <div className="memory-browser-filters">
             <Select size="sm" width={130} value={tag} title={tag || t("memory.allTags")} ariaLabel={t("nb.tags")} onChange={(value) => memoryNavigate(memoryUrl("library", { ...scope, memoryTag: value, memoryPage: null }))} options={[{ value: "", label: t("memory.allTags") }, ...(tag && !data?.tags.includes(tag) ? [{ value: tag, label: tag }] : []), ...(data?.tags ?? []).map((value) => ({ value, label: value }))]} />
             <Select size="sm" width={130} value={sort} ariaLabel={t("memory.updated")} onChange={(value) => memoryNavigate(memoryUrl("library", { ...scope, memorySort: value, memoryPage: null }))} options={[{ value: "updated", label: t("memory.updated") }, { value: "title", label: t("memory.titleSort") }]} />
-            <button type="button" className="memory-toolbar-button" aria-label={t("common.refresh")} title={t("common.refresh")} onClick={reload}><Icons.restart size={15} aria-hidden="true" /></button>
+            <button type="button" className="memory-toolbar-button" aria-label={t("common.refresh")} title={t("common.refresh")} onClick={reload}><Icons.refresh size={15} aria-hidden="true" /></button>
           </div>
         </div>}
       </div>

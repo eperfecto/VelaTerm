@@ -549,7 +549,7 @@ function UsageSection({
             }}
           >
             <span key={spinTick} className={usageBusy ? "spin" : undefined} style={{ display: "inline-flex" }}>
-              <Icons.restart size={11} />
+              <Icons.refresh size={11} />
             </span>
           </button>
         </>

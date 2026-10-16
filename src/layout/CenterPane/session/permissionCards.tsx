@@ -114,7 +114,7 @@ function ElicitationCard({
   return (
     <div className="sv-permission">
       <div className="sv-permission-head">
-        <Icons.connect size={13} />
+        <Icons.elicitation size={13} />
         <span className="sv-permission-title">{title ? title : t("chat.elicitation.heading", server)}</span>
         {title ? <span className="sv-elicit-server">{server}</span> : null}
       </div>
@@ -458,7 +458,7 @@ function PlanCard({
   return (
     <div className="sv-permission sv-plan">
       <div className="sv-permission-head">
-        <Icons.docLines size={13} />
+        <Icons.plan size={13} />
         <span className="sv-permission-title">{t("chat.plan.heading")}</span>
       </div>
       <div className="sv-plan-body">

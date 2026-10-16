@@ -234,7 +234,7 @@ export function KnowledgeTreeProvider({ children }: { children: ReactNode }) {
     </Backdrop>}
     {failure && <div className="nb-tree-alert" role="alert">
       <span>{failure}</span>
-      <button type="button" aria-label={t("common.close")} onClick={() => setFailure("")}><Icons.x size={12} /></button>
+      <button type="button" aria-label={t("common.close")} onClick={() => setFailure("")}><Icons.close size={12} /></button>
     </div>}
   </KnowledgeTreeContext.Provider>;
 }

@@ -58,12 +58,12 @@ function KnowledgeNavigationTree() {
       <KnowledgeSearchResults query={query} result={lookup.result} error={lookup.error} active={keys.active} onActive={keys.setActive} onOpen={openHit} onOpenRelated={(related)=>openVaultFile(related.absolutePath)} compact />
     </div> : <nav className="nb-knowledge-tree" aria-label={t("nb.vaults")}>
       <ul className="nb-tree-branches">
-        <KnowledgeTreeRow name={t("memory.globalMemory")} route="library" values={knowledgeSelection} depth={0} icon={<Icons.layers size={15} />}
+        <KnowledgeTreeRow name={t("memory.globalMemory")} route="library" values={knowledgeSelection} depth={0} icon={<Icons.memoryGlobal size={15} />}
           selected={session && page === "library" && !params.has("memoryProject") && !params.has("memorySession")}
           expanded={expanded.has("session")} onToggle={() => toggle("session")} onOpen={() => open("session")}>
           <MemoryDirectory />
         </KnowledgeTreeRow>
-        <KnowledgeTreeRow name={t("memory.collections")} route="collections" values={{ ...knowledgeSelection, memoryCollectionProject: null, memoryCollectionQuery: null }} depth={0} icon={<Icons.archive size={15} />}
+        <KnowledgeTreeRow name={t("memory.collections")} route="collections" values={{ ...knowledgeSelection, memoryCollectionProject: null, memoryCollectionQuery: null }} depth={0} icon={<Icons.memoryCollections size={15} />}
           selected={collections && !params.has("memoryCollectionProject")}
           expanded={expanded.has("collections")} onToggle={() => toggle("collections")} onOpen={() => open("collections")}>
           <MemoryCollectionsDirectory />

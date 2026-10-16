@@ -88,7 +88,7 @@ function rawKindIcon(kind: SessionKind, size: number) {
     case "terminal":
       return <Icons.terminal size={size} />;
     case "browser":
-      return <Icons.globe size={size} />;
+      return <Icons.browserTab size={size} />;
     // Claude uses the generic outlined robot icon.
     case "claude":
       return <Icons.bot size={size} />;

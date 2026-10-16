@@ -374,7 +374,7 @@ export function TabBar() {
                   requestCloseDocTab(tabId);
                 }}
               >
-                <Icons.x size={12} />
+                <Icons.close size={12} />
               </span>
             </div>
           );
@@ -398,7 +398,7 @@ export function TabBar() {
               {...middleCloseProps(tabId)}
             >
               <span style={{ color: "var(--text-dim)", display: "grid", flex: "none" }}>
-                <Icons.globe size={13} />
+                <Icons.browserTab size={13} />
               </span>
               <span className="tnm">{label}</span>
               {browser.loading && (
@@ -421,7 +421,7 @@ export function TabBar() {
                   closeTab(tabId);
                 }}
               >
-                <Icons.x size={12} />
+                <Icons.close size={12} />
               </span>
             </div>
           );
@@ -465,7 +465,7 @@ export function TabBar() {
                   closeTab(tabId);
                 }}
               >
-                <Icons.x size={12} />
+                <Icons.close size={12} />
               </span>
             </div>
           );
@@ -498,7 +498,7 @@ export function TabBar() {
               }}
             >
               {session.global ? (
-                <Icons.globe size={13} />
+                <Icons.globalTerminal size={13} />
               ) : (
                 <SessionKindIcon
                   session={session}
@@ -532,7 +532,7 @@ export function TabBar() {
                 closeTab(tabId);
               }}
             >
-              <Icons.x size={12} />
+              <Icons.close size={12} />
             </span>
           </div>
         );
@@ -543,7 +543,7 @@ export function TabBar() {
       </button>}
       {!isShareSurface && !env.isRemoteWindow && scopeTabsToProject && (
         <button className="tab-add" title={t("tab.newGlobalTerminal")} onClick={() => newScratchTab({ global: true })}>
-          <Icons.globe size={14} />
+          <Icons.globalTerminal size={14} />
         </button>
       )}
       {/* Permanent entries on the right, separated from the tabs: new terminal, new document, built-in browser tab. */}

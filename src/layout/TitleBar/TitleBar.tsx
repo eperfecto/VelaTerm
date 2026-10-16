@@ -459,7 +459,7 @@ export function TitleBar() {
           )}
           onClick={() => runAfterInitialSettings(() => setTheme("system"))}
         >
-          <Icons.monitor size={14} />
+          <Icons.themeSystem size={14} />
         </button>
         <button
           className={theme === "dark" ? "on" : ""}
@@ -492,7 +492,7 @@ export function TitleBar() {
           }
           onClick={() => setRemoteOpen((o) => !o)}
         >
-          <Icons.globe size={15} />
+          <Icons.remoteAccess size={15} />
         </button>
       )}
 
@@ -510,7 +510,7 @@ export function TitleBar() {
             setConnectOpen((o) => !o);
           }}
         >
-          <Icons.connect size={15} />
+          <Icons.remoteConnect size={15} />
         </a>
       )}
 
@@ -524,7 +524,7 @@ export function TitleBar() {
             void invoke("open_devtools").catch(() => {});
           }}
         >
-          <Icons.code size={15} />
+          <Icons.devTools size={15} />
         </button>
       )}
 
@@ -602,9 +602,9 @@ export function TitleBar() {
           onClick={toggleLeft}
         >
           {leftCollapsed ? (
-            <Icons.panelLeft size={15} />
+            <Icons.panelLeftClosed size={15} />
           ) : (
-            <Icons.panelLeftFill size={15} />
+            <Icons.panelLeftOpen size={15} />
           )}
         </button>
 
@@ -616,9 +616,9 @@ export function TitleBar() {
           onClick={toggleRight}
         >
           {rightCollapsed ? (
-            <Icons.panel size={15} />
+            <Icons.panelRightClosed size={15} />
           ) : (
-            <Icons.panelFill size={15} />
+            <Icons.panelRightOpen size={15} />
           )}
         </button>
       </div>

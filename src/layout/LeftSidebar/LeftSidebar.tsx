@@ -130,7 +130,7 @@ function TreeFilter({ view }: { view: SidebarTreeView }) {
         title={t("tree.filterStatus")}
         onClick={() => setFilterOpen((o) => !o)}
       >
-        <Icons.sliders size={14} />
+        <Icons.filter size={14} />
         {/* A single status filter keeps its color dot; anything else shows how many filters are on. Which marker is
             picked stays in the dropdown, since a second badge would not fit next to this one. */}
         {selectedStatus ? (
@@ -257,7 +257,7 @@ function SidebarTreePane({
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => setTreeFilter(view.id, "")}
             >
-              <Icons.x size={12} />
+              <Icons.clear size={12} />
             </button>
           )}
         </div>
@@ -272,7 +272,7 @@ function SidebarTreePane({
               onClose();
             }}
           >
-            <Icons.x size={13} />
+            <Icons.close size={13} />
           </button>
         )}
       </div>
@@ -296,7 +296,7 @@ function SidebarTreePane({
             refreshStatusMatches(view.id);
           }}
         >
-          <Icons.restart size={14} />
+          <Icons.refresh size={14} />
         </button>
         <button
           className="icon-btn sm sidebar-tree-split"
@@ -644,7 +644,7 @@ export function LeftSidebar() {
         if (statusView?.statusFilter) {
           items.push({
             label: t("tree.refreshStatusMatch"),
-            icon: <Icons.restart size={14} />,
+            icon: <Icons.refresh size={14} />,
             onClick: () => {
               const st = useTermStore.getState();
               selection
@@ -697,7 +697,7 @@ export function LeftSidebar() {
       if (!info?.isRepo) return [];
       return [{
         label: t("tree.openRepository"),
-        icon: <Icons.globe size={14} />,
+        icon: <Icons.openInBrowser size={14} />,
         onClick: () => {
           void gitRepoWebUrl(root)
             .then((url) => {
@@ -897,7 +897,7 @@ export function LeftSidebar() {
     <aside className="col col-left" style={{ width, borderRight: "none" }} {...folderDropProps}>
       {treeMutationError && <div className="sidebar-tree-error" role="alert">
         <span>{treeMutationError}</span>
-        <button className="icon-btn sm" aria-label={t("common.close")} onClick={() => useTermStore.setState({ treeMutationError: null })}><Icons.x size={12} /></button>
+        <button className="icon-btn sm" aria-label={t("common.close")} onClick={() => useTermStore.setState({ treeMutationError: null })}><Icons.close size={12} /></button>
       </div>}
       {folderDropOver && <div className="sidebar-folder-drop">{t("tree.dropFoldersHint")}</div>}
       <div className="col-head">
@@ -927,7 +927,7 @@ export function LeftSidebar() {
           <Icons.projectOpen size={14} />
         </button>
         <button className="icon-btn sm" title={t("tree.cloneProject")} onClick={() => setCloneModalOpen(true)}>
-          <Icons.git size={14} />
+          <Icons.gitClone size={14} />
         </button>
         <button
           className="icon-btn sm"

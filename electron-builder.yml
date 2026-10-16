@@ -36,6 +36,9 @@ extraResources:
   # Native window geometry is a presentation resource shared with the Tauri host.
   - from: src-tauri/resources/window-layout.json
     to: window-layout.json
+  # Attribution required by the bundled Material Symbols (Apache-2.0) and Fluent UI icons (MIT).
+  - from: THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
   - from: src-tauri/target/release/velaterm
     to: velaterm
   # Window/taskbar icons: in packaged builds, windowIcon() in main.cjs reads these from resources/icons

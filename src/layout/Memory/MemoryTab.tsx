@@ -38,6 +38,6 @@ export function MemoryTab() {
     }}>
       <MemoryIcon size={16} /><span className="tnm">{t("memory.title")}</span>
     </a>
-    <button type="button" className="x" onClick={close} title={t("common.close")} aria-label={t("common.close")}><Icons.x size={12} /></button>
+    <button type="button" className="x" onClick={close} title={t("common.close")} aria-label={t("common.close")}><Icons.close size={12} /></button>
   </div>;
 }

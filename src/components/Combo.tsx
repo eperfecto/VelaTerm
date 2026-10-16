@@ -330,7 +330,7 @@ export default function Combo<T extends string>({
             }
           }}
         >
-          <Icons.chevD size={12} />
+          <Icons.chevronDown size={12} />
         </button>
       )}
       {expanded && (menuPortal ? createPortal(menu, document.body) : menu)}

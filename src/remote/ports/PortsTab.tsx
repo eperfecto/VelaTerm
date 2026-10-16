@@ -65,7 +65,7 @@ export function PortsTab() {
                   title={t("ports.open")}
                   onClick={() => void requestPorts("open", f.rport)}
                 >
-                  <Icons.globe size={14} />
+                  <Icons.openInBrowser size={14} />
                 </button>
                 <button
                   type="button"

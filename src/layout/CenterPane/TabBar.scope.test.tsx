@@ -103,12 +103,12 @@ describe("TabBar project scoping", () => {
     expect(screen.getByText("Beta shell")).toBeTruthy();
   });
 
-  it("marks a global terminal with its tooltip and globe icon", () => {
+  it("marks a global terminal with its tooltip and global terminal icon", () => {
     render(<TabBar />);
     const tab = tabOf("Anywhere");
     expect(tab.getAttribute("title")).toBe("tab.globalTerminal");
-    expect(tab.querySelector('[data-icon="globe"]')).not.toBeNull();
-    expect(tabOf("Alpha shell").querySelector('[data-icon="globe"]')).toBeNull();
+    expect(tab.querySelector('[data-icon="globalTerminal"]')).not.toBeNull();
+    expect(tabOf("Alpha shell").querySelector('[data-icon="globalTerminal"]')).toBeNull();
   });
 
   it("offers the global terminal button only while tabs are scoped", () => {

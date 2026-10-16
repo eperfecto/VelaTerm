@@ -8,6 +8,8 @@
 import type { ITheme } from "@xterm/xterm";
 import { invoke, isTauri } from "./ipc/transport";
 import { setXtermTheme } from "./terminal/registry";
+import { setActiveIconTheme } from "./icons/activeTheme";
+import type { IconThemeId } from "./icons/registry";
 
 /** User-selected color-scheme mode; this is the persisted value. */
 export type ThemeMode = "system" | "dark" | "light";
@@ -36,6 +38,7 @@ export type InspectorTab = "files" | "info" | "git" | "knowledge" | "ports";
 export interface VisualSettings {
   darkStyle: DarkStyle;
   accent: AccentChoice;
+  iconTheme: IconThemeId;
   density: Density;
   paneStyle: PaneStyle;
   dividerStyle: DividerStyle;
@@ -263,6 +266,7 @@ export function applyVisual(s: VisualSettings) {
   const resolved = (root.dataset.theme as ResolvedTheme) || resolveTheme("system");
   root.dataset.darkStyle = s.darkStyle;
   root.dataset.accent = effectiveAccent(s.accent, resolved);
+  setActiveIconTheme(s.iconTheme);
   root.dataset.density = s.density;
   root.dataset.pane = s.paneStyle;
   root.dataset.divider = s.dividerStyle;

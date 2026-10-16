@@ -513,6 +513,10 @@ const fr: typeof en = {
   "settings.appearance": "Apparence", // Appearance
   "settings.accent": "Accent", // Accent
   "settings.accentAuto": "Suivre le thème", // Follow theme
+  "settings.iconTheme": "Icônes", // Icons
+  "settings.iconThemeClassic": "Classique", // Classic
+  "settings.iconThemeMaterial": "Material", // Material
+  "settings.iconThemeFluent": "Fluent", // Fluent
   "settings.density": "Densité", // Density
   "settings.densityCompact": "Compacte", // Compact
   "settings.densityRegular": "Normale", // Regular

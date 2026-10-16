@@ -512,6 +512,10 @@ const ja: typeof en = {
   "settings.appearance": "外観", // Appearance
   "settings.accent": "アクセント", // Accent
   "settings.accentAuto": "テーマに従う", // Follow theme
+  "settings.iconTheme": "アイコン", // Icons
+  "settings.iconThemeClassic": "クラシック", // Classic
+  "settings.iconThemeMaterial": "Material", // Material
+  "settings.iconThemeFluent": "Fluent", // Fluent
   "settings.density": "密度", // Density
   "settings.densityCompact": "コンパクト", // Compact
   "settings.densityRegular": "標準", // Regular

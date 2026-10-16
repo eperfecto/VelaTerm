@@ -76,7 +76,7 @@ describe("TabBar task tabs", () => {
 
   it("renders every task tab with its title, an icon for its kind, and the active accent", () => {
     render(<TabBar />);
-    expect(tab("protocol probe").querySelector("[data-icon=layers]")).toBeTruthy();
+    expect(tab("protocol probe").querySelector("[data-icon=workflow]")).toBeTruthy();
     expect(tab("npm test").querySelector("[data-icon=terminal]")).toBeTruthy();
     expect(tab("npm test").classList.contains("on")).toBe(true);
     expect(tab("protocol probe").classList.contains("on")).toBe(false);

@@ -3,7 +3,7 @@
 //! RightPanel; FileNodeT, FileRow, ConfirmModal, and related helpers remain private to this tab.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import Icons from "../../components/Icons";
+import Icons, { Icon } from "../../components/Icons";
 import { Backdrop } from "../../components/Backdrop";
 import { fileIcon } from "./fileIcons";
 import { highlight } from "./highlight";
@@ -80,8 +80,7 @@ function flattenVisible(root: FileNodeT, showHidden: boolean, q: string): FileNo
  * and directories switch between folder and folderOpen according to `open`. */
 function renderFileIcon(name: string, isDir: boolean, open = false) {
   const { icon, color } = fileIcon(name, isDir, open);
-  const Cmp = Icons[icon] ?? Icons.file;
-  return <Cmp size={isDir ? 14 : 13} style={{ color }} />;
+  return <Icon name={icon} size={isDir ? 14 : 13} style={{ color }} />;
 }
 
 function FileRow({
@@ -175,7 +174,7 @@ function FileRow({
           {...dragProps}
         >
           {inds}
-          <span className="tw">{open ? <Icons.chevD size={13} /> : <Icons.chevR size={13} />}</span>
+          <span className="tw">{open ? <Icons.chevronDown size={13} /> : <Icons.chevronRight size={13} />}</span>
           <span className="ic">{renderFileIcon(node.name, true, open)}</span>
           <span className="nm">{node.name}</span>
           {node.badge && <span className={"gb gb-" + node.badge}>{node.badge}</span>}
@@ -191,7 +190,7 @@ function FileRow({
               </span>
               <span className="tw">
                 <span className="spin" style={{ display: "inline-flex" }}>
-                  <Icons.restart size={12} />
+                  <Icons.loading size={12} />
                 </span>
               </span>
               <span className="nm" style={{ color: "var(--text-faint)" }}>
@@ -643,7 +642,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
             },
             {
               label: t("panel.openInEditor"),
-              icon: <Icons.code size={14} />,
+              icon: <Icons.openInEditor size={14} />,
               onClick: () => onOpen(node),
             },
           ] as MenuItem[])
@@ -656,7 +655,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
               : [
                   {
                     label: t("transfer.download"),
-                    icon: <Icons.download size={14} />,
+                    icon: <Icons.fileDownload size={14} />,
                     onClick: () => {
                       setErr(null);
                       startDownload(node.path).catch((e) => setErr(e instanceof Error ? e.message : String(e)));
@@ -665,7 +664,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
                 ]),
             {
               label: t("transfer.upload"),
-              icon: <Icons.upload size={14} />,
+              icon: <Icons.fileUpload size={14} />,
               onClick: () => pickUpload(dir.path),
             },
             { separator: true, label: "" },
@@ -683,7 +682,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
       },
       {
         label: t("common.refresh"),
-        icon: <Icons.restart size={14} />,
+        icon: <Icons.refresh size={14} />,
         onClick: () => void reloadDir(dir),
       },
       { separator: true, label: "" },
@@ -808,7 +807,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
             aria-label={t("transfer.uploadTooltip")}
             onClick={() => pickUpload(sel?.isDir ? sel.path : root.path)}
           >
-            <Icons.upload size={13} />
+            <Icons.fileUpload size={13} />
           </button>
         )}
         <button
@@ -843,7 +842,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
               aria-label={t("common.close")}
               onClick={() => setFilter("")}
             >
-              <Icons.x size={12} />
+              <Icons.clear size={12} />
             </button>
           )}
         </div>
@@ -948,7 +947,7 @@ export function FilesTab({ rootPath, rootName }: { rootPath: string | null; root
                   cursor: "pointer",
                 }}
               >
-                <Icons.x size={13} />
+                <Icons.close size={13} />
               </button>
             </div>
             <pre style={{ flex: 1, overflow: "auto" }}>
@@ -1056,7 +1055,7 @@ function TransferQueue({ items }: { items: Transfer[] }) {
         return (
           <div key={x.id} className={"transfer-row " + x.state} title={x.savedPath ?? x.path}>
             <span className="transfer-dir">
-              {download ? <Icons.download size={12} /> : <Icons.upload size={12} />}
+              {download ? <Icons.fileDownload size={12} /> : <Icons.fileUpload size={12} />}
             </span>
             <span className="transfer-name">{x.name}</span>
             <span className="transfer-detail">{detail}</span>
@@ -1067,7 +1066,7 @@ function TransferQueue({ items }: { items: Transfer[] }) {
                 aria-label={t("common.cancel")}
                 onClick={() => cancelTransfer(x.id)}
               >
-                <Icons.x size={11} />
+                <Icons.cancel size={11} />
               </button>
             ) : (
               <span className="transfer-cancel" />

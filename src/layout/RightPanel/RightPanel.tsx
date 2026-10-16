@@ -25,7 +25,7 @@ const INSPECTOR_TABS = [
   { id: "info" as const, label: "Info", Icon: Icons.info },
   { id: "git" as const, label: "Git", Icon: Icons.git },
   { id: "knowledge" as const, label: "", Icon: MemoryIcon },
-  ...(portsSupported ? [{ id: "ports" as const, label: "", Icon: Icons.connect }] : []),
+  ...(portsSupported ? [{ id: "ports" as const, label: "", Icon: Icons.ports }] : []),
 ];
 
 const isInspectorTab = (tab: string): tab is InspectorTab =>

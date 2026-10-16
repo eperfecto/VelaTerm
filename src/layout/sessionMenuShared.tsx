@@ -147,7 +147,7 @@ export function CopyBtn({ value, label, copiedLabel, disabled = false, icon, too
       style={{ flex: "0 0 auto", color: status === "copied" ? "var(--green)" : "var(--text-muted)" }}
       onClick={() => void copy()}
     >
-      {status === "copied" ? <Icons.check size={13} /> : status === "failed" ? <Icons.x size={13} /> : icon ?? <Icons.copy size={13} />}
+      {status === "copied" ? <Icons.check size={13} /> : status === "failed" ? <Icons.failed size={13} /> : icon ?? <Icons.copy size={13} />}
     </button>
   );
   if (!tooltip) return button;

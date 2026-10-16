@@ -2099,7 +2099,7 @@ export function ChatPane({
   ) });
   if (session.kind === "claude") composerChips.push({ id: "chrome", node: (
     <ControlChip
-      glyph={<Icons.globe size={14} style={chrome ? { color: "var(--accent)" } : undefined} />}
+      glyph={<Icons.browserControl size={14} style={chrome ? { color: "var(--accent)" } : undefined} />}
       label={t("chat.chrome.label")}
       title={chrome ? t("chat.chrome.tooltipOn") : t("chat.chrome.tooltipOff")}
       value={chrome ? "on" : "off"}
@@ -2152,7 +2152,7 @@ export function ChatPane({
           : t("session.send")
       }
     >
-      <Icons.arrowRight size={mobile ? 20 : 14} />
+      <Icons.send size={mobile ? 20 : 14} />
     </button>
   );
 
@@ -2356,7 +2356,7 @@ export function ChatPane({
               }} />
             {away && (
               <button className="sv-to-end" onClick={toEnd} title={t("chat.backToEnd")}>
-                <Icons.chevD size={14} />
+                <Icons.chevronDown size={14} />
               </button>
             )}
           </div>
@@ -2388,7 +2388,7 @@ export function ChatPane({
             <div className="sv-rewind-confirm-wrap">
               <div className="sv-rewind-confirm">
                 <div className="sv-rewind-confirm-head">
-                  <Icons.restart size={13} />
+                  <Icons.chatRewind size={13} />
                   <strong>
                     {t(`chat.rewind.confirm.${pendingRewind.scope}` as "chat.rewind.confirm.conversation")}
                   </strong>
@@ -2539,7 +2539,7 @@ export function ChatPane({
                         aria-label={t("chat.queue.remove")}
                         onClick={() => removeQueued(item.id)}
                       >
-                        <Icons.close size={12} />
+                        <Icons.remove size={12} />
                       </button>
                     </div>
                   ))}
@@ -2561,7 +2561,7 @@ export function ChatPane({
                       title={t("chat.attach.remove")}
                       onClick={() => dropAttachment(image.id)}
                     >
-                      <Icons.close size={10} />
+                      <Icons.remove size={10} />
                     </button>
                   </div>
                 ))}

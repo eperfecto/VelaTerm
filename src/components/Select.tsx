@@ -327,7 +327,7 @@ export default function Select<T extends string>(props: SelectProps<T>) {
         >
           {summary ?? (multiple ? options.filter(o => (value as T[]).includes(o.value)).map(o => o.label).join(", ") || placeholder : current?.label ?? placeholder ?? value)}
         </span>
-        <Icons.chevD size={12} style={{ color: "var(--text-muted)", flex: "none" }} />
+        <Icons.chevronDown size={12} style={{ color: "var(--text-muted)", flex: "none" }} />
       </button>
 
       {open && renderMenu(

@@ -132,7 +132,7 @@ export function ComposerToolbar({ chips, inline, actions, status, mobile }: {
           aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>
           <Icons.sliders size={14} />
           <span>{t("chat.moreOptions")}</span>
-          <Icons.chevD size={12} />
+          <Icons.chevronDown size={12} />
         </button>}
       </div>
       <div className="sv-controls-actions">{actions}</div>

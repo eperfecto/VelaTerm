@@ -58,13 +58,13 @@ export function TranslationComposerControl() {
       <input type="checkbox" role="switch" aria-label={t("translation.title")} checked={prefs.outgoing || prefs.replies} disabled={busy} onChange={e => toggleTranslation(e.target.checked)} />
       <span>{t("translation.title")}</span>
     </label>
-    <a className="sv-chip translation-direction" ref={anchor} href={href} onClick={followTranslationLink} aria-expanded={open} title={t("translation.languages")}><span>{direction}</span><Icons.chevD size={12} /></a>
+    <a className="sv-chip translation-direction" ref={anchor} href={href} onClick={followTranslationLink} aria-expanded={open} title={t("translation.languages")}><span>{direction}</span><Icons.chevronDown size={12} /></a>
     {!open && error && <span className="translation-composer-notice translation-hint" role="alert">{error}</span>}
     {!open && !error && missingLanguage && <span className="translation-composer-notice translation-hint" role="status"><a href={href} onClick={followTranslationLink}>{t("translation.chooseTarget")}</a></span>}
     {!open && !error && !missingLanguage && !configured && (prefs.outgoing || prefs.replies) && <span className="translation-composer-notice translation-hint" role="status"><a href={settingsTranslationUrl()} onClick={followTranslationLink}>{t("translation.configure")}</a></span>}
     {open && createPortal(<Backdrop dim={false} center={false} onClose={close}><div className="translation-popover sv-popover" ref={panel} role="dialog" aria-label={t("translation.languages")} tabIndex={-1}
       style={{ position: "fixed", ...position }} onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } }}>
-      <div className="translation-popover-heading"><strong>{t("translation.title")}</strong><button className="sv-chip" aria-label={t("common.close")} onClick={close}><Icons.x size={14} /></button></div>
+      <div className="translation-popover-heading"><strong>{t("translation.title")}</strong><button className="sv-chip" aria-label={t("common.close")} onClick={close}><Icons.close size={14} /></button></div>
       {!configured && <a href={settingsTranslationUrl()} onClick={followTranslationLink}>{t("translation.configure")}</a>}
       <div className="translation-popover-group">{group(false)}</div>
       <div className="translation-popover-group"><label className="translation-toggle"><span>{t("translation.replies")}</span><input type="checkbox" role="switch" checked={prefs.replies} disabled={busy} onChange={e => void save({ replies: e.target.checked })} /></label>{group(true)}</div>

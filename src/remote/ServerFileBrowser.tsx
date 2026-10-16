@@ -616,7 +616,7 @@ export function ServerBrowserView({
             }}
           >
             <Icons.home size={14} />
-            <Icons.chevD size={11} />
+            <Icons.chevronDown size={11} />
           </button>
           <button type="button" className="fp-tool fp-hist" disabled={!browser.canBack || browser.pendingAction} onClick={browser.goBack} title={t("dir.back")} aria-label={t("dir.back")}>
             <Icons.arrowLeft size={14} />
@@ -713,7 +713,7 @@ export function ServerBrowserView({
               />
               <button type="button" className="vlx-btn" onClick={() => void submitCreate()}>{t("dir.newFolder")}</button>
               <button type="button" className="icon-btn" aria-label={t("common.cancel")}
-                onClick={() => { setCreating(false); browser.setPendingAction(false); }}><Icons.x size={15} /></button>
+                onClick={() => { setCreating(false); browser.setPendingAction(false); }}><Icons.cancel size={15} /></button>
             </div>
           )}
           {browser.listError ? (
@@ -767,7 +767,7 @@ export function ServerBrowserView({
                   <span className="fp-nm">{e.name}</span>
                   {e.isDir && (
                     <span className="fp-go">
-                      {sel ? <Icons.check size={17} /> : <Icons.chevR size={15} />}
+                      {sel ? <Icons.check size={17} /> : <Icons.chevronRight size={15} />}
                     </span>
                   )}
                 </div>

@@ -89,7 +89,7 @@ export function CreateProjectModal() {
         <div className="fp-head">
           <span className="fp-title">{t("createProject.title")}</span>
           <button type="button" className="icon-btn" aria-label={t("common.cancel")} title={t("common.cancel")} disabled={creating} onClick={() => setOpen(false)}>
-            <Icons.x size={14} />
+            <Icons.close size={14} />
           </button>
         </div>
         <ExecutionContext />

@@ -59,7 +59,7 @@ function Row({
     return (
       <div>
         <div className="file-row" style={{ paddingLeft: pad }} onClick={() => onDir(node)}>
-          <span className="tw">{node.open ? <Icons.chevD size={13} /> : <Icons.chevR size={13} />}</span>
+          <span className="tw">{node.open ? <Icons.chevronDown size={13} /> : <Icons.chevronRight size={13} />}</span>
           <span className="ic" style={{ color: "var(--text-dim)" }}>
             {node.open ? <Icons.folderOpen size={14} /> : <Icons.folder size={14} />}
           </span>

@@ -6,6 +6,7 @@ import { safeError } from "../../ipc/diagnosticSafety";
 
 import { useEffect, useState } from "react";
 import { Backdrop } from "../../components/Backdrop";
+import { IconThemePicker } from "./IconThemePicker";
 import { CompletionModeField } from "./CompletionModeField";
 import { FontSelect, useFontCatalog } from "./FontSelect";
 import Select, { type SelectOption } from "../../components/Select";
@@ -310,6 +311,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const dividerStyle = useTermStore((s) => s.dividerStyle);
   const navLayout = useTermStore((s) => s.navLayout);
   const setAccent = useTermStore((s) => s.setAccent);
+  const iconTheme = useTermStore((s) => s.iconTheme);
+  const setIconTheme = useTermStore((s) => s.setIconTheme);
   const setDensity = useTermStore((s) => s.setDensity);
   const setPaneStyle = useTermStore((s) => s.setPaneStyle);
   const setDividerStyle = useTermStore((s) => s.setDividerStyle);
@@ -514,6 +517,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <SectionTitle>{t("settings.appearance")}</SectionTitle>
                 <Field label={t("settings.accent")}>
                   <AccentPicker accent={accent} setAccent={setAccent} />
+                </Field>
+                <Field label={t("settings.iconTheme")}>
+                  <IconThemePicker value={iconTheme} onChange={setIconTheme} />
                 </Field>
                 <Field label={t("settings.density")}>
                   <Seg<Density>

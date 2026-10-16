@@ -96,7 +96,7 @@ export function KnowledgeHomeSearch({ children }: { children: ReactNode }) {
       {(lookup.notes?.fuzzy || lookup.entries?.fuzzy) && total > 0 && <p className="nb-search-hint" role="status">{t("nb.searchFuzzy")}</p>}
       {loaded && !total && <p className="nb-search-hint" role="status">{t("nb.searchEmptyAll")}</p>}
       {entries.length > 0 && <section className="nb-search-group">
-        <h3><Icons.layers size={13} aria-hidden="true" />{t("memory.globalMemory")}<span>{lookup.entries?.total}</span></h3>
+        <h3><Icons.memoryGlobal size={13} aria-hidden="true" />{t("memory.globalMemory")}<span>{lookup.entries?.total}</span></h3>
         <div className="nb-search-results" role="listbox" aria-label={t("memory.globalMemory")}>
           {entries.map((entry, index) => {
             const label = group(entry);
@@ -104,7 +104,7 @@ export function KnowledgeHomeSearch({ children }: { children: ReactNode }) {
             return <div key={entry.id} role="option" aria-selected={keys.active === index}
               className={"nb-search-row" + (keys.active === index ? " active" : "")}
               onMouseEnter={() => keys.setActive(index)} onClick={() => open(index)}>
-              <Icons.layers size={16} aria-hidden="true" />
+              <Icons.memoryGlobal size={16} aria-hidden="true" />
               <div>
                 <strong>{highlightMatches(entry.title, terms)}</strong>
                 {label && <small>{label}</small>}

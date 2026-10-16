@@ -7,6 +7,8 @@
 //! - `icon` names keys in Icons.tsx and `color` names a vlinx.css variable. Apply color to the outer
 //!   element because the icons stroke with currentColor; see RightPanel's renderFileIcon.
 
+import type { IconName } from "../../icons/names";
+
 // Muted type colors, backed by light- and dark-theme `--c-*` variables in vlinx.css.
 const BLUE = "var(--c-blue)";
 const YELLOW = "var(--c-yellow)";
@@ -18,8 +20,8 @@ const DIM = "var(--c-dim)";
 const FAINT = "var(--c-faint)";
 
 export interface FileIconSpec {
-  /** Icon key from components/Icons.tsx. */
-  icon: string;
+  /** Icon name from icons/names.ts. */
+  icon: IconName;
   /** CSS color from a vlinx.css `--c-*` variable. */
   color: string;
 }
@@ -70,8 +72,8 @@ const EXT: Record<string, FileIconSpec> = {
   ico: { icon: "image", color: GREEN }, avif: { icon: "image", color: GREEN },
   ttf: { icon: "font", color: MAG }, otf: { icon: "font", color: MAG }, woff: { icon: "font", color: MAG }, woff2: { icon: "font", color: MAG }, eot: { icon: "font", color: MAG },
   // ── Archives ──
-  zip: { icon: "archive", color: DIM }, tar: { icon: "archive", color: DIM }, gz: { icon: "archive", color: DIM }, tgz: { icon: "archive", color: DIM },
-  rar: { icon: "archive", color: DIM }, "7z": { icon: "archive", color: DIM }, bz2: { icon: "archive", color: DIM }, xz: { icon: "archive", color: DIM }, zst: { icon: "archive", color: DIM },
+  zip: { icon: "fileArchive", color: DIM }, tar: { icon: "fileArchive", color: DIM }, gz: { icon: "fileArchive", color: DIM }, tgz: { icon: "fileArchive", color: DIM },
+  rar: { icon: "fileArchive", color: DIM }, "7z": { icon: "fileArchive", color: DIM }, bz2: { icon: "fileArchive", color: DIM }, xz: { icon: "fileArchive", color: DIM }, zst: { icon: "fileArchive", color: DIM },
 };
 
 // Lowercase exact filename -> icon and color; special names take precedence over extensions.

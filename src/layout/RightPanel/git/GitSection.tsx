@@ -41,7 +41,7 @@ export function GitSection({
           onClick={onToggle}
           aria-expanded={open}
         >
-          <span className="tw">{open ? <Icons.chevD size={12} /> : <Icons.chevR size={12} />}</span>
+          <span className="tw">{open ? <Icons.chevronDown size={12} /> : <Icons.chevronRight size={12} />}</span>
           <span className="ttl">{title}</span>
           <span className="cnt">{count}</span>
         </button>

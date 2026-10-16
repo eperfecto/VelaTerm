@@ -204,7 +204,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
           {
             key: "discard",
             title: kind === "untracked" ? t("git.deleteFile") : t("git.discard"),
-            icon: <Icons.restart size={13} />,
+            icon: <Icons.gitDiscard size={13} />,
             onClick: () => askDiscard(kind, paths, single),
             danger: true,
           },
@@ -230,14 +230,14 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
       items.push(
         { label: t("git.openChanges"), icon: <Icons.docLines size={14} />, disabled: !openable(f),
           onClick: () => openChanges(cwd, { path: f.path, side: sideOf(kind) }) },
-        { label: t("panel.openInEditor"), icon: <Icons.code size={14} />, disabled: !openable(f) || !onDisk(f),
+        { label: t("panel.openInEditor"), icon: <Icons.openInEditor size={14} />, disabled: !openable(f) || !onDisk(f),
           onClick: () => useTermStore.getState().openDocTab(absolute(f.path)) },
         { label: "", separator: true },
       );
     }
     items.push(...toMenu(groupActions(kind, paths, !many)));
     if (kind === "conflicted" && agent) {
-      items.push({ label: t("git.ask.resolve", agent.label), icon: <Icons.sparkle size={14} />, onClick: () => askResolve(paths) });
+      items.push({ label: t("git.ask.resolve", agent.label), icon: <Icons.aiAction size={14} />, onClick: () => askResolve(paths) });
     }
     if (!many) {
       items.push(
@@ -293,7 +293,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
             ))}
             <button type="button" className="git-bulk-clear" title={t("git.clearSelection")} aria-label={t("git.clearSelection")}
               onClick={() => setSelection(null)}>
-              <Icons.x size={11} />
+              <Icons.clear size={11} />
             </button>
           </div>
         )}
@@ -321,7 +321,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
                 onContextMenu={(e) => openMenu(e, [
                   ...toMenu(actions),
                   ...(kind === "conflicted" && agent
-                    ? [{ label: t("git.ask.resolve", agent.label), icon: <Icons.sparkle size={14} />, onClick: () => askResolve(paths) }]
+                    ? [{ label: t("git.ask.resolve", agent.label), icon: <Icons.aiAction size={14} />, onClick: () => askResolve(paths) }]
                     : []),
                   { label: "", separator: true },
                   { label: t("files.copyPath"), icon: <Icons.copy size={14} />, onClick: () => void copyText(absolute(row.path)) },
@@ -362,7 +362,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
     { label: t("git.copyCommitHash"), icon: <Icons.copy size={14} />, onClick: () => void copyText(commit.oid ?? commit.hash) },
     { label: t("git.copyCommitMessage"), icon: <Icons.copy size={14} />, onClick: () => void copyText(commit.message ?? commit.subject) },
     ...(agent
-      ? [{ label: t("git.ask.explain", agent.label), icon: <Icons.sparkle size={14} />,
+      ? [{ label: t("git.ask.explain", agent.label), icon: <Icons.aiAction size={14} />,
           onClick: () => ask(t("git.ask.explainPrompt", commit.oid ?? commit.hash, commit.subject)) }]
       : []),
   ]);
@@ -374,7 +374,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
     staged: [{ key: "unstage", label: t("git.unstageAll"), icon: <Icons.minus size={13} />,
       onClick: () => unstagePaths(visible.staged.map((f) => f.path)), disabled: filtered }],
     changes: [
-      { key: "discard", label: t("git.discardAll"), icon: <Icons.restart size={13} />, danger: true,
+      { key: "discard", label: t("git.discardAll"), icon: <Icons.gitDiscard size={13} />, danger: true,
         onClick: () => askDiscard("changes", visible.changes.map((f) => f.path), false), disabled: filtered },
       { key: "stage", label: t("git.stageAll"), icon: <Icons.plus size={13} />,
         onClick: () => stagePaths(visible.changes.map((f) => f.path)), disabled: filtered },
@@ -508,7 +508,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
                     title={t("common.close")}
                     aria-label={t("common.close")}
                   >
-                    <Icons.x size={11} />
+                    <Icons.close size={11} />
                   </button>
                 </div>
               )}
@@ -548,7 +548,7 @@ export function GitTab({ path, session }: { path: string | null; session?: Sessi
                 title={t("common.close")}
                 aria-label={t("common.close")}
               >
-                <Icons.x size={11} />
+                <Icons.close size={11} />
               </button>
               )}
             </div>

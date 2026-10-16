@@ -223,7 +223,7 @@ export function CommitHistory({ cwd, total, head, refreshToken = 0, onContextMen
               title={`${c.message ?? c.subject}\n\n${c.hash} · ${c.author}`}
             >
               <span className="tw">
-                {open ? <Icons.chevD size={11} /> : <Icons.chevR size={11} />}
+                {open ? <Icons.chevronDown size={11} /> : <Icons.chevronRight size={11} />}
               </span>
               {row && <GraphCell row={row} lanes={lanes} merge={(c.parents?.length ?? 0) > 1} />}
               <span className="hash">{c.hash}</span>

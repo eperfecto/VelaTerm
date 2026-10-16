@@ -32,7 +32,7 @@ import { groupToolRuns, markAgentTurns } from "./toolRuns";
 
 /** The icon a task kind is drawn with, here and on its tab. */
 export function taskIcon(taskType: string) {
-  if (taskType === "local_workflow") return Icons.layers;
+  if (taskType === "local_workflow") return Icons.workflow;
   if (taskType === "local_agent") return Icons.bot;
   return Icons.terminal;
 }

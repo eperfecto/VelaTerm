@@ -509,6 +509,10 @@ const zhTW: typeof en = {
   "settings.appearance": "外觀", // Appearance
   "settings.accent": "強調色", // Accent
   "settings.accentAuto": "跟隨明暗", // Follow theme
+  "settings.iconTheme": "圖示", // Icons
+  "settings.iconThemeClassic": "經典", // Classic
+  "settings.iconThemeMaterial": "Material", // Material
+  "settings.iconThemeFluent": "Fluent", // Fluent
   "settings.density": "密度", // Density
   "settings.densityCompact": "緊湊", // Compact
   "settings.densityRegular": "標準", // Regular

@@ -95,7 +95,7 @@ export function GitSyncBar({
                 title={t("git.pullTitle", upstream)}
                 onClick={() => onPull("ff-only")}
               >
-                <Icons.download size={12} />
+                <Icons.gitPull size={12} />
                 {label("pull", t("git.pull"))}
                 {status.behind > 0 && running !== "pull" && <span className="cnt">{status.behind}</span>}
               </button>
@@ -106,7 +106,7 @@ export function GitSyncBar({
                 title={t("git.pushTitle", upstream)}
                 onClick={() => onPush(false)}
               >
-                <Icons.upload size={12} />
+                <Icons.gitPush size={12} />
                 {label("push", t("git.push"))}
                 {status.ahead > 0 && running !== "push" && <span className="cnt">{status.ahead}</span>}
               </button>
@@ -119,7 +119,7 @@ export function GitSyncBar({
               title={t("git.publishTitle")}
               onClick={() => onPush(false)}
             >
-              <Icons.upload size={12} />
+              <Icons.gitPublish size={12} />
               {label("publish", t("git.publish"))}
             </button>
           )}
