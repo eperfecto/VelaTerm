@@ -158,9 +158,5 @@ fn handle_click(app: &AppHandle, launch: &str) {
     }
     // Without a valid label/window, emit globally and raise the main window as a fallback.
     let _ = app.emit(NOTIFY_CLICK_EVENT, session_id);
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.unminimize();
-        let _ = win.show();
-        let _ = win.set_focus();
-    }
+    crate::launcher::reveal_main(app);
 }

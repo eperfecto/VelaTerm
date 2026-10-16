@@ -30,7 +30,7 @@ import { useSyncExternalStore } from "react";
 
 import { getLocale, LOCALES, t, type Locale } from "../i18n";
 import { platform, type UpdateHandle } from "../platform";
-import { invoke } from "./transport";
+import { invoke, isTauri } from "./transport";
 import { compareVersions, localizeReleaseNotes, sliceReleaseNotes } from "./updateNotes";
 
 /** Version recorded by Skip This Version. It affects only silent startup checks; explicit menu checks
@@ -158,6 +158,9 @@ export async function startInstall(): Promise<void> {
   const current = state.prompt;
   if (!current || isBusy()) return;
   setState({ stage: { kind: "downloading", received: 0, total: 0 } });
+  // Marked before the download because on Windows the plugin exits without returning, and the installer
+  // relaunches the app with no arguments: the marker is what keeps that start from showing the launcher.
+  await markInternalRelaunch();
   try {
     let received = 0;
     let total = 0;
@@ -174,16 +177,31 @@ export async function startInstall(): Promise<void> {
       }
     });
     // Windows never reaches this: the plugin launches the installer with ShellExecute and exits.
+    // Elsewhere the user may never restart, so a marker left behind would wrongly skip the next plain launch;
+    // restartApp writes it again right before relaunching.
+    if (!isWindows()) await clearInternalRelaunch();
     setState({ stage: { kind: "ready" } });
   } catch (err) {
     console.error("[updater] download or installation failed", safeError(err));
+    await clearInternalRelaunch();
     setState({ stage: { kind: "error", detail: String(err) } });
   }
 }
 
+const isWindows = () => /Win/i.test(navigator.userAgent);
+
+async function clearInternalRelaunch(): Promise<void> {
+  if (isTauri) await invoke("clear_internal_relaunch").catch(() => {});
+}
+
 /** Restart the application after installation on macOS or Linux. */
 export async function restartApp(): Promise<void> {
+  await markInternalRelaunch();
   await platform.updater.relaunch();
+}
+
+async function markInternalRelaunch(): Promise<void> {
+  if (isTauri) await invoke("mark_internal_relaunch").catch(() => {});
 }
 
 /** Reentrancy guard for repeated menu clicks or overlapping silent and explicit checks. */

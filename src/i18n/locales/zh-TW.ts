@@ -2383,6 +2383,16 @@ const zhTW: typeof en = {
   "ports.limit": (max) => `每個連線最多可轉送 ${max} 個連接埠`, // At most {max} ports can be forwarded per connection
   "ports.notForwarded": (port) => `連接埠 ${port} 尚未轉送`, // Port {port} is not forwarded
   "statusbar.ports": (n) => `已轉送 ${n} 個連接埠`, // {n} forwarded ports
+  "launcher.title": "您想如何開始？", // How do you want to start?
+  "launcher.local": "本機終端機", // Local terminal
+  "launcher.ssh": "透過 SSH 連線", // Connect via SSH
+  "launcher.back": "返回", // Back
+  "hiddenMode.hidePrompt": "在透過 SSH 工作時隱藏本機視窗？", // Hide the local window while you work over SSH?
+  "hiddenMode.hide": "隱藏", // Hide
+  "hiddenMode.keepOpen": "保持開啟", // Keep open
+  "hiddenMode.lastClosedPrompt": "沒有開啟的遠端視窗。要返回本機應用程式還是結束 VelaTerm？", // No remote windows are open. Return to the local app or quit VelaTerm?
+  "hiddenMode.returnToLocal": "返回本機應用程式", // Return to local app
+  "hiddenMode.quit": "結束 VelaTerm", // Quit VelaTerm
 };
 
 export default zhTW;

@@ -32,8 +32,14 @@ export function QuitConfirmModal() {
   const [exiting, setExiting] = useState(false);
 
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    const unlisteners: (() => void)[] = [];
     let disposed = false;
+    let silentExiting = false;
+    const keep = (fn: (() => void) | null) => {
+      if (!fn) return;
+      if (disposed) fn();
+      else unlisteners.push(fn);
+    };
     void platform.quit
       .onRequested((request) => {
         // Seed from the remembered preference each time, then acknowledge so the shell keeps waiting for us.
@@ -42,16 +48,25 @@ export function QuitConfirmModal() {
         setAsking(true);
         void platform.quit.ack();
       })
-      .then((fn) => {
-        if (!fn) return;
-        if (disposed) fn();
-        else unlisten = fn;
-      });
+      .then(keep);
+    // Main is hidden, so the shell asks for an exit without a dialog; the remembered preference decides the save.
+    const quitSilently = async () => {
+      if (silentExiting) return;
+      silentExiting = true;
+      await flushNow(FLUSH_TIMEOUT_MS);
+      if (useTermStore.getState().saveWorkspaceOnQuit) saveWorkspaceSnapshot();
+      void platform.quit.confirm();
+    };
+    void platform.quit
+      .onSilentRequested(() => {
+        void quitSilently();
+      })
+      .then(keep);
     return () => {
       disposed = true;
-      unlisten?.();
+      unlisteners.forEach((fn) => fn());
     };
-  }, []);
+  }, [saveWorkspaceSnapshot]);
 
   if (!asking) return null;
 

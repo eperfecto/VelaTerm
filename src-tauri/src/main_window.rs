@@ -2,9 +2,8 @@
 //!
 //! Someone working entirely remotely has no use for the local main window, yet closing it used to quit the
 //! whole application and take every remote window with it. While a remote window is open, closing `main`
-//! therefore only hides it: the webview and all local sessions stay alive in the background. The window
-//! comes back on a Dock click, before a quit prompt (the prompt lives in its webview), and when the last
-//! remote window closes, so the process is never left without a window.
+//! therefore only hides it: the webview and all local sessions stay alive in the background. Bringing it
+//! back (Dock click, quit prompt, last remote window closing) lives in `launcher`.
 
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -27,9 +26,8 @@ pub fn is_remote_window_label(label: &str) -> bool {
         .any(|prefix| label.starts_with(prefix))
 }
 
-/// Whether `labels` contain a remote window other than `except`. `except` names a window whose destruction
-/// is being handled: Tauri unregisters it before delivering the event, but an explicit exclusion keeps the
-/// decision independent of that ordering.
+/// Whether `labels` contain a remote window other than `except`. `except` optionally excludes one label from
+/// the check; the current caller passes `None` because it queries live windows.
 pub fn remote_window_among<'a>(
     labels: impl IntoIterator<Item = &'a str>,
     except: Option<&str>,
@@ -37,15 +35,6 @@ pub fn remote_window_among<'a>(
     labels
         .into_iter()
         .any(|label| is_remote_window_label(label) && Some(label) != except)
-}
-
-/// Whether destroying the window `destroyed` leaves the application without any remote window, which is
-/// when a hidden main window has to come back.
-pub fn last_remote_window_closed<'a>(
-    destroyed: &str,
-    remaining: impl IntoIterator<Item = &'a str>,
-) -> bool {
-    is_remote_window_label(destroyed) && !remote_window_among(remaining, Some(destroyed))
 }
 
 fn open_labels<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
@@ -62,29 +51,6 @@ pub fn hide_main_for_remote<R: Runtime>(app: &AppHandle<R>) -> bool {
     }
     app.get_webview_window(MAIN_LABEL)
         .is_some_and(|win| win.hide().is_ok())
-}
-
-/// Show and focus the main window if it is hidden. A visible main window is left alone, so this never
-/// steals focus from a remote window the user is working in.
-pub fn reveal_hidden_main<R: Runtime>(app: &AppHandle<R>) {
-    let Some(win) = app.get_webview_window(MAIN_LABEL) else {
-        return;
-    };
-    if win.is_visible().unwrap_or(true) {
-        return;
-    }
-    let _ = win.unminimize();
-    let _ = win.show();
-    let _ = win.set_focus();
-}
-
-/// Bring back a hidden main window once the last remote window is destroyed, so the process never keeps
-/// running without any window.
-pub fn on_window_destroyed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    let labels = open_labels(app);
-    if last_remote_window_closed(label, labels.iter().map(String::as_str)) {
-        reveal_hidden_main(app);
-    }
 }
 
 #[cfg(test)]
@@ -128,28 +94,13 @@ mod tests {
         assert!(remote_window_among(["main", "ssh-1a2b3c4d"], None));
         assert!(remote_window_among(["account-remote-0123", "main"], None));
     }
-
-    #[test]
-    fn main_returns_only_after_the_last_remote_window_closes() {
-        // Another remote window is still open.
-        assert!(!last_remote_window_closed("remote-1", ["main", "ssh-2"]));
-        assert!(!last_remote_window_closed(
-            "remote-1",
-            ["main", "remote-1", "account-remote-3"]
-        ));
-        // The destroyed window was the last one, whether or not it is still registered.
-        assert!(last_remote_window_closed("ssh-2", ["main"]));
-        assert!(last_remote_window_closed("ssh-2", ["main", "ssh-2"]));
-        // A non-remote window never triggers the reveal, even with no remote window left.
-        assert!(!last_remote_window_closed("download-remote-test", ["main"]));
-        assert!(!last_remote_window_closed("main", []));
-    }
 }
 
 // Tauri's mock runtime needs the `native-menu-tests` feature:
 // cargo test --manifest-path src-tauri/Cargo.toml --features native-menu-tests main_window
 // Its windows report `is_visible() == true` unconditionally, so these tests cover the decisions against real
-// registered windows; the hide/show effect itself is not observable there.
+// registered windows; the hide/show effect itself is not observable there. `destroy()` does not unregister a
+// window in the mock either, so launcher tests assert the closure the helpers report.
 #[cfg(all(test, feature = "native-menu-tests"))]
 mod behavior_tests {
     use super::*;
@@ -168,16 +119,109 @@ mod behavior_tests {
         let _other = window(app.handle(), "download-remote-test");
         assert!(!hide_main_for_remote(app.handle()));
 
-        let ssh = window(app.handle(), "ssh-1a2b3c4d");
+        let _ssh = window(app.handle(), "ssh-1a2b3c4d");
         assert!(hide_main_for_remote(app.handle()));
-        assert!(!last_remote_window_closed(
-            "remote-9",
-            open_labels(app.handle()).iter().map(String::as_str)
-        ));
-        assert!(last_remote_window_closed(
-            ssh.label(),
-            open_labels(app.handle()).iter().map(String::as_str)
-        ));
+    }
+
+    fn launcher_app() -> tauri::App<tauri::test::MockRuntime> {
+        let app = tauri::test::mock_app();
+        app.manage(crate::launcher::LauncherState::default());
+        app.manage(crate::QuitState::default());
+        app
+    }
+
+    #[test]
+    fn main_returns_only_after_the_last_remote_window_closes() {
+        let app = launcher_app();
+        let h = app.handle();
+        let _main = window(h, MAIN_LABEL);
+        let ssh = window(h, "ssh-1a2b3c4d");
+        // Tauri may still list the destroyed window; the decision excludes it explicitly.
+        assert!(crate::launcher::offers_return(h, ssh.label(), false));
+        // A visible main window needs no prompt.
+        assert!(!crate::launcher::offers_return(h, ssh.label(), true));
+        // A non-remote window never offers the prompt.
+        let _dl = window(h, "download-remote-test");
+        assert!(!crate::launcher::offers_return(h, "download-remote-test", false));
+        assert!(!crate::launcher::offers_return(h, MAIN_LABEL, false));
+        // Another remote window is still open.
+        let _other = window(h, "account-remote-3");
+        assert!(!crate::launcher::offers_return(h, ssh.label(), false));
+    }
+
+    #[test]
+    fn no_return_prompt_while_the_app_is_exiting() {
+        use std::sync::atomic::Ordering;
+        let app = launcher_app();
+        let h = app.handle();
+        let _main = window(h, MAIN_LABEL);
+        let ssh = window(h, "ssh-1a2b3c4d");
+        h.state::<crate::QuitState>().confirmed.store(true, Ordering::SeqCst);
+        assert!(!crate::launcher::offers_return(h, ssh.label(), false));
+
+        let app = launcher_app();
+        let h = app.handle();
+        let ssh = window(h, "ssh-1a2b3c4d");
+        crate::launcher::mark_exiting(h);
+        assert!(!crate::launcher::offers_return(h, ssh.label(), false));
+    }
+
+    #[test]
+    fn no_return_prompt_while_the_launcher_is_open() {
+        // A connect from the launcher whose window failed to open destroys the half-built window; the
+        // launcher is still there for the user, so there is nothing to return to.
+        let app = launcher_app();
+        let h = app.handle();
+        let _main = window(h, MAIN_LABEL);
+        let _launcher = window(h, crate::launcher::LAUNCHER_LABEL);
+        let ssh = window(h, "ssh-1a2b3c4d");
+        assert!(!crate::launcher::offers_return(h, ssh.label(), false));
+    }
+
+    #[test]
+    fn missing_main_window_counts_as_visible() {
+        let app = launcher_app();
+        assert!(crate::launcher::main_visible(app.handle()));
+        let _main = window(app.handle(), MAIN_LABEL);
+        assert!(crate::launcher::main_visible(app.handle()));
+    }
+
+    #[test]
+    fn choosing_local_raises_main_and_closes_the_launcher() {
+        let app = launcher_app();
+        let h = app.handle();
+        let _main = window(h, MAIN_LABEL);
+        let _launcher = window(h, crate::launcher::LAUNCHER_LABEL);
+        assert!(crate::launcher::leave_launcher_for_main(h));
+        assert!(crate::launcher::main_visible(h));
+    }
+
+    #[test]
+    fn choosing_local_keeps_the_launcher_when_main_cannot_be_shown() {
+        let app = launcher_app();
+        let h = app.handle();
+        let _launcher = window(h, crate::launcher::LAUNCHER_LABEL);
+        assert!(!crate::launcher::leave_launcher_for_main(h));
+        assert!(h.get_webview_window(crate::launcher::LAUNCHER_LABEL).is_some());
+    }
+
+    #[test]
+    fn ssh_window_opened_from_the_launcher_closes_it() {
+        let app = launcher_app();
+        let h = app.handle();
+        let _main = window(h, MAIN_LABEL);
+        let _launcher = window(h, crate::launcher::LAUNCHER_LABEL);
+        let ssh = window(h, "ssh-1a2b3c4d");
+        assert!(crate::launcher::on_ssh_window_opened(h, crate::launcher::LAUNCHER_LABEL, ssh.label()));
+    }
+
+    #[test]
+    fn ssh_window_opened_from_another_remote_window_closes_nothing() {
+        let app = launcher_app();
+        let h = app.handle();
+        let _launcher = window(h, crate::launcher::LAUNCHER_LABEL);
+        let ssh = window(h, "ssh-1a2b3c4d");
+        assert!(!crate::launcher::on_ssh_window_opened(h, "remote-1a2b3c4d", ssh.label()));
     }
 
     #[test]

@@ -201,6 +201,11 @@ const quit: QuitCapability = {
       cb({ remoteWindows: event.payload?.remoteWindows ?? 0 }),
     );
   },
+  async onSilentRequested(cb): Promise<UnlistenFn | null> {
+    if (!env.isTauri) return null;
+    const { listen } = await import("@tauri-apps/api/event");
+    return listen("app://quit-silent", () => cb());
+  },
   async ack() {
     if (!env.isTauri) return;
     const { invoke } = await import("@tauri-apps/api/core");

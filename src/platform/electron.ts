@@ -217,6 +217,9 @@ const quit: QuitCapability = {
   async onRequested(cb): Promise<UnlistenFn | null> {
     return bridge()?.quit?.onRequested((request) => cb({ remoteWindows: request?.remoteWindows ?? 0 })) ?? null;
   },
+  async onSilentRequested(): Promise<UnlistenFn | null> {
+    return null;
+  },
   async ack() {
     await bridge()?.quit?.ack();
   },

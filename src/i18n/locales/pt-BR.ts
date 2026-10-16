@@ -2443,6 +2443,16 @@ const ptBR: typeof en = {
   "ports.limit": (max) => `No máximo ${max} portas podem ser encaminhadas por conexão`, // At most {max} ports can be forwarded per connection
   "ports.notForwarded": (port) => `A porta ${port} não está encaminhada`, // Port {port} is not forwarded
   "statusbar.ports": (n) => (n === 1 ? "1 porta encaminhada" : `${n} portas encaminhadas`), // {n} forwarded ports
+  "launcher.title": "Como você quer começar?", // How do you want to start?
+  "launcher.local": "Terminal local", // Local terminal
+  "launcher.ssh": "Conectar via SSH", // Connect via SSH
+  "launcher.back": "Voltar", // Back
+  "hiddenMode.hidePrompt": "Ocultar a janela local enquanto você trabalha via SSH?", // Hide the local window while you work over SSH?
+  "hiddenMode.hide": "Ocultar", // Hide
+  "hiddenMode.keepOpen": "Manter aberta", // Keep open
+  "hiddenMode.lastClosedPrompt": "Não há janelas remotas abertas. Voltar ao app local ou sair do VelaTerm?", // No remote windows are open. Return to the local app or quit VelaTerm?
+  "hiddenMode.returnToLocal": "Voltar ao app local", // Return to local app
+  "hiddenMode.quit": "Sair do VelaTerm", // Quit VelaTerm
 };
 
 export default ptBR;

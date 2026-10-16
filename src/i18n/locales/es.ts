@@ -2446,6 +2446,16 @@ const es: typeof en = {
   "ports.limit": (max) => `Se pueden reenviar como máximo ${max} puertos por conexión`, // At most {max} ports can be forwarded per connection
   "ports.notForwarded": (port) => `El puerto ${port} no está reenviado`, // Port {port} is not forwarded
   "statusbar.ports": (n) => (n === 1 ? "1 puerto reenviado" : `${n} puertos reenviados`), // {n} forwarded ports
+  "launcher.title": "¿Cómo quieres empezar?", // How do you want to start?
+  "launcher.local": "Terminal local", // Local terminal
+  "launcher.ssh": "Conectar por SSH", // Connect via SSH
+  "launcher.back": "Atrás", // Back
+  "hiddenMode.hidePrompt": "¿Ocultar la ventana local mientras trabajas por SSH?", // Hide the local window while you work over SSH?
+  "hiddenMode.hide": "Ocultar", // Hide
+  "hiddenMode.keepOpen": "Mantener abierta", // Keep open
+  "hiddenMode.lastClosedPrompt": "No hay ventanas remotas abiertas. ¿Volver a la app local o salir de VelaTerm?", // No remote windows are open. Return to the local app or quit VelaTerm?
+  "hiddenMode.returnToLocal": "Volver a la app local", // Return to local app
+  "hiddenMode.quit": "Salir de VelaTerm", // Quit VelaTerm
 };
 
 export default es;

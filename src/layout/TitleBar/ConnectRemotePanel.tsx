@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useT } from "../../i18n";
 import { env } from "../../platform/env";
 import { RemoteDevices } from "../../sharing/RemoteDevices";
@@ -58,20 +58,29 @@ const RECENT_INLINE_MAX = 4;
 /** Matches backend AUTH_REQUIRED_TAG; this public-key rejection prefix opens password input. */
 const AUTH_REQUIRED_TAG = "__VLX_SSH_AUTH_REQUIRED__";
 
+function PanelShell({ embedded, onClose, children }: { embedded: boolean; onClose: () => void; children: ReactNode }) {
+  if (embedded) return <>{children}</>;
+  return <Backdrop onClose={onClose} zIndex={200} dim={false} center={false}>{children}</Backdrop>;
+}
+
 /** Whether to show the temporarily hidden shared-remote-database checkbox. Option/Alt-clicking the title
  * bar button enables it; otherwise connections always use an independent database. */
 export function ConnectRemotePanel({
   onClose,
   showSharedDb = false,
+  variant = "popover",
+  sshOnly = false,
 }: {
   onClose: () => void;
   showSharedDb?: boolean;
+  variant?: "popover" | "embedded";
+  sshOnly?: boolean;
 }) {
   const t = useT();
   const currentLocation = useSharingLocation();
   const query = new URLSearchParams(currentLocation);
   const selectedMode = query.get("connect");
-  const mode: Mode = selectedMode === "wsl" ? "wsl" : selectedMode === "remote" ? "remote" : selectedMode === "url" ? "url" : "ssh";
+  const mode: Mode = sshOnly ? "ssh" : selectedMode === "wsl" ? "wsl" : selectedMode === "remote" ? "remote" : selectedMode === "url" ? "url" : "ssh";
   const setMode = (m: Mode) => {const u = new URL(location.href);u.searchParams.set("connect",m);sharingNavigate(u.href);};
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -82,13 +91,14 @@ export function ConnectRemotePanel({
   const wslDistribution = query.get("wslDistribution") ?? wslOptions?.selected ?? "";
   const wslUpgrade = wslUpgradeDistribution === wslDistribution;
   const loadWsl = useCallback(async () => {
+    if (sshOnly) return;
     if (!env.isTauri) { setWslOptions({ supported: false, distributions: [], selected: null, error: null }); return; }
     setWslLoading(true);
     setWslError("");
     try { const result = await invoke<WslOptions>("wsl_options"); setWslOptions(result); setWslError(result.error ?? ""); }
     catch (e) { setWslError(String(e)); setWslOptions(null); }
     finally { setWslLoading(false); }
-  }, []);
+  }, [sshOnly]);
   useEffect(() => { void loadWsl(); }, [loadWsl]);
   const changeDistribution = (distribution: string) => {
     const url = new URL(window.location.href);
@@ -471,21 +481,17 @@ export function ConnectRemotePanel({
 
   return (
     <>
-      <Backdrop onClose={() => { if (!busy) onClose(); }} zIndex={200} dim={false} center={false}>
+      <PanelShell embedded={variant === "embedded"} onClose={() => { if (!busy) onClose(); }}>
         <div
           className="connect-panel"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
-            if (e.key === "Escape" && !busy) onClose();
+            if (e.key === "Escape" && !busy && variant !== "embedded") onClose();
           }}
           style={{
-            position: "fixed",
-            top: 44,
-            right: 12,
-            width: 340,
-            maxWidth: "calc(100vw - 24px)",
-            maxHeight: "calc(100vh - 60px)",
-            overflowY: "auto",
+            ...(variant === "embedded"
+              ? { width: "100%", boxSizing: "border-box" as const }
+              : { position: "fixed" as const, top: 44, right: 12, width: 340, maxWidth: "calc(100vw - 24px)", maxHeight: "calc(100vh - 60px)", overflowY: "auto" as const }),
             background: "var(--bg-2)",
             border: "1px solid var(--border-strong)",
             borderRadius: "var(--r-md)",
@@ -496,7 +502,7 @@ export function ConnectRemotePanel({
           <div style={sectionLabelStyle}>{t(mode === "wsl" ? "connect.wslTitle" : "connect.title")}</div>
 
           {/* Connection modes share one restorable URL. */}
-          <div style={{ display: "flex", gap: 6, margin: "2px 0 10px" }}>
+          {!sshOnly && <div style={{ display: "flex", gap: 6, margin: "2px 0 10px" }}>
             {((env.isElectron ? ["remote"] : ["ssh", "url", ...(wslOptions?.supported || mode === "wsl" ? ["wsl"] : []), "remote"]) as Mode[]).map((m) => (
               <a
                 key={m}
@@ -525,7 +531,7 @@ export function ConnectRemotePanel({
                 {m === "wsl" ? t("connect.wsl") : m === "ssh" ? "SSH" : m === "url" ? "URL" : "Remote"}
               </a>
             ))}
-          </div>
+          </div>}
 
           {mode === "remote" ? <RemoteDevices onClose={onClose}/> : <>
           {mode === "wsl" ? <WslConnectForm options={wslOptions} loading={wslLoading} error={wslError}
@@ -737,7 +743,7 @@ export function ConnectRemotePanel({
           {error && pwHost === null && <div style={errorStyle}>{error}</div>}
           </>}
         </div>
-      </Backdrop>
+      </PanelShell>
 
       {/* The View all dialog: every recent host, click to connect and × to forget. */}
       {showAllHosts && (

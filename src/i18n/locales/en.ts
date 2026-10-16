@@ -2444,6 +2444,16 @@ const en = {
   "ports.limit": (max: string) => `At most ${max} ports can be forwarded per connection`,
   "ports.notForwarded": (port: string) => `Port ${port} is not forwarded`,
   "statusbar.ports": (n: number) => (n === 1 ? "1 forwarded port" : `${n} forwarded ports`),
+  "launcher.title": "How do you want to start?",
+  "launcher.local": "Local terminal",
+  "launcher.ssh": "Connect via SSH",
+  "launcher.back": "Back",
+  "hiddenMode.hidePrompt": "Hide the local window while you work over SSH?",
+  "hiddenMode.hide": "Hide",
+  "hiddenMode.keepOpen": "Keep open",
+  "hiddenMode.lastClosedPrompt": "No remote windows are open. Return to the local app or quit VelaTerm?",
+  "hiddenMode.returnToLocal": "Return to local app",
+  "hiddenMode.quit": "Quit VelaTerm",
 };
 
 export default en;

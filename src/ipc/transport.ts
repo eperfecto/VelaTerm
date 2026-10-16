@@ -134,6 +134,12 @@ const DIRECT_DESKTOP_CMDS = new Set([
   "ssh_connect",
   "wsl_connect",
   "ssh_disconnect",
+  // Launcher and hidden-mode commands act on windows and app-local state, which only the desktop process owns.
+  "launcher_choose_local",
+  "launcher_resize",
+  "set_hidden_mode_copy",
+  "mark_internal_relaunch",
+  "clear_internal_relaunch",
   "browser_open",
   "browser_navigate",
   "browser_back",

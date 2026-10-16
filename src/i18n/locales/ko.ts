@@ -2415,6 +2415,16 @@ const ko: typeof en = {
   "ports.limit": (max) => `연결당 최대 ${max}개의 포트를 전달할 수 있습니다`, // At most {max} ports can be forwarded per connection
   "ports.notForwarded": (port) => `포트 ${port}은(는) 전달되지 않았습니다`, // Port {port} is not forwarded
   "statusbar.ports": (n) => `전달된 포트 ${n}개`, // {n} forwarded ports
+  "launcher.title": "어떻게 시작하시겠습니까?", // How do you want to start?
+  "launcher.local": "로컬 터미널", // Local terminal
+  "launcher.ssh": "SSH로 연결", // Connect via SSH
+  "launcher.back": "뒤로", // Back
+  "hiddenMode.hidePrompt": "SSH로 작업하는 동안 로컬 창을 숨기시겠습니까?", // Hide the local window while you work over SSH?
+  "hiddenMode.hide": "숨기기", // Hide
+  "hiddenMode.keepOpen": "열어 두기", // Keep open
+  "hiddenMode.lastClosedPrompt": "열려 있는 원격 창이 없습니다. 로컬 앱으로 돌아가시겠습니까, 아니면 VelaTerm을 종료하시겠습니까?", // No remote windows are open. Return to the local app or quit VelaTerm?
+  "hiddenMode.returnToLocal": "로컬 앱으로 돌아가기", // Return to local app
+  "hiddenMode.quit": "VelaTerm 종료", // Quit VelaTerm
 };
 
 export default ko;

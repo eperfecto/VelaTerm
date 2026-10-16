@@ -8,6 +8,7 @@ const { flushNow, quit, store } = vi.hoisted(() => ({
   flushNow: vi.fn().mockResolvedValue(undefined),
   quit: {
     onRequested: vi.fn(),
+    onSilentRequested: vi.fn(),
     ack: vi.fn().mockResolvedValue(undefined),
     confirm: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
@@ -33,12 +34,18 @@ import { QuitConfirmModal } from "./QuitConfirmModal";
 
 /** Fire the shell's exit request captured by the component's listener. */
 let fireQuitRequest: (request?: { remoteWindows: number }) => void;
+/** Fire the shell's no-dialog exit request (main window hidden). */
+let fireSilentQuit: () => void;
 
 beforeEach(() => {
   vi.clearAllMocks();
   store.saveWorkspaceOnQuit = false;
   quit.onRequested.mockImplementation((cb: (request: { remoteWindows: number }) => void) => {
     fireQuitRequest = (request = { remoteWindows: 0 }) => cb(request);
+    return Promise.resolve(() => {});
+  });
+  quit.onSilentRequested.mockImplementation((cb: () => void) => {
+    fireSilentQuit = () => cb();
     return Promise.resolve(() => {});
   });
 });
@@ -181,5 +188,27 @@ describe("QuitConfirmModal", () => {
     store.saveWorkspaceOnQuit = true;
     await open();
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("silent quit saves the workspace when the remembered preference is on, then confirms", async () => {
+    store.saveWorkspaceOnQuit = true;
+    render(<QuitConfirmModal />);
+    await waitFor(() => expect(quit.onSilentRequested).toHaveBeenCalled());
+    act(() => fireSilentQuit());
+    await waitFor(() => expect(quit.confirm).toHaveBeenCalled());
+    expect(store.saveWorkspaceSnapshot).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("quit.title")).toBeNull();
+    expect(quit.ack).not.toHaveBeenCalled();
+  });
+
+  it("silent quit skips the snapshot when the remembered preference is off", async () => {
+    store.saveWorkspaceOnQuit = false;
+    render(<QuitConfirmModal />);
+    await waitFor(() => expect(quit.onSilentRequested).toHaveBeenCalled());
+    act(() => fireSilentQuit());
+    await waitFor(() => expect(quit.confirm).toHaveBeenCalled());
+    expect(store.saveWorkspaceSnapshot).not.toHaveBeenCalled();
+    expect(screen.queryByText("quit.title")).toBeNull();
+    expect(quit.ack).not.toHaveBeenCalled();
   });
 });

@@ -38,6 +38,7 @@ import { startSpawnRecovery } from "./ipc/spawnRecovery";
 import { isShareSurface } from "./ipc/shareBase";
 import { isMobileView } from "./mobile/detect";
 import { useSharedSessionNavigation } from "./sharing/useSharedSessionNavigation";
+import { useNativeDialogCopy } from "./launcher/useNativeDialogCopy";
 import { wsClient } from "./ipc/wsClient";
 import { startUpdateSchedule } from "./ipc/updater";
 import { env, platform } from "./platform";
@@ -94,6 +95,7 @@ function App() {
 
   useKeyboardShortcuts();
   useSharedSessionNavigation();
+  useNativeDialogCopy();
 
   // Apply appearance, load the SQLite tree, and register global child-task listeners at startup.
   // Reapply appearance on system theme changes while following the system.

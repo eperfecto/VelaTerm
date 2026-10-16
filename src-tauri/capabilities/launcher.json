@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "launcher",
+  "description": "Capability for the startup launcher window",
+  "windows": ["launcher"],
+  "permissions": ["core:default", "core:event:allow-listen", "core:event:allow-unlisten"]
+}

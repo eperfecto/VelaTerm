@@ -162,6 +162,8 @@ export interface QuitRequest {
 export interface QuitCapability {
   /** Subscribe to exit requests; returns an unsubscribe function, or null where there is no application exit. */
   onRequested(cb: (request: QuitRequest) => void): Promise<UnlistenFn | null>;
+  /** Subscribe to exits requested while the main window is hidden, which must not draw a dialog. */
+  onSilentRequested(cb: () => void): Promise<UnlistenFn | null>;
   /** Report that the dialog is on screen, so the shell does not fall back to its native dialog. */
   ack(): Promise<void>;
   /** Approve the exit. Callers must finish persisting workspace state before calling this. */

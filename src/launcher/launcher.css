@@ -1,0 +1,47 @@
+.launcher {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 16px;
+  background: var(--bg-0);
+  color: var(--text);
+}
+
+.launcher-choose {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+
+.launcher-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.launcher-choice {
+  padding: 12px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.launcher-choice:hover {
+  border-color: var(--accent);
+}
+
+.launcher-back {
+  margin-bottom: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}

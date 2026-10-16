@@ -47,6 +47,8 @@ pub mod diagnostics;
 #[cfg(feature = "gui")]
 mod main_window;
 #[cfg(feature = "gui")]
+mod launcher;
+#[cfg(feature = "gui")]
 mod native_menu;
 #[cfg(feature = "gui")]
 mod native_drop;
@@ -251,15 +253,16 @@ pub fn open_project_from_args(args: &[String], cwd: &Path) -> Result<Option<Path
 }
 
 #[cfg(all(feature = "gui", not(debug_assertions)))]
-fn queue_open_project(app: &tauri::AppHandle, args: &[String], cwd: &str) {
+fn queue_open_project(app: &tauri::AppHandle, args: &[String], cwd: &str) -> bool {
     use tauri::Emitter;
     let Ok(Some(path)) = open_project_from_args(args, Path::new(cwd)) else {
-        return;
+        return false;
     };
     if let Some(pending) = app.try_state::<PendingOpenProject>() {
         *pending.0.lock().unwrap() = Some(path.to_string_lossy().into_owned());
     }
     let _ = app.emit("open-project://request", ());
+    true
 }
 
 /// Request from a remote-context window for the local backend to relay a native notification.
@@ -604,11 +607,10 @@ pub fn run(initial_open_project: Option<PathBuf>) {
     #[cfg(not(debug_assertions))]
     let builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            queue_open_project(app, &args, &cwd);
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.unminimize();
-                let _ = win.show();
-                let _ = win.set_focus();
+            if queue_open_project(app, &args, &cwd) {
+                launcher::leave_launcher_for_main(app);
+            } else {
+                launcher::focus::focus_preferred(app);
             }
         }));
     // Release builds use one GUI instance; development permits parallel worktree instances. Register
@@ -645,6 +647,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
         .manage(web::local_link::LocalLinkServer::new())
         .manage(browser::BrowserManager::new())
         .manage(QuitState::default())
+        .manage(launcher::LauncherState::default())
         .manage(NativeTheme::default())
         .manage(PendingOpenProject(std::sync::Mutex::new(
             initial_open_project.map(|p| p.to_string_lossy().into_owned()),
@@ -892,10 +895,23 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             app.manage(db);
             screenshot::init(app.handle());
 
+            let has_open_project = app.state::<PendingOpenProject>().0.lock().unwrap().is_some();
+            let show_launcher = launcher::should_show_launcher(
+                has_open_project,
+                launcher::consume_relaunch_marker(&data_dir, std::time::SystemTime::now()),
+            );
             if let Some(win) = app.get_webview_window("main") {
                 #[cfg(target_os = "macos")]
                 apply_window_frame(&win, frame_is_dark);
-                let _ = win.show();
+                // Main stays hidden behind the launcher but still loads fully; a failed launcher must never
+                // leave the app with no visible window.
+                let launcher_opened = show_launcher
+                    && launcher::open_launcher(app.handle())
+                        .map_err(|e| crate::diagnostic_warn!("failed to open launcher window: {e}"))
+                        .is_ok();
+                if !launcher_opened {
+                    let _ = win.show();
+                }
             }
 
             // Extract bundled terminal commands into data_dir/bin, which PTY sessions prepend to PATH.
@@ -1301,6 +1317,12 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             screenshot::screenshot_close,
             screenshot::screenshot_copy,
             screenshot::screenshot_save,
+            // Startup launcher window and the updater's skip-once relaunch marker.
+            launcher::launcher_choose_local,
+            launcher::launcher_resize,
+            launcher::mark_internal_relaunch,
+            launcher::clear_internal_relaunch,
+            launcher::set_hidden_mode_copy,
             // 7) macOS native notifications invoked directly from notify.ts.
             native_notify,
             native_notify_auth_status,
@@ -1311,6 +1333,13 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
         .run({
             use std::sync::atomic::Ordering;
             move |app, event| {
+                if let tauri::RunEvent::WindowEvent { label, event: window_event, .. } = &event {
+                    match window_event {
+                        tauri::WindowEvent::Focused(true) => launcher::note_focus(app, label),
+                        tauri::WindowEvent::Destroyed => launcher::on_window_destroyed(app, label),
+                        _ => {}
+                    }
+                }
                 match &event {
                     tauri::RunEvent::ExitRequested { code: None, api, .. }
                         if !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) =>
@@ -1318,6 +1347,8 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         api.prevent_exit();
                         request_quit_confirmation(app);
                     }
+                    // Only exits that were not prevented reach this arm, because the guarded arm above comes first.
+                    tauri::RunEvent::ExitRequested { .. } => launcher::mark_exiting(app),
                     // Intercept main-window closure before destruction on every platform. Letting the window die
                     // first would tear down the webview that owns the confirmation dialog, so the prompt would
                     // arrive after the window is gone and could only be the degraded native fallback -- no
@@ -1337,18 +1368,11 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                             request_quit_confirmation(app);
                         }
                     }
-                    // The last remote window closing brings a hidden main window back.
-                    tauri::RunEvent::WindowEvent {
-                        label,
-                        event: tauri::WindowEvent::Destroyed,
-                        ..
-                    } if !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) => {
-                        main_window::on_window_destroyed(app, label);
-                    }
-                    // A Dock click brings a hidden main window back.
                     #[cfg(target_os = "macos")]
                     tauri::RunEvent::Reopen { .. } => {
-                        main_window::reveal_hidden_main(app);
+                        if !launcher::main_visible(app) {
+                            launcher::focus::focus_preferred(app);
+                        }
                     }
                     // Window activation leaves keyboard focus on the top-level HWND under the `unstable`
                     // child-webview path; hand it back to the webview the user was typing in.
@@ -1398,8 +1422,19 @@ fn request_quit_confirmation(app: &tauri::AppHandle) {
     if st.confirmed.load(Ordering::SeqCst) {
         return;
     }
+    // Quitting at the launcher stage is closing the launcher: main was never shown, so there is no dialog to ask.
+    // A live remote window means sessions would die, so that case still goes through the normal confirmation.
+    if app.get_webview_window(launcher::LAUNCHER_LABEL).is_some()
+        && !launcher::main_visible(app)
+        && commands::remote_window_count(app) == 0
+    {
+        launcher::quit_without_prompt(app);
+        return;
+    }
     // The frontend dialog lives in the main webview, which may be hidden behind remote-only work.
-    main_window::reveal_hidden_main(app);
+    if !launcher::main_visible(app) {
+        launcher::reveal_main(app);
+    }
     // A request arriving while one is already pending is not a duplicate to drop: the frontend that
     // acknowledged the first one may since have reloaded or crashed, taking its dialog with it. Dropping
     // it would latch `pending` forever and leave the application unquittable, because only the frontend
@@ -1461,6 +1496,7 @@ fn native_quit_confirmation(app: &tauri::AppHandle) {
             st.pending.store(false, Ordering::SeqCst);
             if should_quit {
                 st.confirmed.store(true, Ordering::SeqCst);
+                launcher::mark_exiting(&app);
                 app.exit(0);
             }
         });

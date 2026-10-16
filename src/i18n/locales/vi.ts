@@ -2393,6 +2393,16 @@ const vi: typeof en = {
   "ports.limit": (max) => `Mỗi kết nối chỉ có thể chuyển tiếp tối đa ${max} cổng`, // At most {max} ports can be forwarded per connection
   "ports.notForwarded": (port) => `Cổng ${port} chưa được chuyển tiếp`, // Port {port} is not forwarded
   "statusbar.ports": (n) => `${n} cổng đã chuyển tiếp`, // {n} forwarded ports
+  "launcher.title": "Bạn muốn bắt đầu như thế nào?", // How do you want to start?
+  "launcher.local": "Terminal cục bộ", // Local terminal
+  "launcher.ssh": "Kết nối qua SSH", // Connect via SSH
+  "launcher.back": "Quay lại", // Back
+  "hiddenMode.hidePrompt": "Ẩn cửa sổ cục bộ khi bạn làm việc qua SSH?", // Hide the local window while you work over SSH?
+  "hiddenMode.hide": "Ẩn", // Hide
+  "hiddenMode.keepOpen": "Giữ mở", // Keep open
+  "hiddenMode.lastClosedPrompt": "Không còn cửa sổ từ xa nào đang mở. Quay lại ứng dụng cục bộ hay thoát VelaTerm?", // No remote windows are open. Return to the local app or quit VelaTerm?
+  "hiddenMode.returnToLocal": "Quay lại ứng dụng cục bộ", // Return to local app
+  "hiddenMode.quit": "Thoát VelaTerm", // Quit VelaTerm
 };
 
 export default vi;

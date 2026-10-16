@@ -15,6 +15,7 @@ import { initI18n, t } from "./i18n";
 import MobileApp from "./mobile/MobileApp";
 import { isMobileView } from "./mobile/detect";
 import { LoginGate } from "./remote/LoginGate";
+import { LauncherApp, isLauncherWindow } from "./launcher/LauncherApp";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { isDeferredResizeNotification } from "./platform/resizeObserverError";
 import { installTauriLinkHandler } from "./platform/tauriLinkHandler";
@@ -68,9 +69,15 @@ if ("__TAURI_INTERNALS__" in window) {
 // spawns. Select the mobile layout once at startup for non-Tauri narrow touch screens or overrides.
 void initI18n().finally(() => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <ErrorBoundary>
-      <LoginGate>{isMobileView() ? <MobileApp /> : <App />}</LoginGate>
-    </ErrorBoundary>,
+    isLauncherWindow() ? (
+      <ErrorBoundary>
+        <LauncherApp />
+      </ErrorBoundary>
+    ) : (
+      <ErrorBoundary>
+        <LoginGate>{isMobileView() ? <MobileApp /> : <App />}</LoginGate>
+      </ErrorBoundary>
+    ),
   );
 });
 

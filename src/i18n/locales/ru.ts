@@ -2455,6 +2455,16 @@ const ru: typeof en = {
   "ports.limit": (max) => `Для одного подключения можно перенаправить не более ${max} портов`, // At most {max} ports can be forwarded per connection
   "ports.notForwarded": (port) => `Порт ${port} не перенаправлен`, // Port {port} is not forwarded
   "statusbar.ports": (n) => `Перенаправлено портов: ${n}`, // {n} forwarded ports
+  "launcher.title": "Как вы хотите начать?", // How do you want to start?
+  "launcher.local": "Локальный терминал", // Local terminal
+  "launcher.ssh": "Подключиться по SSH", // Connect via SSH
+  "launcher.back": "Назад", // Back
+  "hiddenMode.hidePrompt": "Скрыть локальное окно, пока вы работаете по SSH?", // Hide the local window while you work over SSH?
+  "hiddenMode.hide": "Скрыть", // Hide
+  "hiddenMode.keepOpen": "Оставить открытым", // Keep open
+  "hiddenMode.lastClosedPrompt": "Нет открытых удалённых окон. Вернуться в локальное приложение или выйти из VelaTerm?", // No remote windows are open. Return to the local app or quit VelaTerm?
+  "hiddenMode.returnToLocal": "Вернуться в локальное приложение", // Return to local app
+  "hiddenMode.quit": "Выйти из VelaTerm", // Quit VelaTerm
 };
 
 export default ru;
