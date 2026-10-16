@@ -3885,6 +3885,10 @@ export const useTermStore = create<TermStore>((set, get) => ({
     renameChains.set(id, next);
     try {
       await next;
+    } catch (err) {
+      // Forget the title so the next repeat retries the save.
+      if (lastTitleNames.get(id) === name) lastTitleNames.delete(id);
+      throw err;
     } finally {
       if (renameChains.get(id) === next) renameChains.delete(id);
     }

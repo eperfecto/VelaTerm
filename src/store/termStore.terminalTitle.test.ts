@@ -92,14 +92,16 @@ describe("applyTerminalTitle", () => {
   });
 
   it("keeps a manual rename until Claude changes its title", async () => {
+    useTermStore.setState({ sessions: [session("m1", "claude", "Claude")] });
     const store = useTermStore.getState();
-    await store.applyTerminalTitle("c1", "✳ Fix login bug");
-    useTermStore.setState({ sessions: [session("c1", "claude", "my name")] });
+    await store.applyTerminalTitle("m1", "✳ Fix login bug");
+    expect(ipcTree.renameNode).toHaveBeenCalledWith("session", "m1", "Fix login bug");
+    useTermStore.setState({ sessions: [session("m1", "claude", "my name")] });
     vi.mocked(ipcTree.renameNode).mockClear();
-    await store.applyTerminalTitle("c1", "⠂ Fix login bug");
+    await store.applyTerminalTitle("m1", "⠂ Fix login bug");
     expect(ipcTree.renameNode).not.toHaveBeenCalled();
-    await store.applyTerminalTitle("c1", "✳ Add tests");
-    expect(ipcTree.renameNode).toHaveBeenCalledWith("session", "c1", "Add tests");
+    await store.applyTerminalTitle("m1", "✳ Add tests");
+    expect(ipcTree.renameNode).toHaveBeenCalledWith("session", "m1", "Add tests");
   });
 
   it("saves titles in the order Claude sets them", async () => {
@@ -120,5 +122,15 @@ describe("applyTerminalTitle", () => {
     release!();
     await Promise.all([first, second]);
     expect(order).toEqual(["First", "Second"]);
+  });
+
+  it("retries a title whose save failed", async () => {
+    useTermStore.setState({ sessions: [session("f1", "claude", "Claude")] });
+    vi.mocked(ipcTree.renameNode).mockRejectedValueOnce(new Error("db down"));
+    const store = useTermStore.getState();
+    await expect(store.applyTerminalTitle("f1", "✳ Fix login bug")).rejects.toThrow("db down");
+    await store.applyTerminalTitle("f1", "⠂ Fix login bug");
+    expect(ipcTree.renameNode).toHaveBeenCalledTimes(2);
+    expect(ipcTree.renameNode).toHaveBeenLastCalledWith("session", "f1", "Fix login bug");
   });
 });

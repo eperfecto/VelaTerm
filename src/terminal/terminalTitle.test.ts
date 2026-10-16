@@ -30,6 +30,7 @@ describe("sessionNameFromTitle", () => {
 
   it("keeps meaningful leading characters", () => {
     expect(sessionNameFromTitle("claude", "✳ #42 fix")).toBe("#42 fix");
+    expect(sessionNameFromTitle("claude", "✳ *bold* topic")).toBe("*bold* topic");
     expect(sessionNameFromTitle("claude", "\"quoted\" task")).toBe("\"quoted\" task");
   });
 

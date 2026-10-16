@@ -10,7 +10,7 @@ const DEFAULT_TITLES = new Set(["Claude Code"]);
 const MAX_NAME_LENGTH = 80;
 
 /** Claude's status glyphs: ✳ and similar stars when idle, a braille spinner while working. */
-const STATUS_PREFIX = /^[\s\u2733\u2800-\u28FF✻✽✶✢·*]+/u;
+const STATUS_PREFIX = /^[\s\u2733\u2800-\u28FF✻✽✶✢]+/u;
 
 /**
  * Turns a terminal title into a session name, or null when the title should not rename the session.
