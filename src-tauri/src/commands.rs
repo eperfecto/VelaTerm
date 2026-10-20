@@ -729,7 +729,10 @@ pub async fn open_remote_window(
     use tauri::ipc::CapabilityBuilder;
     app.add_capability(
         CapabilityBuilder::new(format!("remote-caps-{label}"))
-            .window(label.clone())
+            // Scope to the window's own webview, never `.window()`: a window match extends the capability to
+            // every webview in it, including built-in browser children (`browser-*`) whose pages may be served
+            // from 127.0.0.1 and would otherwise pass the remote-origin check.
+            .webview(label.clone())
             .remote("http://127.0.0.1:*".to_string())
             .permission("local-fonts:allow-catalog")
             .permission("local-download:allow-start")
@@ -1267,7 +1270,8 @@ fn open_login_window(
     // Grant the same minimal runtime capability as open_remote_window, scoped to this loopback window.
     use tauri::ipc::CapabilityBuilder;
     let mut caps = CapabilityBuilder::new(format!("connection-caps-{label}"))
-        .window(label.clone())
+        // Webview scope, not window scope, so built-in browser children never inherit it; see open_remote_window.
+        .webview(label.clone())
         .remote("http://127.0.0.1:*".to_string())
         .permission("local-fonts:allow-catalog")
         .permission("local-download:allow-start")
