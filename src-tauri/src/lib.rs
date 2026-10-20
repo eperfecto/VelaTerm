@@ -1343,6 +1343,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         event: tauri::WindowEvent::Destroyed,
                         ..
                     } if !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) => {
+                        browser::forget_host(app, label);
                         main_window::on_window_destroyed(app, label);
                     }
                     // A Dock click brings a hidden main window back.

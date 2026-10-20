@@ -2940,7 +2940,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
       // Opening/focusing no longer clears notifications immediately; `useNotifications` waits two seconds.
       const notifications = state.notifications;
 
-      // Browser nodes open/focus a center browser tab keyed by node ID, outside pane trees and desktop only.
+      // Browser nodes open/focus a center browser tab keyed by node ID, outside pane trees, only in local windows.
       const sess = state.sessions.find((s) => s.id === id);
       if (sess?.kind === "browser") {
         // Only local windows (desktop shells and remote-connection windows) can host native child browser views.

@@ -50,7 +50,7 @@ The view is chosen by file type:
 - "New document" opens an empty draft that is not yet on disk and does not appear in the project tree. The first save asks where to store it: the desktop app uses the system Save As dialog, and browser clients and remote connection windows show a Save As dialog for the machine that runs the session. Syntax highlighting follows the chosen file name. Right-clicking a draft's tab also offers "Save to Disk…".
 - "Export PDF" turns a Markdown document into a vector PDF with automatic page breaks and embedded CJK fonts. The desktop app asks where to save the file; browser clients download it.
 
-## 2. Browser tabs (desktop app only)
+## 2. Browser tabs (desktop app and remote connection windows)
 
 Browser tabs show real web pages inside VelaTerm, which is useful for keeping documentation, issue pages or a local preview next to your sessions. They are available in the desktop app and its remote connection windows (SSH, WSL and paired URLs), not in browser clients or the mobile layout.
 

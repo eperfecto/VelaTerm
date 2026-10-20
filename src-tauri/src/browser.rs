@@ -4,10 +4,10 @@
 //! Frontend placeholder bounds position it, tab switching shows/hides it, and tab closure destroys it.
 //!
 //! Security model—do not weaken:
-//! - `browser-*` child labels are outside the `windows:["main"]` capability, so external pages cannot call
-//!   Tauri commands.
-//!   Remote-connection windows grant their runtime capability by webview label, not window label, for the
-//!   same reason: a window-scoped capability would extend to every child, and those allow 127.0.0.1 origins.
+//! - External pages cannot call Tauri commands. A window-scoped capability extends to every webview in the
+//!   window, so `windows:["main"]` does cover `browser-*` children; it grants nothing to them only because it
+//!   has no `remote` origins and their pages are never local. Remote-connection windows do allow 127.0.0.1
+//!   origins, so they grant their runtime capability by webview label instead and children never match.
 //! - No script is injected into third-party pages. Popups (`window.open` / `target=_blank`) are denied at the
 //!   native layer and forwarded to the host window as an app-level new-tab request instead.
 //! - Allow only HTTP, HTTPS, and about:blank through both normalization and `on_navigation`.
@@ -64,6 +64,25 @@ impl BrowserManager {
     fn remove(&self, host: &str, tab_id: &str) -> Option<String> {
         self.0.lock().ok()?.remove(&(host.to_string(), tab_id.to_string()))
     }
+
+    /// Drop every tab hosted by a window and return their child labels.
+    fn remove_host(&self, host: &str) -> Vec<String> {
+        let Ok(mut map) = self.0.lock() else { return Vec::new() };
+        let keys: Vec<_> = map.keys().filter(|(h, _)| h == host).cloned().collect();
+        keys.into_iter().filter_map(|key| map.remove(&key)).collect()
+    }
+}
+
+/// Forget the tabs of a destroyed window, whose child webviews died with it, so a later window cannot resolve
+/// a stale label and silently skip mounting its page.
+pub fn forget_host(app: &AppHandle, host: &str) {
+    let labels = app.state::<BrowserManager>().remove_host(host);
+    #[cfg(target_os = "windows")]
+    for label in &labels {
+        crate::focus_win::forget(label);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = labels;
 }
 
 /// `browser://state/{tabId}` payload. Every field is optional so the document-title handler can reuse the
@@ -425,6 +444,19 @@ pub fn browser_close(
 #[cfg(test)]
 mod tests {
     use super::{normalize_url, BrowserManager};
+
+    #[test]
+    fn forgetting_a_host_drops_only_its_tabs() {
+        let manager = BrowserManager::new();
+        manager.insert("main", "tab".into(), "browser-a".into());
+        manager.insert("ssh-1", "tab".into(), "browser-b".into());
+        manager.insert("ssh-1", "other".into(), "browser-c".into());
+        let mut gone = manager.remove_host("ssh-1");
+        gone.sort();
+        assert_eq!(gone, ["browser-b", "browser-c"]);
+        assert_eq!(manager.label_of("ssh-1", "tab"), None);
+        assert_eq!(manager.label_of("main", "tab").as_deref(), Some("browser-a"));
+    }
 
     #[test]
     fn tabs_are_scoped_to_their_host_window() {
