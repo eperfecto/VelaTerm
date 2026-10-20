@@ -4,12 +4,20 @@
 //! Frontend placeholder bounds position it, tab switching shows/hides it, and tab closure destroys it.
 //!
 //! Security model—do not weaken:
-//! - `browser-*` child labels are outside the `windows:["main"]` capability, so external pages cannot call
-//!   Tauri commands.
+//! - External pages cannot call Tauri commands. A window-scoped capability extends to every webview in the
+//!   window, so `windows:["main"]` does cover `browser-*` children; it grants nothing to them only because it
+//!   has no `remote` origins and their pages are not local origins in release builds (in dev, a child that
+//!   navigates to the Vite `devUrl` would count as local). Remote-connection windows do allow 127.0.0.1
+//!   origins, so they grant their runtime capability by webview label instead and children never match.
 //! - No script is injected into third-party pages. Popups (`window.open` / `target=_blank`) are denied at the
-//!   native layer and forwarded to the main window as an app-level new-tab request instead.
+//!   native layer and forwarded to the host window as an app-level new-tab request instead.
 //! - Allow only HTTP, HTTPS, and about:blank through both normalization and `on_navigation`.
 //! - Commands accept tabId only; BrowserManager owns labels and never trusts frontend labels.
+//!
+//! Host windows: the child view mounts in the window that invoked the command, so the main window and
+//! remote-connection windows (SSH, WSL, paired URL) each host their own pages. Pages always load on this
+//! desktop, never on the remote server, so `localhost` means this machine even in an SSH window. Tabs are keyed
+//! per window because two windows connected to the same server see the same browser session IDs.
 //!
 //! Coordinate conversion, verified on macOS and Linux: macOS add_child uses the frame origin above the
 //! native title bar, while CSS begins in the content area and tao reports frame size for both outer/inner.
@@ -35,18 +43,47 @@ const SAFARI_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWe
 /// application access to plaintext credentials. Requires macOS 14+.
 const VLX_BROWSER_STORE: [u8; 16] = *b"vlx-browser-v1\0\0";
 
-/// Managed tabId-to-child-label state. Commands resolve through tabId and quietly return when a tab has
-/// already closed, preserving idempotence.
-pub struct BrowserManager(Mutex<HashMap<String, String>>);
+/// Managed (host window label, tabId)-to-child-label state. Commands resolve through tabId within the calling
+/// window and quietly return when a tab has already closed, preserving idempotence.
+pub struct BrowserManager(Mutex<HashMap<(String, String), String>>);
 
 impl BrowserManager {
     pub fn new() -> Self {
         Self(Mutex::new(HashMap::new()))
     }
 
-    fn label_of(&self, tab_id: &str) -> Option<String> {
-        self.0.lock().ok()?.get(tab_id).cloned()
+    fn label_of(&self, host: &str, tab_id: &str) -> Option<String> {
+        self.0.lock().ok()?.get(&(host.to_string(), tab_id.to_string())).cloned()
     }
+
+    fn insert(&self, host: &str, tab_id: String, label: String) {
+        if let Ok(mut map) = self.0.lock() {
+            map.insert((host.to_string(), tab_id), label);
+        }
+    }
+
+    fn remove(&self, host: &str, tab_id: &str) -> Option<String> {
+        self.0.lock().ok()?.remove(&(host.to_string(), tab_id.to_string()))
+    }
+
+    /// Drop every tab hosted by a window and return their child labels.
+    fn remove_host(&self, host: &str) -> Vec<String> {
+        let Ok(mut map) = self.0.lock() else { return Vec::new() };
+        let keys: Vec<_> = map.keys().filter(|(h, _)| h == host).cloned().collect();
+        keys.into_iter().filter_map(|key| map.remove(&key)).collect()
+    }
+}
+
+/// Forget the tabs of a destroyed window, whose child webviews died with it, so a later window cannot resolve
+/// a stale label and silently skip mounting its page.
+pub fn forget_host(app: &AppHandle, host: &str) {
+    let labels = app.state::<BrowserManager>().remove_host(host);
+    #[cfg(target_os = "windows")]
+    for label in &labels {
+        crate::focus_win::forget(label);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = labels;
 }
 
 /// `browser://state/{tabId}` payload. Every field is optional so the document-title handler can reuse the
@@ -69,10 +106,10 @@ struct BrowserPopup {
     url: String,
 }
 
-/// Emit only to main because this desktop-only feature must not broadcast remotely.
-fn emit_state(app: &AppHandle, tab_id: &str, url: &url::Url, loading: bool) {
+/// Emit only to the host window; page state must never broadcast to other windows or remote clients.
+fn emit_state(app: &AppHandle, host: &str, tab_id: &str, url: &url::Url, loading: bool) {
     let _ = app.emit_to(
-        "main",
+        host,
         &format!("browser://state/{tab_id}"),
         BrowserState {
             url: Some(url.to_string()),
@@ -84,9 +121,9 @@ fn emit_state(app: &AppHandle, tab_id: &str, url: &url::Url, loading: bool) {
 
 /// Forward the real document title, which native page-title observers deliver after load. The tab strip
 /// shows it instead of the URL host; Electron emits its equivalent through `page-title-updated`.
-fn emit_title(app: &AppHandle, tab_id: &str, title: &str) {
+fn emit_title(app: &AppHandle, host: &str, tab_id: &str, title: &str) {
     let _ = app.emit_to(
-        "main",
+        host,
         &format!("browser://state/{tab_id}"),
         BrowserState {
             url: None,
@@ -161,24 +198,26 @@ fn y_offset(window: &tauri::Window, css_viewport_h: f64) -> f64 {
     }
 }
 
-/// Resolve a child WebView by tabId.
+/// Resolve a child WebView by tabId within its host window.
 fn webview_of(
     app: &AppHandle,
     state: &State<'_, BrowserManager>,
+    host: &tauri::Window,
     tab_id: &str,
 ) -> Option<tauri::Webview> {
-    app.get_webview(&state.label_of(tab_id)?)
+    app.get_webview(&state.label_of(host.label(), tab_id)?)
 }
 
-/// Create and mount a child WebView from frontend placeholder bounds and CSS viewport height. Repeated calls
-/// for the same tabId update bounds idempotently.
+/// Create and mount a child WebView in the calling window from frontend placeholder bounds and CSS viewport
+/// height. Repeated calls for the same tabId update bounds idempotently.
 ///
 /// Must remain async. On Windows add_child posts build to the main thread and blocks the caller on recv; a
 /// synchronous main-thread command would deadlock waiting for itself. Async moves the wait to a worker so
 /// the main loop can build. Other operations only post messages and may remain synchronous.
 #[tauri::command]
-pub async fn browser_open(
+pub async fn open(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, BrowserManager>,
     tab_id: String,
     url: String,
@@ -188,21 +227,17 @@ pub async fn browser_open(
     h: f64,
     css_viewport_h: f64,
 ) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("main window not found")?;
-    if state.label_of(&tab_id).is_some() {
-        return browser_set_bounds(app.clone(), state, tab_id, x, y, w, h, css_viewport_h);
+    let host = window.label().to_string();
+    if state.label_of(&host, &tab_id).is_some() {
+        return set_bounds(app.clone(), window, state, tab_id, x, y, w, h, css_viewport_h);
     }
     let parsed = normalize_url(&url)?;
     let label = format!("browser-{}", &uuid::Uuid::new_v4().to_string()[..8]);
 
-    let nav_app = app.clone();
-    let nav_tab = tab_id.clone();
-    let load_app = app.clone();
-    let load_tab = tab_id.clone();
-    let popup_app = app.clone();
-    let popup_tab = tab_id.clone();
-    let title_app = app.clone();
-    let title_tab = tab_id.clone();
+    let (nav_app, nav_host, nav_tab) = (app.clone(), host.clone(), tab_id.clone());
+    let (load_app, load_host, load_tab) = (app.clone(), host.clone(), tab_id.clone());
+    let (popup_app, popup_host, popup_tab) = (app.clone(), host.clone(), tab_id.clone());
+    let (title_app, title_host, title_tab) = (app.clone(), host.clone(), tab_id.clone());
     let builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
         .user_agent(SAFARI_UA)
         .data_store_identifier(VLX_BROWSER_STORE)
@@ -211,18 +246,18 @@ pub async fn browser_open(
             if !scheme_allowed(url) {
                 return false;
             }
-            emit_state(&nav_app, &nav_tab, url, true);
+            emit_state(&nav_app, &nav_host, &nav_tab, url, true);
             true
         })
         .on_page_load(move |_, payload| {
             let loading = matches!(payload.event(), tauri::webview::PageLoadEvent::Started);
-            emit_state(&load_app, &load_tab, payload.url(), loading);
+            emit_state(&load_app, &load_host, &load_tab, payload.url(), loading);
         })
         // Deny native popups and let the frontend open them as app browser tabs instead.
         .on_new_window(move |url, _features| {
             if scheme_allowed(&url) {
                 let _ = popup_app.emit_to(
-                    "main",
+                    popup_host.as_str(),
                     &format!("browser://popup/{popup_tab}"),
                     BrowserPopup {
                         url: url.to_string(),
@@ -232,15 +267,15 @@ pub async fn browser_open(
             tauri::webview::NewWindowResponse::Deny
         })
         .on_document_title_changed(move |_webview, title| {
-            emit_title(&title_app, &title_tab, &title)
+            emit_title(&title_app, &title_host, &title_tab, &title)
         })
         // Disable wry native drag/drop interception so macOS pages receive HTML5 file drops.
         .disable_drag_drop_handler();
 
     let offset = y_offset(&window, css_viewport_h);
     #[cfg(target_os = "macos")]
-    if let Some(host) = app.get_webview("main") {
-        host.with_webview(|platform| unsafe {
+    if let Some(host_view) = app.get_webview(&host) {
+        host_view.with_webview(|platform| unsafe {
             macos::isolate_host_mouse_tracking(platform.inner().cast());
         })
         .map_err(|e| format!("Failed to configure browser mouse tracking: {e}"))?;
@@ -255,10 +290,41 @@ pub async fn browser_open(
     #[cfg(target_os = "windows")]
     crate::focus_win::track(&_webview);
 
-    if let Ok(mut map) = state.0.lock() {
-        map.insert(tab_id, label);
-    }
+    state.insert(&host, tab_id, label);
     Ok(())
+}
+
+/// Command permissions of the `local-browser` inline plugin, granted to every window that hosts browser tabs.
+///
+/// These are plugin commands rather than app commands because Tauri rejects app commands from remote origins
+/// unless an app ACL manifest exists, and remote-connection windows load their UI from `http://127.0.0.1:*`.
+pub const PERMISSIONS: [&str; 9] = [
+    "local-browser:allow-open",
+    "local-browser:allow-navigate",
+    "local-browser:allow-back",
+    "local-browser:allow-forward",
+    "local-browser:allow-reload",
+    "local-browser:allow-stop",
+    "local-browser:allow-set-bounds",
+    "local-browser:allow-set-visible",
+    "local-browser:allow-close",
+];
+
+/// The `local-browser` inline plugin (`plugin:local-browser|<command>`), declared in build.rs.
+pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("local-browser")
+        .invoke_handler(tauri::generate_handler![
+            open,
+            navigate,
+            back,
+            forward,
+            reload,
+            stop,
+            set_bounds,
+            set_visible,
+            close
+        ])
+        .build()
 }
 
 /// Reports a browser command that runs long.
@@ -276,15 +342,16 @@ fn slow(command: &'static str) -> crate::diagnostics::Slow {
 
 /// Address-bar navigation after HTTPS/search normalization and invalid-scheme rejection.
 #[tauri::command]
-pub fn browser_navigate(
+pub fn navigate(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, BrowserManager>,
     tab_id: String,
     input: String,
 ) -> Result<(), String> {
     let _slow = slow("browser_navigate");
     let url = normalize_url(&input)?;
-    let Some(wv) = webview_of(&app, &state, &tab_id) else {
+    let Some(wv) = webview_of(&app, &state, &window, &tab_id) else {
         return Ok(());
     };
     wv.navigate(url)
@@ -293,41 +360,62 @@ pub fn browser_navigate(
 
 /// Navigate back through evaluated history API because Tauri exposes no goBack; no-op without history.
 #[tauri::command]
-pub fn browser_back(app: AppHandle, state: State<'_, BrowserManager>, tab_id: String) {
-    if let Some(wv) = webview_of(&app, &state, &tab_id) {
+pub fn back(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, BrowserManager>,
+    tab_id: String,
+) {
+    if let Some(wv) = webview_of(&app, &state, &window, &tab_id) {
         let _ = wv.eval("history.back()");
     }
 }
 
 /// Navigate forward.
 #[tauri::command]
-pub fn browser_forward(app: AppHandle, state: State<'_, BrowserManager>, tab_id: String) {
-    if let Some(wv) = webview_of(&app, &state, &tab_id) {
+pub fn forward(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, BrowserManager>,
+    tab_id: String,
+) {
+    if let Some(wv) = webview_of(&app, &state, &window, &tab_id) {
         let _ = wv.eval("history.forward()");
     }
 }
 
 /// Reload through Webview::reload, available in 2.11.
 #[tauri::command]
-pub fn browser_reload(app: AppHandle, state: State<'_, BrowserManager>, tab_id: String) {
+pub fn reload(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, BrowserManager>,
+    tab_id: String,
+) {
     let _slow = slow("browser_reload");
-    if let Some(wv) = webview_of(&app, &state, &tab_id) {
+    if let Some(wv) = webview_of(&app, &state, &window, &tab_id) {
         let _ = wv.reload();
     }
 }
 
 /// Stop loading.
 #[tauri::command]
-pub fn browser_stop(app: AppHandle, state: State<'_, BrowserManager>, tab_id: String) {
-    if let Some(wv) = webview_of(&app, &state, &tab_id) {
+pub fn stop(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, BrowserManager>,
+    tab_id: String,
+) {
+    if let Some(wv) = webview_of(&app, &state, &window, &tab_id) {
         let _ = wv.eval("window.stop()");
     }
 }
 
 /// Synchronize bounds after placeholder ResizeObserver or window changes.
 #[tauri::command]
-pub fn browser_set_bounds(
+pub fn set_bounds(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, BrowserManager>,
     tab_id: String,
     x: f64,
@@ -337,10 +425,9 @@ pub fn browser_set_bounds(
     css_viewport_h: f64,
 ) -> Result<(), String> {
     let _slow = slow("browser_set_bounds");
-    let Some(wv) = webview_of(&app, &state, &tab_id) else {
+    let Some(wv) = webview_of(&app, &state, &window, &tab_id) else {
         return Ok(());
     };
-    let window = app.get_window("main").ok_or("main window not found")?;
     let offset = y_offset(&window, css_viewport_h);
     wv.set_position(LogicalPosition::new(x, y + offset))
         .map_err(|e| format!("Failed to move browser webview: {e}"))?;
@@ -351,14 +438,15 @@ pub fn browser_set_bounds(
 
 /// Show or hide on tab changes while keeping hidden page processes and media alive.
 #[tauri::command]
-pub fn browser_set_visible(
+pub fn set_visible(
     app: AppHandle,
+    window: tauri::Window,
     state: State<'_, BrowserManager>,
     tab_id: String,
     visible: bool,
 ) {
     let _slow = slow("browser_set_visible");
-    if let Some(wv) = webview_of(&app, &state, &tab_id) {
+    if let Some(wv) = webview_of(&app, &state, &window, &tab_id) {
         #[cfg(target_os = "windows")]
         if !visible {
             crate::focus_win::forget(wv.label());
@@ -369,14 +457,14 @@ pub fn browser_set_visible(
 
 /// Close and destroy a child WebView when its tab closes.
 #[tauri::command]
-pub fn browser_close(app: AppHandle, state: State<'_, BrowserManager>, tab_id: String) {
+pub fn close(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<'_, BrowserManager>,
+    tab_id: String,
+) {
     let _slow = slow("browser_close");
-    let label = if let Ok(mut map) = state.0.lock() {
-        map.remove(&tab_id)
-    } else {
-        None
-    };
-    if let Some(label) = label {
+    if let Some(label) = state.remove(window.label(), &tab_id) {
         #[cfg(target_os = "windows")]
         crate::focus_win::forget(&label);
         if let Some(wv) = app.get_webview(&label) {
@@ -389,7 +477,32 @@ pub fn browser_close(app: AppHandle, state: State<'_, BrowserManager>, tab_id: S
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_url;
+    use super::{normalize_url, BrowserManager};
+
+    #[test]
+    fn forgetting_a_host_drops_only_its_tabs() {
+        let manager = BrowserManager::new();
+        manager.insert("main", "tab".into(), "browser-a".into());
+        manager.insert("ssh-1", "tab".into(), "browser-b".into());
+        manager.insert("ssh-1", "other".into(), "browser-c".into());
+        let mut gone = manager.remove_host("ssh-1");
+        gone.sort();
+        assert_eq!(gone, ["browser-b", "browser-c"]);
+        assert_eq!(manager.label_of("ssh-1", "tab"), None);
+        assert_eq!(manager.label_of("main", "tab").as_deref(), Some("browser-a"));
+    }
+
+    #[test]
+    fn tabs_are_scoped_to_their_host_window() {
+        let manager = BrowserManager::new();
+        manager.insert("main", "tab".into(), "browser-a".into());
+        manager.insert("ssh-remote-1", "tab".into(), "browser-b".into());
+        assert_eq!(manager.label_of("main", "tab").as_deref(), Some("browser-a"));
+        assert_eq!(manager.label_of("ssh-remote-1", "tab").as_deref(), Some("browser-b"));
+        assert_eq!(manager.label_of("ssh-remote-2", "tab"), None);
+        assert_eq!(manager.remove("ssh-remote-1", "tab").as_deref(), Some("browser-b"));
+        assert_eq!(manager.label_of("main", "tab").as_deref(), Some("browser-a"));
+    }
 
     #[test]
     fn full_http_https_urls_pass_through() {

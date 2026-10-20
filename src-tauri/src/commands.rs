@@ -727,24 +727,30 @@ pub async fn open_remote_window(
     // and both opener command/default-URL permissions so links open in the operator's local browser.
     // Both opener permissions are required because command access and URL scope are separate checks.
     use tauri::ipc::CapabilityBuilder;
-    app.add_capability(
-        CapabilityBuilder::new(format!("remote-caps-{label}"))
-            .window(label.clone())
-            .remote("http://127.0.0.1:*".to_string())
-            .permission("local-fonts:allow-catalog")
-            .permission("local-download:allow-start")
-            .permission("local-download:allow-cancel")
-            .permission("clipboard-manager:allow-write-text")
-            .permission("clipboard-manager:allow-write-image")
-            .permission("notification:default")
-            .permission("opener:allow-open-url")
-            .permission("opener:allow-default-urls")
-            .permission("core:event:allow-listen")
-            .permission("core:event:allow-unlisten")
-            .permission("core:event:allow-emit")
-            .permission("core:window:allow-set-focus"),
-    )
-    .map_err(|e| format!("Failed to grant remote window capability: {e}"))?;
+    let mut caps = CapabilityBuilder::new(format!("remote-caps-{label}"))
+        // Scope to the window's own webview, never `.window()`: a window match extends the capability to
+        // every webview in it, including built-in browser children (`browser-*`) whose pages may be served
+        // from 127.0.0.1 and would otherwise pass the remote-origin check.
+        .webview(label.clone())
+        .remote("http://127.0.0.1:*".to_string())
+        .permission("local-fonts:allow-catalog")
+        .permission("local-download:allow-start")
+        .permission("local-download:allow-cancel")
+        .permission("clipboard-manager:allow-write-text")
+        .permission("clipboard-manager:allow-write-image")
+        .permission("notification:default")
+        .permission("opener:allow-open-url")
+        .permission("opener:allow-default-urls")
+        .permission("core:event:allow-listen")
+        .permission("core:event:allow-unlisten")
+        .permission("core:event:allow-emit")
+        .permission("core:window:allow-set-focus");
+    // Built-in browser tabs mount in this window and are driven from its UI.
+    for permission in crate::browser::PERMISSIONS {
+        caps = caps.permission(permission);
+    }
+    app.add_capability(caps)
+        .map_err(|e| format!("Failed to grant remote window capability: {e}"))?;
 
     crate::window_layout::apply(&win);
     win.show().map_err(|e| format!("Failed to show remote window: {e}"))?;
@@ -1267,7 +1273,8 @@ fn open_login_window(
     // Grant the same minimal runtime capability as open_remote_window, scoped to this loopback window.
     use tauri::ipc::CapabilityBuilder;
     let mut caps = CapabilityBuilder::new(format!("connection-caps-{label}"))
-        .window(label.clone())
+        // Webview scope, not window scope, so built-in browser children never inherit it; see open_remote_window.
+        .webview(label.clone())
         .remote("http://127.0.0.1:*".to_string())
         .permission("local-fonts:allow-catalog")
         .permission("local-download:allow-start")
@@ -1281,6 +1288,9 @@ fn open_login_window(
         .permission("core:event:allow-unlisten")
         .permission("core:event:allow-emit")
         .permission("core:window:allow-set-focus");
+    for permission in crate::browser::PERMISSIONS {
+        caps = caps.permission(permission);
+    }
     // "Open in VS Code" hands Remote-SSH deep links to the client's VS Code; only SSH windows offer it.
     if matches!(kind, RemoteWindowKind::Ssh) {
         caps = caps.permission_scoped(

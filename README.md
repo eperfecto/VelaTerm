@@ -123,8 +123,8 @@ See the [notebook guide](docs/manuals/knowledge-notebooks_20260910.md).
 
 ### Editors included
 
-A WYSIWYG Markdown editor, a code editor and an image viewer, plus a built-in browser on desktop. All
-of them work on remote machines too.
+A WYSIWYG Markdown editor, a code editor and an image viewer, plus a built-in browser in the desktop app.
+All of them work on remote machines too; in an SSH window, browser pages load on your computer.
 
 <img src="docs/assets/readme/editor-markdown.webp" alt="The WYSIWYG Markdown editor with a file tree" width="100%">
 

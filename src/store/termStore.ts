@@ -2940,11 +2940,11 @@ export const useTermStore = create<TermStore>((set, get) => ({
       // Opening/focusing no longer clears notifications immediately; `useNotifications` waits two seconds.
       const notifications = state.notifications;
 
-      // Browser nodes open/focus a center browser tab keyed by node ID, outside pane trees and desktop only.
+      // Browser nodes open/focus a center browser tab keyed by node ID, outside pane trees, only in local windows.
       const sess = state.sessions.find((s) => s.id === id);
       if (sess?.kind === "browser") {
-        // Only desktop shells can host native child browser views.
-        if (!isTauri && !env.isElectron) return { notifications };
+        // Only local windows (desktop shells and remote-connection windows) can host native child browser views.
+        if (!env.hasBuiltinBrowser) return { notifications };
         if (state.browserTabs[id]) {
           return {
             notifications,
@@ -3389,7 +3389,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
         : {},
     ),
 
-  // ── Browser tabs, desktop only ──
+  // ── Browser tabs, local windows only (desktop shells and remote-connection windows) ──
   openBrowserTab: (url, opts) => {
     const tab: BrowserTab = {
       id: `browser-${genId()}`,

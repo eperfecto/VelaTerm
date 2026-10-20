@@ -159,12 +159,12 @@ function App() {
         consumeOpenProject();
         return unlisten;
       });
-    // `view` opens files in document tabs and HTTP(S) URLs in built-in browser tabs. Remote browser
+    // `view` opens files in document tabs and HTTP(S) URLs in built-in browser tabs. Plain browser
     // clients ignore URL requests because child WebViews are desktop-native.
     const unlistenView = onViewRequest((req) => {
       if (req.isUrl) {
-        // The built-in browser requires a Tauri child or Electron WebContentsView, so only desktop opens it.
-        if (isTauri || env.isElectron) useTermStore.getState().openBrowserTab(req.path);
+        // The built-in browser requires a Tauri child or Electron WebContentsView in a local window.
+        if (env.hasBuiltinBrowser) useTermStore.getState().openBrowserTab(req.path);
         return;
       }
       useTermStore.getState().openDocTab(req.path);

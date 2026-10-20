@@ -19,6 +19,15 @@
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-write-image",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "local-browser:allow-open",
+    "local-browser:allow-navigate",
+    "local-browser:allow-back",
+    "local-browser:allow-forward",
+    "local-browser:allow-reload",
+    "local-browser:allow-stop",
+    "local-browser:allow-set-bounds",
+    "local-browser:allow-set-visible",
+    "local-browser:allow-close"
   ]
 }

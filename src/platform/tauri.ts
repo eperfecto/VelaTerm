@@ -11,7 +11,9 @@
 import {
   copyText,
   invoke as transportInvoke,
+  invokeNative,
   listen as transportListen,
+  listenNative,
   openPath as transportOpenPath,
   pickDirectory as transportPickDirectory,
   pickFile as transportPickFile,
@@ -245,12 +247,19 @@ const notify: NotifyCapability = {
 };
 
 /**
- * Built-in browser using `invoke("browser_*")` and `listen("browser://state/{tabId}")`, moved from
- * ipc/browser.ts without behavior changes. Each call includes `cssViewportH = window.innerHeight`
- * so Rust can adjust for the macOS title bar. Rust `normalize_url` handles addresses.
+ * Built-in browser through the `local-browser` inline plugin (`plugin:local-browser|<command>`) and
+ * `listen("browser://state/{tabId}")`. Each call includes `cssViewportH = window.innerHeight` so Rust can adjust
+ * for the macOS title bar. Rust `normalize_url` handles addresses.
  *
- * Plain browsers and remote clients never call this because the UI requires isTauri || isElectron.
+ * Commands always go through the native bridge: the child view lives in the local window, never on the server a
+ * remote-connection window displays. They are plugin commands because Tauri only lets remote origins, such as a
+ * remote window's `http://127.0.0.1` UI, reach commands granted by a capability. Remote windows also listen
+ * natively, since their regular `listen` is relayed from the server. Plain browsers never call this because the UI
+ * requires hasBuiltinBrowser.
  */
+const browserInvoke = (command: string, args: Record<string, unknown>) =>
+  invokeNative<void>(`plugin:local-browser|${command}`, args);
+const browserListen: typeof transportListen = env.isRemoteWindow ? listenNative : transportListen;
 const withViewport = (rect: BrowserRect) => ({
   x: rect.x,
   y: rect.y,
@@ -259,19 +268,19 @@ const withViewport = (rect: BrowserRect) => ({
   cssViewportH: window.innerHeight,
 });
 const browser: BrowserCapability = {
-  open: (tabId, url, rect) => transportInvoke("browser_open", { tabId, url, ...withViewport(rect) }),
-  navigate: (tabId, input) => transportInvoke("browser_navigate", { tabId, input }),
-  back: (tabId) => transportInvoke("browser_back", { tabId }),
-  forward: (tabId) => transportInvoke("browser_forward", { tabId }),
-  reload: (tabId) => transportInvoke("browser_reload", { tabId }),
-  stop: (tabId) => transportInvoke("browser_stop", { tabId }),
-  setBounds: (tabId, rect) => transportInvoke("browser_set_bounds", { tabId, ...withViewport(rect) }),
-  setVisible: (tabId, visible) => transportInvoke("browser_set_visible", { tabId, visible }),
-  close: (tabId) => transportInvoke("browser_close", { tabId }),
+  open: (tabId, url, rect) => browserInvoke("open", { tabId, url, ...withViewport(rect) }),
+  navigate: (tabId, input) => browserInvoke("navigate", { tabId, input }),
+  back: (tabId) => browserInvoke("back", { tabId }),
+  forward: (tabId) => browserInvoke("forward", { tabId }),
+  reload: (tabId) => browserInvoke("reload", { tabId }),
+  stop: (tabId) => browserInvoke("stop", { tabId }),
+  setBounds: (tabId, rect) => browserInvoke("set_bounds", { tabId, ...withViewport(rect) }),
+  setVisible: (tabId, visible) => browserInvoke("set_visible", { tabId, visible }),
+  close: (tabId) => browserInvoke("close", { tabId }),
   onState: (tabId, cb) =>
-    transportListen<BrowserStatePayload>(`browser://state/${tabId}`, (payload) => cb(payload)),
+    browserListen<BrowserStatePayload>(`browser://state/${tabId}`, (payload) => cb(payload)),
   onPopup: (tabId, cb) =>
-    transportListen<BrowserPopupPayload>(`browser://popup/${tabId}`, (payload) => cb(payload)),
+    browserListen<BrowserPopupPayload>(`browser://popup/${tabId}`, (payload) => cb(payload)),
 };
 
 /** Windows, detected the same way as notify.ts; `env` only distinguishes macOS. */

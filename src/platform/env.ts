@@ -50,6 +50,9 @@ export const env: PlatformEnv = {
   isRemoteWindow,
   // Main windows, remote-connection windows, and Electron can use local native capabilities.
   hasNativeHost: isTauri || isElectron || isRemoteWindow,
+  // Every native host can mount child browser views today; kept separate because a host without them
+  // (for example a future mobile shell) would still have native capabilities.
+  hasBuiltinBrowser: isTauri || isElectron || isRemoteWindow,
   isDev,
   isMac,
 };

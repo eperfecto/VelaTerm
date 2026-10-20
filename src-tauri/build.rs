@@ -63,7 +63,21 @@ fn main() {
         tauri_build::try_build(
             tauri_build::Attributes::new()
                 .plugin("local-fonts", tauri_build::InlinedPlugin::new().commands(&["catalog"]))
-                .plugin("local-download", tauri_build::InlinedPlugin::new().commands(&["start", "cancel"])),
+                .plugin("local-download", tauri_build::InlinedPlugin::new().commands(&["start", "cancel"]))
+                .plugin(
+                    "local-browser",
+                    tauri_build::InlinedPlugin::new().commands(&[
+                        "open",
+                        "navigate",
+                        "back",
+                        "forward",
+                        "reload",
+                        "stop",
+                        "set_bounds",
+                        "set_visible",
+                        "close",
+                    ]),
+                ),
         )
         .expect("Tauri build configuration");
     }

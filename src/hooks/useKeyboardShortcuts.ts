@@ -19,7 +19,6 @@ export const DOC_SAVE_EVENT = "vlx:doc-save";
 export const DOC_EXPORT_PDF_EVENT = "vlx:doc-export-pdf";
 
 import { useEffect } from "react";
-import { isTauri } from "../ipc/transport";
 import { isShareSurface } from "../ipc/shareBase";
 import { env } from "../platform";
 import { useTermStore } from "../store/termStore";
@@ -104,9 +103,9 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // New browser tabs are available only in Tauri/Electron desktop shells.
+      // New browser tabs need a local window to host them: desktop shells and remote-connection windows.
       if (matchCombo(e, sc("newBrowserTab"))) {
-        if (isTauri || env.isElectron) {
+        if (env.hasBuiltinBrowser) {
           e.preventDefault();
           useTermStore.getState().openBrowserTab();
         }

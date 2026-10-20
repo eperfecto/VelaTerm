@@ -42,7 +42,7 @@ const testState = vi.hoisted(() => {
   };
 });
 
-const platformEnv = vi.hoisted(() => ({ isTauri: true, isElectron: false }));
+const platformEnv = vi.hoisted(() => ({ isTauri: true, isElectron: false, isRemoteWindow: false, hasBuiltinBrowser: true }));
 
 vi.mock("../i18n", () => ({
   t: (key: string) => key,
@@ -161,8 +161,18 @@ describe("browser page entry in the tree context menu", () => {
     testState.addSession.mockReset();
     testState.openSession.mockReset();
     testState.addSession.mockResolvedValue({ id: "browser-node-1" });
-    platformEnv.isTauri = true;
-    platformEnv.isElectron = false;
+    Object.assign(platformEnv, { isTauri: true, isElectron: false, isRemoteWindow: false, hasBuiltinBrowser: true });
+  });
+
+  it("offers the browser entry in an SSH remote window, which hosts the page locally", () => {
+    Object.assign(platformEnv, { isTauri: false, isRemoteWindow: true, hasBuiltinBrowser: true });
+    const { result } = renderHook(() => useSessionMenu());
+
+    expect(
+      result.current
+        .newSessionItems("project-1", null, null, { withBrowser: true })
+        .some((item) => item.label === "tree.newBrowserPage"),
+    ).toBe(true);
   });
 
   it("creates and opens a permanent browser node under the selected group", async () => {
@@ -197,7 +207,7 @@ describe("browser page entry in the tree context menu", () => {
         .some((item) => item.label === "tree.newBrowserPage"),
     ).toBe(false);
 
-    platformEnv.isTauri = false;
+    Object.assign(platformEnv, { isTauri: false, hasBuiltinBrowser: false });
     expect(
       result.current
         .newSessionItems("project-1", null, null, { withBrowser: true })

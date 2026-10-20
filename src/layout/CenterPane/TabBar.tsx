@@ -13,7 +13,6 @@ import { GameCenterLink } from "../../components/GameCenterLink";
 import { StatusIndicator } from "../../components/StatusIndicator";
 import { useT } from "../../i18n";
 import { DOC_EXPORT_PDF_EVENT } from "../../hooks/useKeyboardShortcuts";
-import { isTauri } from "../../ipc/transport";
 import { isShareSurface } from "../../ipc/shareBase";
 import { env } from "../../platform";
 import { labelWithCombo } from "../../hooks/shortcutRegistry";
@@ -557,7 +556,7 @@ export function TabBar() {
         <button className="tab-add" title={t("tab.newDocument")} onClick={newDocTab}>
           <Icons.filePlus size={14} />
         </button>
-        {(isTauri || env.isElectron) && (
+        {env.hasBuiltinBrowser && (
           <button
             className="tab-add"
             title={labelWithCombo(t("titlebar.browser"), "newBrowserTab", shortcutOverrides)}

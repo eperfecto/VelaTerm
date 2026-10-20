@@ -42,7 +42,7 @@ vi.mock("../ipc/tree", () => {
   };
 });
 vi.mock("../notify", () => ({ notify: vi.fn() }));
-// Browser-node openSession is desktop-only behind isTauri || isElectron, so tests emulate desktop.
+// Browser-node openSession needs a window that can host the page (env.hasBuiltinBrowser), so tests emulate desktop.
 vi.mock("../ipc/transport", () => ({ isTauri: true }));
 // Stub env instead of loading real platform adapters, which would require unrelated transport exports.
 vi.mock("../platform", () => ({
@@ -53,6 +53,7 @@ vi.mock("../platform", () => ({
     isBrowser: false,
     isRemoteWindow: false,
     hasNativeHost: true,
+    hasBuiltinBrowser: true,
     isMac: false,
   },
 }));
@@ -67,6 +68,7 @@ vi.mock("../platform", () => {
     isBrowser: false,
     isRemoteWindow: false,
     hasNativeHost: true,
+    hasBuiltinBrowser: true,
     isMac: false,
   };
   return { env, platform: { env, dialog: { pickDirectory: vi.fn(), saveFile: vi.fn() } } };
