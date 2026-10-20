@@ -629,6 +629,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
         )
         .plugin(fonts::plugin())
         .plugin(local_download::plugin())
+        .plugin(browser::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -1281,15 +1282,6 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             commands::wsl_connect,
             commands::ssh_disconnect,
             // 5) Desktop-only built-in browser tabs.
-            browser::browser_open,
-            browser::browser_navigate,
-            browser::browser_back,
-            browser::browser_forward,
-            browser::browser_reload,
-            browser::browser_stop,
-            browser::browser_set_bounds,
-            browser::browser_set_visible,
-            browser::browser_close,
             // 6) Paths of files dropped from the OS file manager, read from the platform drag channel.
             native_drop::take_dropped_paths,
             // Desktop-only screenshots: global hotkey settings and the annotation overlay window.

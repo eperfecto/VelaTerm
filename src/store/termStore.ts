@@ -3389,7 +3389,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
         : {},
     ),
 
-  // ── Browser tabs, desktop only ──
+  // ── Browser tabs, local windows only (desktop shells and remote-connection windows) ──
   openBrowserTab: (url, opts) => {
     const tab: BrowserTab = {
       id: `browser-${genId()}`,

@@ -118,8 +118,8 @@ export function getClientSource(): string | null {
 /**
  * Desktop whitelist for native commands that must bypass unified desktop_call dispatch:
  * - Typing hot paths (pty_write/pty_resize) avoid spawn_blocking thread hops on every keystroke.
- * - Main-thread window/native child-view operations (open_remote_window, open_devtools, browser_*) must execute
- *   on the window host thread.
+ * - Main-thread window operations (open_remote_window, open_devtools) must execute on the window host thread.
+ *   Built-in browser child views use the `local-browser` plugin through invokeNative instead (platform/tauri.ts).
  * - Remote-host management commands (web_pairing_create/web_devices_list/web_device_revoke) stay native
  *   direct commands on the desktop; matching dispatch arms exist for the Electron loopback sidecar, and
  *   remote WS clients are rejected there by the backend's origin gate.
@@ -143,15 +143,6 @@ const DIRECT_DESKTOP_CMDS = new Set([
   "ssh_connect",
   "wsl_connect",
   "ssh_disconnect",
-  "browser_open",
-  "browser_navigate",
-  "browser_back",
-  "browser_forward",
-  "browser_reload",
-  "browser_stop",
-  "browser_set_bounds",
-  "browser_set_visible",
-  "browser_close",
   "web_pairing_create",
   "web_devices_list",
   "web_device_revoke",

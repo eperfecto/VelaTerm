@@ -6,7 +6,8 @@
 //! Security model—do not weaken:
 //! - External pages cannot call Tauri commands. A window-scoped capability extends to every webview in the
 //!   window, so `windows:["main"]` does cover `browser-*` children; it grants nothing to them only because it
-//!   has no `remote` origins and their pages are never local. Remote-connection windows do allow 127.0.0.1
+//!   has no `remote` origins and their pages are not local origins in release builds (in dev, a child that
+//!   navigates to the Vite `devUrl` would count as local). Remote-connection windows do allow 127.0.0.1
 //!   origins, so they grant their runtime capability by webview label instead and children never match.
 //! - No script is injected into third-party pages. Popups (`window.open` / `target=_blank`) are denied at the
 //!   native layer and forwarded to the host window as an app-level new-tab request instead.
@@ -214,7 +215,7 @@ fn webview_of(
 /// synchronous main-thread command would deadlock waiting for itself. Async moves the wait to a worker so
 /// the main loop can build. Other operations only post messages and may remain synchronous.
 #[tauri::command]
-pub async fn browser_open(
+pub async fn open(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -228,7 +229,7 @@ pub async fn browser_open(
 ) -> Result<(), String> {
     let host = window.label().to_string();
     if state.label_of(&host, &tab_id).is_some() {
-        return browser_set_bounds(app.clone(), window, state, tab_id, x, y, w, h, css_viewport_h);
+        return set_bounds(app.clone(), window, state, tab_id, x, y, w, h, css_viewport_h);
     }
     let parsed = normalize_url(&url)?;
     let label = format!("browser-{}", &uuid::Uuid::new_v4().to_string()[..8]);
@@ -293,6 +294,39 @@ pub async fn browser_open(
     Ok(())
 }
 
+/// Command permissions of the `local-browser` inline plugin, granted to every window that hosts browser tabs.
+///
+/// These are plugin commands rather than app commands because Tauri rejects app commands from remote origins
+/// unless an app ACL manifest exists, and remote-connection windows load their UI from `http://127.0.0.1:*`.
+pub const PERMISSIONS: [&str; 9] = [
+    "local-browser:allow-open",
+    "local-browser:allow-navigate",
+    "local-browser:allow-back",
+    "local-browser:allow-forward",
+    "local-browser:allow-reload",
+    "local-browser:allow-stop",
+    "local-browser:allow-set-bounds",
+    "local-browser:allow-set-visible",
+    "local-browser:allow-close",
+];
+
+/// The `local-browser` inline plugin (`plugin:local-browser|<command>`), declared in build.rs.
+pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("local-browser")
+        .invoke_handler(tauri::generate_handler![
+            open,
+            navigate,
+            back,
+            forward,
+            reload,
+            stop,
+            set_bounds,
+            set_visible,
+            close
+        ])
+        .build()
+}
+
 /// Reports a browser command that runs long.
 ///
 /// Each of these drives a native child WebView from the UI thread, so the cost is set by the platform
@@ -308,7 +342,7 @@ fn slow(command: &'static str) -> crate::diagnostics::Slow {
 
 /// Address-bar navigation after HTTPS/search normalization and invalid-scheme rejection.
 #[tauri::command]
-pub fn browser_navigate(
+pub fn navigate(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -326,7 +360,7 @@ pub fn browser_navigate(
 
 /// Navigate back through evaluated history API because Tauri exposes no goBack; no-op without history.
 #[tauri::command]
-pub fn browser_back(
+pub fn back(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -339,7 +373,7 @@ pub fn browser_back(
 
 /// Navigate forward.
 #[tauri::command]
-pub fn browser_forward(
+pub fn forward(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -352,7 +386,7 @@ pub fn browser_forward(
 
 /// Reload through Webview::reload, available in 2.11.
 #[tauri::command]
-pub fn browser_reload(
+pub fn reload(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -366,7 +400,7 @@ pub fn browser_reload(
 
 /// Stop loading.
 #[tauri::command]
-pub fn browser_stop(
+pub fn stop(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -379,7 +413,7 @@ pub fn browser_stop(
 
 /// Synchronize bounds after placeholder ResizeObserver or window changes.
 #[tauri::command]
-pub fn browser_set_bounds(
+pub fn set_bounds(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -404,7 +438,7 @@ pub fn browser_set_bounds(
 
 /// Show or hide on tab changes while keeping hidden page processes and media alive.
 #[tauri::command]
-pub fn browser_set_visible(
+pub fn set_visible(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,
@@ -423,7 +457,7 @@ pub fn browser_set_visible(
 
 /// Close and destroy a child WebView when its tab closes.
 #[tauri::command]
-pub fn browser_close(
+pub fn close(
     app: AppHandle,
     window: tauri::Window,
     state: State<'_, BrowserManager>,

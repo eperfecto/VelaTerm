@@ -51,7 +51,7 @@ export interface MirrorCenter {
   docTabs: Record<string, DocTab>;
   /**
    * Metadata for `browser-` tabs. Carried even by clients that cannot render one (the content lives in a
-   * native child WebView, desktop only) so following the layout never deletes the peer's browser tabs.
+   * native child WebView hosted by a local window) so following the layout never deletes the peer's browser tabs.
    */
   browserTabs: Record<string, BrowserTab>;
 }

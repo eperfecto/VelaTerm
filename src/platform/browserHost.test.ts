@@ -47,8 +47,8 @@ describe("built-in browser host", () => {
     await browser.onState("tab-1", () => {});
     await browser.onPopup("tab-1", () => {});
 
-    expect(transport.invokeNative).toHaveBeenCalledWith("browser_open", expect.objectContaining({ tabId: "tab-1", url: "https://example.com", x: 1, y: 2, w: 3, h: 4 }));
-    expect(transport.invokeNative).toHaveBeenCalledWith("browser_close", { tabId: "tab-1" });
+    expect(transport.invokeNative).toHaveBeenCalledWith("plugin:local-browser|open", expect.objectContaining({ tabId: "tab-1", url: "https://example.com", x: 1, y: 2, w: 3, h: 4 }));
+    expect(transport.invokeNative).toHaveBeenCalledWith("plugin:local-browser|close", { tabId: "tab-1" });
     expect(transport.listenNative).toHaveBeenCalledWith("browser://state/tab-1", expect.any(Function));
     expect(transport.listenNative).toHaveBeenCalledWith("browser://popup/tab-1", expect.any(Function));
     // The WebSocket transport would send these to the remote server, which has no window to host the page.
@@ -56,16 +56,16 @@ describe("built-in browser host", () => {
     expect(transport.listen).not.toHaveBeenCalled();
   });
 
-  it("keeps the desktop main window on the regular transport", async () => {
+  it("drives the desktop main window through the same plugin and listens on its regular event bus", async () => {
     const { env, browser, transport } = await load({ isTauri: true, isRemoteWindow: false });
     expect(env.hasBuiltinBrowser).toBe(true);
 
     await browser.open("tab-1", "https://example.com", rect);
     await browser.onState("tab-1", () => {});
 
-    expect(transport.invoke).toHaveBeenCalledWith("browser_open", expect.objectContaining({ tabId: "tab-1" }));
+    expect(transport.invokeNative).toHaveBeenCalledWith("plugin:local-browser|open", expect.objectContaining({ tabId: "tab-1" }));
     expect(transport.listen).toHaveBeenCalledWith("browser://state/tab-1", expect.any(Function));
-    expect(transport.invokeNative).not.toHaveBeenCalled();
+    expect(transport.invoke).not.toHaveBeenCalled();
     expect(transport.listenNative).not.toHaveBeenCalled();
   });
 
