@@ -52,7 +52,9 @@ The view is chosen by file type:
 
 ## 2. Browser tabs (desktop app only)
 
-Browser tabs show real web pages inside VelaTerm, which is useful for keeping documentation, issue pages or a local preview next to your sessions. They are available only in the desktop app, not in browser clients, remote connection windows or the mobile layout.
+Browser tabs show real web pages inside VelaTerm, which is useful for keeping documentation, issue pages or a local preview next to your sessions. They are available in the desktop app and its remote connection windows (SSH, WSL and paired URLs), not in browser clients or the mobile layout.
+
+In a remote connection window the page still loads on your computer, not on the remote machine: `localhost` is your computer, so a development server running on the remote machine needs a forwarded port. Browser page nodes are saved on the remote machine like any other session.
 
 **Opening a browser tab:**
 
@@ -60,7 +62,7 @@ Browser tabs show real web pages inside VelaTerm, which is useful for keeping do
 - the ⌘⇧B shortcut;
 - `vopen <URL>` in a session;
 - "New Browser Page" in a project's or group's context menu in the sidebar.
-- "Open Repository" in a Git project's context menu, which opens the web page of the project's `origin` remote (GitHub, GitLab, Bitbucket, Azure DevOps, Gitea or any other host) so you can check pull requests, workflows or issues. SSH remotes open over `https` on the same host. Like the button, it opens a browser tab that is not saved in the project tree. In a remote connection window, which has no browser tabs, the same item opens the page in the system browser instead.
+- "Open Repository" in a Git project's context menu, which opens the web page of the project's `origin` remote (GitHub, GitLab, Bitbucket, Azure DevOps, Gitea or any other host) so you can check pull requests, workflows or issues. SSH remotes open over `https` on the same host. Like the button, it opens a browser tab that is not saved in the project tree. In a remote connection window the same item opens the page in the system browser instead.
 
 **Toolbar:** "Back", "Forward", "Reload" (or "Stop loading" while a page loads), an address bar ("Enter URL or search terms"; text that is not an address is searched on Google), "Open in system browser", and a "Quick access" row with ChatGPT, Claude, Gemini and Google.
 

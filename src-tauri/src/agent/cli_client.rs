@@ -167,7 +167,7 @@ const SPAWN_USAGE: &str =
     --effort <level>  reasoning effort for agents that offer one, such as low, medium, or high";
 const VIEW_USAGE: &str = "usage: vopen <file|url>...   (relative paths resolve against the current dir; opens multiple at once)\n\
     opens by type: markdown editor / image viewer / code editor (syntax highlight)\n\
-    http/https urls open in an in-app browser tab (desktop only)";
+    http/https urls open in an in-app browser tab (desktop app and its SSH/WSL windows)";
 
 /// Read the three session environment variables and return a user-facing error if any is missing.
 fn session_env() -> Result<(String, String, String), String> {

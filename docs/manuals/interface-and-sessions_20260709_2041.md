@@ -76,7 +76,7 @@ Background tabs appear in the status bar as "Background N/M"; click it to bring 
 Tab bar details:
 
 - ⌘1–9 (Ctrl+1–9 on Windows and Linux) switches to a tab by position. A middle click closes a tab.
-- The ＋ after the tabs opens a scratch terminal. The buttons on the right open a new terminal, a new document, a built-in browser tab (desktop app), and the Game Center.
+- The ＋ after the tabs opens a scratch terminal. The buttons on the right open a new terminal, a new document, a built-in browser tab (desktop app and its remote connection windows), and the Game Center.
 - A tab's context menu has "Close Tab", "Close Other Tabs", "Close Tabs to the Right", "Close All Tabs", "Send to Background" (keeps the tab's processes running), and the same session items as the tree.
 
 Document and browser tabs are covered in [Document & Browser Tabs](document-and-browser-tabs_20260709_2041.md).

@@ -5,7 +5,8 @@
 //! wrapper delegates nine commands plus state subscription to platform adapter `platform.browser`, preserving the
 //! public signatures used by `BrowserView.tsx`. `env` selects the implementation at runtime.
 //!
-//! Callers still gate on `isTauri || isElectron`; plain browser/remote clients render no entry point or commands.
+//! Callers gate on `env.hasBuiltinBrowser`: desktop shells and remote-connection windows (which route these
+//! commands natively to their local window); plain browser clients render no entry point or commands.
 //!
 //! Exception: `setBrowserUrl` **does not use** `platform.browser`. Persisting a node's last URL is a database write
 //! routed through transport/WS (sidecar), so it still invokes `set_browser_url` directly.

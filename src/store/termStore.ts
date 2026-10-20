@@ -2943,8 +2943,8 @@ export const useTermStore = create<TermStore>((set, get) => ({
       // Browser nodes open/focus a center browser tab keyed by node ID, outside pane trees and desktop only.
       const sess = state.sessions.find((s) => s.id === id);
       if (sess?.kind === "browser") {
-        // Only desktop shells can host native child browser views.
-        if (!isTauri && !env.isElectron) return { notifications };
+        // Only local windows (desktop shells and remote-connection windows) can host native child browser views.
+        if (!env.hasBuiltinBrowser) return { notifications };
         if (state.browserTabs[id]) {
           return {
             notifications,

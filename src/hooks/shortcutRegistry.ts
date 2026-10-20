@@ -27,7 +27,7 @@ export type ShortcutAction =
   | "selectAllTerminal"
   | "saveDoc";
 
-/** Action order for the settings UI (newBrowserTab only shown on desktop, gated by isTauri). */
+/** Action order for the settings UI (newBrowserTab only shown where env.hasBuiltinBrowser). */
 export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   "openProject",
   "newTab",

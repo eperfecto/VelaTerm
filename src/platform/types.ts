@@ -45,6 +45,11 @@ export interface PlatformEnv {
   /** Whether local native capabilities are available (main window, remote-connection window, or Electron). */
   hasNativeHost: boolean;
   /**
+   * Whether built-in browser tabs can be hosted: a Tauri child WebView in the main or a remote-connection window,
+   * or an Electron WebContentsView. Pages always load on the local desktop, even in an SSH window.
+   */
+  hasBuiltinBrowser: boolean;
+  /**
    * Whether this is a development run, used by the DEV badge and similar UI. Unified across shells:
    * - Tauri/browser: build-time `import.meta.env.DEV` is true while the Vite development server runs.
    * - Electron: the frontend always loads bundled output (DEV is always false), so the main process injects

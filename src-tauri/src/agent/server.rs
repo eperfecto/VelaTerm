@@ -57,7 +57,8 @@ pub struct SpawnRequest {
 
 /// Request from `view <file|URL>` to open a tab.
 /// `/view` validates and emits it. Relative files are resolved against cwd, canonicalized, and must
-/// exist as regular files; HTTP(S) URLs open a built-in browser tab (desktop only; see section 17).
+/// exist as regular files; HTTP(S) URLs open a built-in browser tab (desktop windows only, including remote-connection
+/// windows; see section 17).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewRequest {

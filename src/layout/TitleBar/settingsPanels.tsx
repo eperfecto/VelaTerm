@@ -181,7 +181,7 @@ export function ShortcutsPanel() {
   };
 
   // New browser tabs are desktop-only, so hide this row in browser and remote clients.
-  const actions = SHORTCUT_ACTIONS.filter((a) => a !== "newBrowserTab" || isTauri || env.isElectron);
+  const actions = SHORTCUT_ACTIONS.filter((a) => a !== "newBrowserTab" || env.hasBuiltinBrowser);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>

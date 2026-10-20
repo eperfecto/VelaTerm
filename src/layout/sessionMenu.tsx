@@ -648,7 +648,7 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
     parentSessionId: string | null = null,
     opts?: { withTerminal?: boolean; withBrowser?: boolean },
   ): MenuItem[] => [
-    ...(opts?.withBrowser && (env.isTauri || env.isElectron)
+    ...(opts?.withBrowser && env.hasBuiltinBrowser
       ? [
           {
             label: t("tree.newBrowserPage"),
