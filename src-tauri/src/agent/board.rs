@@ -507,9 +507,20 @@ pub fn action(app: &AppCtx, req: &Request) -> Result<Value, String> {
     match (req.action.as_str(), role) {
         ("show", _) => show(app, &task),
         ("assign", Role::Chief) => assign(app, &chief, task, req.worker.as_deref().ok_or("Missing worker session")?),
-        ("move", _) => move_task(app, &req.session_id, role, task, req.status.as_deref().ok_or("Missing status")?, &req.text),
+        ("move", _) => {
+            let status = parse_status(req.status.as_deref().ok_or("Missing status")?)?;
+            // The chief closes work and lifts blockers; a move would clear the blocked flag.
+            if role == Role::Worker && status == "done" {
+                return Err("Only the chief can move a task to done; move it to review instead".into());
+            }
+            if role == Role::Worker && task.blocked_reason.is_some() {
+                return Err(format!("{} is blocked; only the chief can unblock it", task.reference));
+            }
+            move_task(app, &req.session_id, role, task, status, &req.text)
+        }
         ("block", _) => set_blocked(app, &req.session_id, role, task, Some(&req.text)),
-        ("unblock", _) => set_blocked(app, &req.session_id, role, task, None),
+        ("unblock", Role::Chief) => set_blocked(app, &req.session_id, role, task, None),
+        ("unblock", Role::Worker) => Err("Only the chief can unblock tasks".into()),
         ("assign", Role::Worker) => Err("Only the chief can assign tasks".into()),
         _ => Err("Unknown board action".into()),
     }
@@ -677,7 +688,8 @@ vboard block T3 -m reason
 vboard unblock T3
 
 The first vboard add from a session makes it the chief of its board. A worker can list its board and
-show, move or block only its own tasks. Text given with -m, or piped on stdin with -m -, is delivered to the other
+show, move or block only its own tasks; only the chief moves a task to done or unblocks it, and a worker
+cannot move a blocked task. Text given with -m, or piped on stdin with -m -, is delivered to the other
 side: a worker's move or block reaches the chief, a chief's move reaches the worker. Moving a task into
 in_progress sends its worker the task brief. Moving a task clears its blocked flag.";
 
@@ -954,6 +966,23 @@ mod tests {
         assert!(notices[0].0.contains("T1 \"Cosecheros\" is blocked"));
         watchdog(&app, PLAN, &brief, false);
         assert_eq!(tells(&app, CHIEF).len(), 1, "an already blocked task is not reported again");
+        cleanup(app);
+    }
+
+    #[test]
+    fn only_the_chief_finishes_and_unblocks_tasks() {
+        let app = fixture();
+        add_task(&app, "Rendimiento", |r| { r.worker = Some(PLAN.into()); r.status = Some("in_progress".into()); });
+        assert!(action(&app, &on(PLAN, "move", "T1", |r| r.status = Some("done".into()))).unwrap_err().contains("Only the chief can move a task to done"));
+        action(&app, &on(PLAN, "block", "T1", |r| r.text = "Need input".into())).unwrap();
+        assert!(action(&app, &on(PLAN, "unblock", "T1", |_| {})).unwrap_err().contains("Only the chief can unblock"));
+        assert!(action(&app, &on(PLAN, "move", "T1", |r| r.status = Some("review".into()))).unwrap_err().contains("only the chief can unblock"));
+        let task = get_task(&app, CHIEF, 1).unwrap();
+        assert_eq!((task.status.as_str(), task.blocked_reason.as_deref()), ("in_progress", Some("Need input")));
+        action(&app, &on(CHIEF, "unblock", "T1", |_| {})).unwrap();
+        action(&app, &on(PLAN, "move", "T1", |r| r.status = Some("review".into()))).unwrap();
+        let done = action(&app, &on(CHIEF, "move", "T1", |r| r.status = Some("done".into()))).unwrap();
+        assert_eq!(done["task"]["status"], "done");
         cleanup(app);
     }
 

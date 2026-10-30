@@ -38,6 +38,7 @@ name substring.
   `vboard list` for the whole board before deciding the next step; delivery does not prove completion.
 - A worker whose turn ends without any board update after a board message has its task marked blocked,
   and you receive a notice. Inspect the worker with `vrefer` before resuming it.
+- Only you move tasks to `done` and lift blockers with `vboard unblock T3` or by moving the task.
 
 ## As a worker
 
@@ -45,8 +46,9 @@ name substring.
   and assigns tasks.
 - When you finish, move the task and report in one step:
   `vboard move T3 review -m "what changed and how you verified it"`.
-- When you need a decision or are stuck, `vboard block T3 -m "what is blocking you"`. Moving a task
-  clears its blocked flag.
+- When you need a decision or are stuck, `vboard block T3 -m "what is blocking you"`. Only the chief
+  unblocks a task, and you cannot move a blocked task; wait for the chief.
+- Only the chief moves a task to `done`. Move finished work to `review`.
 - End every turn that started from a `[Board]` message with a board update. Ending silently blocks the
   task.
 
