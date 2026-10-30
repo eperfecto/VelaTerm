@@ -2604,6 +2604,14 @@ const ru: typeof en = {
   "board.loading": "Загрузка доски…", // Loading board…
   "board.hidePanel": "Скрыть панель чата", // Hide chat panel
   "board.showPanel": "Показать панель чата", // Show chat panel
+  "board.workers": "Исполнители", // Workers
+  "board.workerProfile": "Профиль исполнителя", // Worker Profile
+  "board.workerProfileHint": "Задачи с метками вне меток исполнителя нельзя ему назначить; оставьте метки пустыми, чтобы принимать любые задачи. Инструкции добавляются к каждому описанию задачи, которое получает исполнитель.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "Исполнитель", // Worker
+  "board.workerLabels": "Метки", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "Инструкции", // Instructions
+  "board.workerSave": "Сохранить", // Save
 };
 
 export default ru;

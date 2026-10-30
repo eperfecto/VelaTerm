@@ -2541,6 +2541,14 @@ const vi: typeof en = {
   "board.loading": "Đang tải bảng…", // Loading board…
   "board.hidePanel": "Ẩn bảng trò chuyện", // Hide chat panel
   "board.showPanel": "Hiện bảng trò chuyện", // Show chat panel
+  "board.workers": "Worker", // Workers
+  "board.workerProfile": "Hồ sơ worker", // Worker Profile
+  "board.workerProfileHint": "Không thể giao cho worker các tác vụ có nhãn nằm ngoài nhãn của nó; để trống nhãn để nhận mọi tác vụ. Hướng dẫn được thêm vào mọi bản mô tả tác vụ mà worker nhận.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "Worker", // Worker
+  "board.workerLabels": "Nhãn", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "Hướng dẫn", // Instructions
+  "board.workerSave": "Lưu", // Save
 };
 
 export default vi;

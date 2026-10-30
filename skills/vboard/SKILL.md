@@ -20,6 +20,7 @@ vboard assign T3 SESSION|none
 vboard move T3 backlog|in_progress|review|done [-m report]
 vboard block T3 -m reason
 vboard unblock T3
+vboard profile SESSION [--labels BE,BFF] [-m instructions | -m -]
 ```
 
 Text given with `-m`, or piped on stdin with `-m -`, is delivered to the other side of the task. Without
@@ -39,6 +40,12 @@ name substring.
 - A worker whose turn ends without any board update after a board message has its task marked blocked,
   and you receive a notice. Inspect the worker with `vrefer` before resuming it.
 - Only you move tasks to `done` and lift blockers with `vboard unblock T3` or by moving the task.
+- Give each worker a profile on your board with `vboard profile <worker> --labels BE,BFF -m "instructions"`.
+  Labels are comma-separated and stored uppercased. A task labeled `FE` cannot be assigned to (or added
+  for) a worker whose labels do not include it: `T3 is labeled FE but <worker> only takes BE, BFF`. A
+  worker without labels takes any task, and an unlabeled task fits any worker. The instructions are
+  appended to every brief that worker receives on your board. An omitted `--labels` or `-m` keeps the
+  current value; `--labels ""` or `-m ""` clears it. The user can edit profiles from the board view too.
 - A session created as a board from VelaTerm is already a chief before its first task. The user can add,
   assign, move, block and unblock tasks from the board view with your permissions; each change reaches
   the worker as if you made it, and you receive a `[Board] The user ...` notice such as

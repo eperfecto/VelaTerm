@@ -32,6 +32,12 @@ CREATE INDEX IF NOT EXISTS board_events_message ON board_events(message_id);
 CREATE TABLE IF NOT EXISTS boards (
  chief_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE, created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS board_workers (
+ chief_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ worker_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ labels TEXT NOT NULL DEFAULT '[]', instructions TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL,
+ PRIMARY KEY(chief_id, worker_id)
+);
 ";
 
 /// Board columns in display order. Blocked is a flag on a task, never a column.
@@ -58,9 +64,15 @@ pub struct Request {
     pub status: Option<String>,
     #[serde(default)]
     pub worker: Option<String>,
-    /// Task body for `add`, report for `move`, reason for `block`.
+    /// Comma-separated labels a worker takes, for `profile`; an empty string clears them.
+    #[serde(default)]
+    pub labels: Option<String>,
+    /// Task body for `add`, report for `move`, reason for `block`, worker instructions for `profile`.
     #[serde(default)]
     pub text: String,
+    /// `profile` only: no instructions were given, so the current ones are kept instead of cleared.
+    #[serde(default)]
+    pub keep_instructions: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -108,6 +120,8 @@ pub struct UserRequest {
     pub status: Option<String>,
     #[serde(default)]
     pub worker: Option<String>,
+    #[serde(default)]
+    pub labels: Option<String>,
     #[serde(default)]
     pub text: Option<String>,
 }
@@ -296,6 +310,10 @@ fn brief(app: &AppCtx, task: &Task) -> String {
     if !task.body.trim().is_empty() {
         text.push_str(&format!("\n\n{}", task.body.trim()));
     }
+    let profile = task.worker_id.as_deref().and_then(|worker| profile_of(app, &task.chief_id, worker).ok().flatten());
+    if let Some(profile) = profile.filter(|p| !p.instructions.trim().is_empty()) {
+        text.push_str(&format!("\n\nYour instructions on this board:\n{}", profile.instructions.trim()));
+    }
     text.push_str(&format!(
         "\n\nWhen you finish or need a decision, update the board and report to the chief in one step:\n  \
          vboard move {r} review -m \"what you did and how you verified it\"\n  \
@@ -343,7 +361,9 @@ fn list(app: &AppCtx, chief: &str, role: Role) -> Result<Value, String> {
         })
         .collect();
     let chief_name = session(app, chief).map(|s| s.name).ok();
-    Ok(json!({"chiefId":chief,"board":chief_name,"role":if role == Role::Worker {"worker"} else {"chief"},"columns":columns}))
+    let workers = workers(app, chief)?;
+    Ok(json!({"chiefId":chief,"board":chief_name,"role":if role == Role::Worker {"worker"} else {"chief"},
+        "columns":columns,"workers":workers}))
 }
 
 fn show(app: &AppCtx, task: &Task) -> Result<Value, String> {
@@ -397,6 +417,106 @@ fn worker_for(app: &AppCtx, chief: &str, reference: &str) -> Result<Option<Strin
     }
 }
 
+/// A worker's profile on one board: the labels it takes (none means any) and instructions for its briefs.
+#[derive(Default)]
+struct Profile {
+    labels: Vec<String>,
+    instructions: String,
+}
+
+fn read_labels(raw: &str) -> Vec<String> {
+    serde_json::from_str(raw).unwrap_or_default()
+}
+
+/// Trimmed, uppercased and deduplicated labels from a comma-separated list; empty entries are dropped.
+fn normalize_labels(raw: &str) -> Vec<String> {
+    let mut labels: Vec<String> = Vec::new();
+    for label in raw.split(',').map(|l| l.trim().to_uppercase()).filter(|l| !l.is_empty()) {
+        if !labels.contains(&label) {
+            labels.push(label);
+        }
+    }
+    labels
+}
+
+fn profile_of(app: &AppCtx, chief: &str, worker: &str) -> Result<Option<Profile>, String> {
+    app.db()
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT labels,instructions FROM board_workers WHERE chief_id=?1 AND worker_id=?2",
+            params![chief, worker],
+            |r| Ok(Profile { labels: read_labels(&r.get::<_, String>(0)?), instructions: r.get(1)? }),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
+fn worker_json(worker: &str, name: &str, profile: &Profile) -> Value {
+    json!({"workerId":worker,"name":name,"labels":profile.labels,"instructions":profile.instructions})
+}
+
+/// Every worker profile on the board, by worker name, so the board view can show and edit them.
+fn workers(app: &AppCtx, chief: &str) -> Result<Vec<Value>, String> {
+    let conn = app.db().conn.lock().unwrap();
+    let mut query = conn
+        .prepare(
+            "SELECT w.worker_id,s.name,w.labels,w.instructions FROM board_workers w JOIN sessions s ON s.id=w.worker_id \
+             WHERE w.chief_id=?1 AND s.archived_at IS NULL ORDER BY s.name, w.worker_id",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = query
+        .query_map([chief], |r| {
+            let profile = Profile { labels: read_labels(&r.get::<_, String>(2)?), instructions: r.get(3)? };
+            Ok(worker_json(&r.get::<_, String>(0)?, &r.get::<_, String>(1)?, &profile))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// Refuse a labeled task for a worker whose profile on this board only takes other labels.
+fn check_labels(app: &AppCtx, chief: &str, worker: &str, reference: &str, label: &str) -> Result<(), String> {
+    let labels = profile_of(app, chief, worker)?.map(|p| p.labels).unwrap_or_default();
+    let wanted = label.trim().to_uppercase();
+    if labels.is_empty() || labels.contains(&wanted) {
+        return Ok(());
+    }
+    let name = session(app, worker).map(|s| s.name).unwrap_or_default();
+    Err(format!("{reference} is labeled {label} but {name} only takes {}", labels.join(", ")))
+}
+
+/// Create or update a worker's profile. Absent labels or instructions keep the current ones; an empty
+/// value clears them. Not a task change, so no event is recorded.
+fn profile(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
+    let worker = worker_for(app, chief, req.worker.as_deref().ok_or("Missing worker session")?)?
+        .ok_or("Choose a worker session for the profile")?;
+    let mut profile = profile_of(app, chief, &worker)?.unwrap_or_default();
+    if let Some(labels) = &req.labels {
+        profile.labels = normalize_labels(labels);
+    }
+    if !req.keep_instructions {
+        profile.instructions = req.text.trim().to_owned();
+    }
+    let labels = serde_json::to_string(&profile.labels).map_err(|e| e.to_string())?;
+    app.db()
+        .conn
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO board_workers(chief_id,worker_id,labels,instructions,updated_at) VALUES (?1,?2,?3,?4,?5) \
+             ON CONFLICT(chief_id,worker_id) DO UPDATE SET labels=excluded.labels,instructions=excluded.instructions,\
+             updated_at=excluded.updated_at",
+            params![chief, worker, labels, profile.instructions, now_ms()],
+        )
+        .map_err(|e| e.to_string())?;
+    app.emit("board://changed", json!({"chiefId":chief,"taskId":null}));
+    let name = session(app, &worker).map(|s| s.name).unwrap_or_default();
+    Ok(json!({"worker":worker_json(&worker, &name, &profile)}))
+}
+
 fn add(app: &AppCtx, chief: &str, actor: &str, role: Role, req: &Request) -> Result<Value, String> {
     let title = req.title.as_deref().map(str::trim).unwrap_or("");
     if title.is_empty() || title.chars().count() > 200 {
@@ -409,6 +529,17 @@ fn add(app: &AppCtx, chief: &str, actor: &str, role: Role, req: &Request) -> Res
     // The board view opens links with one click, so only web links are stored.
     if link.is_some_and(|l| !(l.starts_with("https://") || l.starts_with("http://"))) {
         return Err("A task link must start with http:// or https://".into());
+    }
+    if let (Some(worker), Some(label)) = (&worker, label) {
+        // The board lock is held, so the next number is the one this task receives.
+        let number: i64 = app
+            .db()
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COALESCE(MAX(number),0)+1 FROM board_tasks WHERE chief_id=?1", [chief], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        check_labels(app, chief, worker, &format!("T{number}"), label)?;
     }
     let id = uuid::Uuid::new_v4().to_string();
     let event = {
@@ -442,6 +573,9 @@ fn add(app: &AppCtx, chief: &str, actor: &str, role: Role, req: &Request) -> Res
 
 fn assign(app: &AppCtx, chief: &str, actor: &str, role: Role, mut task: Task, reference: &str) -> Result<Value, String> {
     let worker = worker_for(app, chief, reference)?;
+    if let (Some(worker), Some(label)) = (&worker, task.label.as_deref()) {
+        check_labels(app, chief, worker, &task.reference, label)?;
+    }
     let text = worker.as_deref().unwrap_or("none");
     let event = apply(app, &task.id, &Event { actor, action: "assign", from: None, to: None, text }, |conn| {
         conn.execute("UPDATE board_tasks SET worker_id=?2,updated_at=?3 WHERE id=?1", params![task.id, worker, now_ms()])
@@ -595,6 +729,12 @@ fn perform(app: &AppCtx, chief: &str, caller: &str, role: Role, req: &Request) -
     if req.action == "list" {
         return list(app, chief, role);
     }
+    if req.action == "profile" {
+        return match role {
+            Role::Worker => Err("Only the chief can edit worker profiles".into()),
+            Role::Chief | Role::User => profile(app, chief, req),
+        };
+    }
     let task = get_task(app, chief, parse_ref(req.task.as_deref().ok_or("Missing task reference")?)?)?;
     if role == Role::Worker && task.worker_id.as_deref() != Some(caller) {
         return Err(format!("{} is not assigned to this session", task.reference));
@@ -679,6 +819,7 @@ pub fn board_list(app: &AppCtx, chief: &str) -> Result<Value, String> {
 pub fn user_action(app: &AppCtx, chief: &str, request: UserRequest) -> Result<Value, String> {
     let _guard = lock().lock().unwrap();
     require_board(app, chief)?;
+    let keep_instructions = request.text.is_none();
     let req = Request {
         session_id: chief.to_owned(),
         action: request.action,
@@ -688,7 +829,9 @@ pub fn user_action(app: &AppCtx, chief: &str, request: UserRequest) -> Result<Va
         link: request.link,
         status: request.status,
         worker: request.worker,
+        labels: request.labels,
         text: request.text.unwrap_or_default(),
+        keep_instructions,
     };
     if req.action == "add" {
         return add(app, chief, USER_ACTOR, Role::User, &req);
@@ -856,12 +999,17 @@ vboard assign T3 SESSION|none
 vboard move T3 backlog|in_progress|review|done [-m report]
 vboard block T3 -m reason
 vboard unblock T3
+vboard profile SESSION [--labels BE,BFF] [-m instructions]
 
 The first vboard add from a session makes it the chief of its board. A worker can list its board and
 show, move or block only its own tasks; only the chief moves a task to done or unblocks it, and a worker
 cannot move a blocked task. Text given with -m, or piped on stdin with -m -, is delivered to the other
 side: a worker's move or block reaches the chief, a chief's move reaches the worker. Moving a task into
-in_progress sends its worker the task brief. Moving a task clears its blocked flag.";
+in_progress sends its worker the task brief. Moving a task clears its blocked flag.
+
+Only the chief edits a worker's profile on its board: the labels it takes and instructions appended to
+every brief it receives. A labeled task cannot be assigned to a worker whose labels do not include it; a
+worker without labels takes any task. Omitted --labels or -m keep the current value; an empty one clears it.";
 
 pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
     let Some(action) = args.first() else { return Ok(None) };
@@ -885,6 +1033,7 @@ pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
             "--link" => &mut req.link,
             "--status" => &mut req.status,
             "--worker" => &mut req.worker,
+            "--labels" => &mut req.labels,
             _ if flag.starts_with("--") => return Err(format!("Unknown option {flag}")),
             _ => {
                 positional.push(args[i].clone());
@@ -897,7 +1046,7 @@ pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
     }
     let expected = match action.as_str() {
         "list" => 0,
-        "show" | "block" | "unblock" => 1,
+        "show" | "block" | "unblock" | "profile" => 1,
         "add" => 1,
         "assign" | "move" => 2,
         _ => return Err(format!("Unknown action {action:?}")),
@@ -916,6 +1065,7 @@ pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
             req.status = Some(positional[1].clone());
         }
         "show" | "block" | "unblock" => req.task = Some(positional[0].clone()),
+        "profile" => req.worker = Some(positional[0].clone()),
         _ => {}
     }
     if action == "add" && req.status.is_some() {
@@ -924,6 +1074,7 @@ pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
     if action == "move" {
         parse_status(req.status.as_deref().unwrap())?;
     }
+    req.keep_instructions = action == "profile" && text.is_none();
     req.text = text.unwrap_or_default();
     Ok(Some(req))
 }
@@ -1310,6 +1461,134 @@ mod tests {
         assert_eq!(actors, 6, "add, assign, move, unblock, block and move are recorded as the user");
         assert!(action(&app, &req(USER_ACTOR, "list")).unwrap_err().contains("missing or archived"), "the CLI cannot act as the user");
         cleanup(app);
+    }
+
+    fn profile_req(session: &str, worker: &str, f: impl FnOnce(&mut Request)) -> Request {
+        let mut r = req(session, "profile");
+        r.worker = Some(worker.into());
+        f(&mut r);
+        r
+    }
+
+    #[test]
+    fn profiles_normalize_labels_and_keep_or_clear_omitted_and_empty_fields() {
+        let app = fixture();
+        add_task(&app, "Base", |_| {});
+        let set = action(&app, &profile_req(CHIEF, PLAN, |r| { r.labels = Some(" be, bff,,BE ".into()); r.text = " Use pnpm ".into(); })).unwrap();
+        assert_eq!(set["worker"], json!({"workerId":PLAN,"name":"Planning session","labels":["BE","BFF"],"instructions":"Use pnpm"}));
+        let kept = action(&app, &profile_req(CHIEF, PLAN, |r| r.keep_instructions = true)).unwrap();
+        assert_eq!((kept["worker"]["labels"].clone(), kept["worker"]["instructions"].clone()), (json!(["BE","BFF"]), json!("Use pnpm")));
+        let relabeled = action(&app, &profile_req(CHIEF, PLAN, |r| { r.labels = Some("fe".into()); r.keep_instructions = true; })).unwrap();
+        assert_eq!((relabeled["worker"]["labels"].clone(), relabeled["worker"]["instructions"].clone()), (json!(["FE"]), json!("Use pnpm")));
+        let cleared = action(&app, &profile_req(CHIEF, PLAN, |r| r.labels = Some(String::new()))).unwrap();
+        assert_eq!((cleared["worker"]["labels"].clone(), cleared["worker"]["instructions"].clone()), (json!([]), json!("")));
+        let rows: i64 = app.db().conn.lock().unwrap().query_row("SELECT COUNT(*) FROM board_workers", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1, "a profile is upserted, never duplicated");
+        let events: i64 = app.db().conn.lock().unwrap().query_row("SELECT COUNT(*) FROM board_events", [], |r| r.get(0)).unwrap();
+        assert_eq!(events, 1, "a profile is not a task change, so only the add is recorded");
+        assert!(action(&app, &profile_req(CHIEF, CHIEF, |_| {})).unwrap_err().contains("chief cannot"));
+        assert!(action(&app, &profile_req(CHIEF, "none", |_| {})).is_err());
+        cleanup(app);
+    }
+
+    #[test]
+    fn workers_cannot_edit_worker_profiles() {
+        let app = fixture();
+        add_task(&app, "Mine", |r| r.worker = Some(PLAN.into()));
+        let refused = action(&app, &profile_req(PLAN, PLAN, |r| r.labels = Some("BE".into())));
+        assert_eq!(refused.unwrap_err(), "Only the chief can edit worker profiles");
+        assert!(profile_of(&app, CHIEF, PLAN).unwrap().is_none());
+        cleanup(app);
+    }
+
+    #[test]
+    fn labeled_tasks_only_go_to_workers_whose_profile_takes_the_label() {
+        let app = fixture();
+        add_task(&app, "Pantalla", |r| r.label = Some("FE".into()));
+        add_task(&app, "API", |r| r.label = Some("be".into()));
+        add_task(&app, "Docs", |_| {});
+        action(&app, &profile_req(CHIEF, PLAN, |r| r.labels = Some("BE, bff".into()))).unwrap();
+        let refused = action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(PLAN.into())));
+        assert_eq!(refused.unwrap_err(), "T1 is labeled FE but Planning session only takes BE, BFF");
+        assert!(get_task(&app, CHIEF, 1).unwrap().worker_id.is_none());
+        assert_eq!(action(&app, &on(CHIEF, "assign", "T2", |r| r.worker = Some(PLAN.into()))).unwrap()["task"]["workerId"], PLAN, "labels match case-insensitively");
+        assert_eq!(action(&app, &on(CHIEF, "assign", "T3", |r| r.worker = Some(PLAN.into()))).unwrap()["task"]["workerId"], PLAN, "an unlabeled task fits any worker");
+        action(&app, &on(CHIEF, "assign", "T2", |r| r.worker = Some("none".into()))).unwrap();
+
+        let mut extra = req(CHIEF, "add");
+        extra.title = Some("Botón".into());
+        extra.label = Some("FE".into());
+        extra.worker = Some(PLAN.into());
+        assert_eq!(action(&app, &extra).unwrap_err(), "T4 is labeled FE but Planning session only takes BE, BFF");
+        extra.label = Some("BFF".into());
+        assert_eq!(action(&app, &extra).unwrap()["task"]["ref"], "T4");
+
+        assert_eq!(action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap()["task"]["workerId"], EXEC, "no profile takes any task");
+        action(&app, &profile_req(CHIEF, EXEC, |r| r.labels = Some(" , ".into()))).unwrap();
+        let mut any = req(CHIEF, "add");
+        any.title = Some("Estilos".into());
+        any.label = Some("FE".into());
+        any.worker = Some(EXEC.into());
+        assert!(action(&app, &any).is_ok(), "a profile without labels takes any task");
+        cleanup(app);
+    }
+
+    #[test]
+    fn worker_instructions_are_appended_to_its_briefs() {
+        let app = fixture();
+        add_task(&app, "Base", |_| {});
+        action(&app, &profile_req(CHIEF, PLAN, |r| r.text = "Run cargo test before review".into())).unwrap();
+        add_task(&app, "Rendimiento", |r| { r.worker = Some(PLAN.into()); r.status = Some("in_progress".into()); r.text = "Details".into(); });
+        let brief = tells(&app, PLAN)[0].0.clone();
+        assert!(brief.contains("Details\n\nYour instructions on this board:\nRun cargo test before review\n\nWhen you finish"));
+        add_task(&app, "Sin perfil", |r| { r.worker = Some(EXEC.into()); r.status = Some("in_progress".into()); });
+        assert!(!tells(&app, EXEC)[0].0.contains("Your instructions on this board"));
+        cleanup(app);
+    }
+
+    #[test]
+    fn board_lists_include_worker_profiles_by_name() {
+        let app = fixture();
+        add_task(&app, "Base", |_| {});
+        assert_eq!(board_list(&app, CHIEF).unwrap()["workers"], json!([]));
+        action(&app, &profile_req(CHIEF, PLAN, |r| { r.labels = Some("BE".into()); r.text = "Backend only".into(); })).unwrap();
+        action(&app, &profile_req(CHIEF, EXEC, |_| {})).unwrap();
+        let workers = board_list(&app, CHIEF).unwrap()["workers"].clone();
+        assert_eq!(workers, json!([
+            {"workerId":EXEC,"name":"Execute","labels":[],"instructions":""},
+            {"workerId":PLAN,"name":"Planning session","labels":["BE"],"instructions":"Backend only"}
+        ]));
+        assert_eq!(action(&app, &req(CHIEF, "list")).unwrap()["workers"], workers);
+        cleanup(app);
+    }
+
+    #[test]
+    fn the_user_edits_worker_profiles_from_the_board_view() {
+        let app = fixture();
+        register_legacy(&app);
+        let request: UserRequest = serde_json::from_value(json!({"action":"profile","worker":PLAN,"labels":"fe, qa","text":"Hi"})).unwrap();
+        let set = user_action(&app, "legacy", request).unwrap();
+        assert_eq!(set["worker"]["labels"], json!(["FE","QA"]));
+        assert_eq!(set["worker"]["instructions"], "Hi");
+        let kept = user(&app, "legacy", "profile", None, |r| r.worker = Some(PLAN.into())).unwrap();
+        assert_eq!((kept["worker"]["labels"].clone(), kept["worker"]["instructions"].clone()), (json!(["FE","QA"]), json!("Hi")));
+        let cleared = user(&app, "legacy", "profile", None, |r| { r.worker = Some(PLAN.into()); r.text = Some(String::new()); }).unwrap();
+        assert_eq!(cleared["worker"]["instructions"], "");
+        assert!(user(&app, "legacy", "profile", None, |_| {}).unwrap_err().contains("Missing worker"));
+        cleanup(app);
+    }
+
+    #[test]
+    fn cli_profile_arguments_map_to_a_profile_request() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let set = parse_args(&args(&["profile", "worker one", "--labels", "BE,BFF", "-m", "Rules"])).unwrap().unwrap();
+        assert_eq!((set.worker.as_deref(), set.labels.as_deref(), set.text.as_str(), set.keep_instructions), (Some("worker one"), Some("BE,BFF"), "Rules", false));
+        let keep = parse_args(&args(&["profile", "worker one"])).unwrap().unwrap();
+        assert_eq!((keep.labels.as_deref(), keep.keep_instructions), (None, true));
+        let clear = parse_args(&args(&["profile", "worker one", "--labels", "", "-m", ""])).unwrap().unwrap();
+        assert_eq!((clear.labels.as_deref(), clear.text.as_str(), clear.keep_instructions), (Some(""), "", false));
+        assert!(parse_args(&args(&["profile"])).is_err());
+        assert!(parse_args(&args(&["profile", "a", "b"])).is_err());
     }
 
     #[test]

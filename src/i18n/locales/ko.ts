@@ -2563,6 +2563,14 @@ const ko: typeof en = {
   "board.loading": "보드 불러오는 중…", // Loading board…
   "board.hidePanel": "채팅 패널 숨기기", // Hide chat panel
   "board.showPanel": "채팅 패널 표시", // Show chat panel
+  "board.workers": "워커", // Workers
+  "board.workerProfile": "워커 프로필", // Worker Profile
+  "board.workerProfileHint": "워커의 라벨에 없는 라벨이 붙은 작업은 할당할 수 없습니다. 라벨을 비워 두면 모든 작업을 받습니다. 지침은 워커가 받는 모든 작업 브리프에 추가됩니다.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "워커", // Worker
+  "board.workerLabels": "라벨", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "지침", // Instructions
+  "board.workerSave": "저장", // Save
 };
 
 export default ko;

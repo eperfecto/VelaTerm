@@ -1,13 +1,16 @@
 //! Task board of a chief chat session (S12-S17). Four fixed columns of task cards, a new-task form, worker
 //! assignment from the chief's child sessions, drag and drop between columns, and a resizable side panel with
-//! the chief's chat and a tab per opened worker. Every change goes through `board_action`, which acts as the
-//! user with chief permissions; the view refetches on `board://changed` so other clients and the CLI show up.
+//! the chief's chat and a tab per opened worker. Worker profiles (S19) set the labels a worker takes and the
+//! instructions added to its briefs; the assign menu lists the workers that take a task first. Every change goes
+//! through `board_action`, which acts as the user with chief permissions; the view refetches on
+//! `board://changed` so other clients and the CLI show up.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ContextMenu, type MenuItem } from "../../../components/ContextMenu";
 import { FormModal } from "../../../components/FormModal";
 import Icons from "../../../components/Icons";
+import Select from "../../../components/Select";
 import { Splitter } from "../../../components/Splitter";
 import { StatusDot } from "../../../components/StatusDot";
 import { useT } from "../../../i18n";
@@ -19,6 +22,7 @@ import {
   type BoardList,
   type BoardStatus,
   type BoardTask,
+  type BoardWorker,
 } from "../../../ipc/board";
 import { onBoardChanged } from "../../../ipc/events";
 import { platform } from "../../../platform";
@@ -45,6 +49,13 @@ const PANEL_DEFAULT = 440;
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** A worker takes a task when the task has no label, the worker has no labels, or its labels include the task's. */
+export function takesTask(task: BoardTask, profile: BoardWorker | undefined) {
+  if (!task.label || !profile?.labels.length) return true;
+  const label = task.label.toUpperCase();
+  return profile.labels.some((x) => x.toUpperCase() === label);
+}
+
 export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
   const t = useT();
   const chiefId = tab.chiefId;
@@ -55,6 +66,7 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [blocking, setBlocking] = useState<BoardTask | null>(null);
+  const [profiling, setProfiling] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; task: BoardTask } | null>(null);
   const [dropTarget, setDropTarget] = useState<BoardStatus | null>(null);
   // Side panel: the chief's chat is always the first tab; opened workers follow it.
@@ -99,6 +111,12 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
 
   const tasks = useMemo(() => list?.columns.flatMap((c) => c.tasks) ?? [], [list]);
   const done = tasks.filter((x) => x.status === "done").length;
+  const profileOf = (workerId: string) => list?.workers?.find((w) => w.workerId === workerId);
+  /** Form values of a worker's current profile; a worker without one starts empty. */
+  const profileValues = (workerId: string) => {
+    const profile = profileOf(workerId);
+    return { worker: workerId, labels: profile?.labels.join(", ") ?? "", instructions: profile?.instructions ?? "" };
+  };
 
   const openWorker = (workerId: string) => {
     setWorkerTabs((prev) => (prev.includes(workerId) ? prev : [...prev, workerId]));
@@ -112,6 +130,23 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
 
   const moveTo = (task: BoardTask, status: BoardStatus) => {
     if (task.status !== status) run({ action: "move", task: task.ref, status });
+  };
+
+  /** Workers that take the task come first; the rest follow disabled, with the labels they take as a hint. */
+  const workerItems = (task: BoardTask): MenuItem[] => {
+    const item = (w: Session, fits: boolean): MenuItem => ({
+      label: fits ? w.name : `${w.name} (${profileOf(w.id)?.labels.join(", ")})`,
+      checked: task.workerId === w.id,
+      disabled: !fits,
+      onClick: () => run({ action: "assign", task: task.ref, worker: w.id }),
+    });
+    const fit = children.filter((w) => takesTask(task, profileOf(w.id)));
+    const unfit = children.filter((w) => !fit.includes(w));
+    return [
+      ...fit.map((w) => item(w, true)),
+      ...(fit.length && unfit.length ? [{ label: "", separator: true } as MenuItem] : []),
+      ...unfit.map((w) => item(w, false)),
+    ];
   };
 
   const menuItems = (task: BoardTask): MenuItem[] => [
@@ -133,13 +168,7 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
           onClick: () => run({ action: "assign", task: task.ref, worker: "none" }),
         },
         ...(children.length ? [{ label: "", separator: true } as MenuItem] : []),
-        ...children.map(
-          (w): MenuItem => ({
-            label: w.name,
-            checked: task.workerId === w.id,
-            onClick: () => run({ action: "assign", task: task.ref, worker: w.id }),
-          }),
-        ),
+        ...workerItems(task),
       ],
     },
     task.blockedReason
@@ -169,6 +198,9 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
             {done}/{tasks.length}
           </span>
           <span className="board-spacer" />
+          <button type="button" className="vlx-btn" disabled={!children.length} onClick={() => setProfiling(true)}>
+            {t("board.workers")}
+          </button>
           <button type="button" className="vlx-btn vlx-btn-primary" onClick={() => setAdding(true)}>
             {t("board.addTask")}
           </button>
@@ -295,6 +327,54 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
               ...(v.link.trim() ? { link: v.link.trim() } : {}),
             });
             setAdding(false);
+          }}
+        />
+      )}
+      {profiling && children.length > 0 && (
+        <FormModal
+          title={t("board.workerProfile")}
+          description={t("board.workerProfileHint")}
+          width={440}
+          initial={profileValues(children[0].id)}
+          fields={[
+            {
+              key: "worker",
+              label: t("board.worker"),
+              required: true,
+              render: (value, _onChange, { changeValues, disabled }) => (
+                <Select
+                  value={value}
+                  disabled={disabled}
+                  width="100%"
+                  ariaLabel={t("board.worker")}
+                  options={children.map((w) => ({ value: w.id, label: w.name }))}
+                  // Switching worker loads that worker's saved profile into the form.
+                  onChange={(id) => changeValues(profileValues(id))}
+                />
+              ),
+            },
+            { key: "labels", label: t("board.workerLabels"), placeholder: t("board.workerLabelsPlaceholder") },
+            {
+              key: "instructions",
+              label: t("board.workerInstructions"),
+              render: (value, onChange, { disabled }) => (
+                <textarea
+                  className="vlx-input board-instructions"
+                  rows={5}
+                  aria-label={t("board.workerInstructions")}
+                  disabled={disabled}
+                  value={value}
+                  onChange={(e) => onChange(e.target.value)}
+                />
+              ),
+            },
+          ]}
+          submitLabel={t("board.workerSave")}
+          onCancel={() => setProfiling(false)}
+          onSubmit={async (v) => {
+            // Labels and instructions are sent in full, so an emptied field clears the saved value.
+            await act({ action: "profile", worker: v.worker, labels: v.labels.trim(), text: v.instructions.trim() });
+            setProfiling(false);
           }}
         />
       )}

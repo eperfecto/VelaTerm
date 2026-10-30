@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BoardList, BoardTask } from "../../../ipc/board";
+import type { BoardList, BoardTask, BoardWorker } from "../../../ipc/board";
 import type { Session } from "../../../types";
 
 vi.mock("../../../ipc/transport", async (original) => ({
@@ -37,8 +37,10 @@ const tasks = [
   task({ ref: "T3", title: "Legacy shell", status: "review", workerId: "tui-worker" }),
 ];
 
+let workers: BoardWorker[] = [];
+
 const board = (): BoardList => ({
-  chiefId: "chief", board: "Release board", role: "chief",
+  chiefId: "chief", board: "Release board", role: "chief", workers,
   columns: (["backlog", "in_progress", "review", "done"] as const).map((status) => ({
     status, tasks: tasks.filter((x) => x.status === status),
   })),
@@ -51,6 +53,7 @@ const listCalls = () => vi.mocked(invoke).mock.calls.filter(([command]) => comma
 beforeEach(() => {
   setLang("en");
   boardChanged = undefined;
+  workers = [];
   vi.mocked(listen).mockReset().mockImplementation((name, callback) => {
     if (name === "board://changed") boardChanged = callback as typeof boardChanged;
     return Promise.resolve(() => {});
@@ -190,5 +193,59 @@ describe("BoardView", () => {
     expect(screen.getByRole("tab", { name: "Shell worker" })).toBeTruthy();
     expect(screen.queryByTestId("chat-tui-worker")).toBeNull();
     expect(screen.getByText(/does not use the chat view/)).toBeTruthy();
+  });
+
+  it("edits a worker profile prefilled from the board and sends every field in full", async () => {
+    workers = [
+      { workerId: "worker", name: "API worker", labels: ["BE", "BFF"], instructions: "Run cargo test before review" },
+    ];
+    await renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Workers" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Worker Profile" }));
+    expect(dialog.getByRole("combobox", { name: "Worker" }).textContent).toContain("API worker");
+    expect((dialog.getByLabelText("Labels") as HTMLInputElement).value).toBe("BE, BFF");
+    expect((dialog.getByLabelText("Instructions") as HTMLTextAreaElement).value).toBe("Run cargo test before review");
+    // Another worker without a profile starts empty.
+    fireEvent.click(dialog.getByRole("combobox", { name: "Worker" }));
+    fireEvent.click(screen.getByRole("option", { name: "Shell worker" }));
+    expect((dialog.getByLabelText("Labels") as HTMLInputElement).value).toBe("");
+    fireEvent.change(dialog.getByLabelText("Labels"), { target: { value: "fe" } });
+    fireEvent.change(dialog.getByLabelText("Instructions"), { target: { value: "Use the design tokens" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("board_action", {
+        chiefId: "chief",
+        request: { action: "profile", worker: "tui-worker", labels: "fe", text: "Use the design tokens" },
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("lists workers that take the task first and disables the rest with their labels", async () => {
+    workers = [{ workerId: "worker", name: "API worker", labels: ["FE"], instructions: "" }];
+    await renderBoard();
+    // T1 is labeled BE: the API worker only takes FE, the shell worker has no profile.
+    fireEvent.click(within(card("T1")).getByLabelText("Task actions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Assign Worker/ }));
+    const submenu = screen.getAllByRole("menu").at(-1)!;
+    const items = within(submenu).getAllByRole("menuitemcheckbox");
+    // The API worker still holds T1 from before its profile changed, so it keeps its check mark.
+    expect(items.map((x) => x.textContent?.replace("✓", ""))).toEqual(["No worker", "Shell worker", "API worker (FE)"]);
+    expect(items[1].getAttribute("aria-disabled")).toBeNull();
+    expect(items[2].getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(items[2]);
+    expect(invoke).not.toHaveBeenCalledWith("board_action", expect.anything());
+  });
+
+  it("shows a refused assignment in the error banner", async () => {
+    await renderBoard();
+    vi.mocked(invoke).mockImplementation((command) =>
+      (command === "board_action"
+        ? Promise.reject("T2 is labeled FE but API worker only takes BE, BFF")
+        : Promise.resolve(board())) as Promise<never>);
+    fireEvent.click(within(card("T2")).getByLabelText("Task actions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Assign Worker/ }));
+    fireEvent.click(within(screen.getAllByRole("menu").at(-1)!).getByRole("menuitemcheckbox", { name: "API worker" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("T2 is labeled FE but API worker only takes BE, BFF");
   });
 });

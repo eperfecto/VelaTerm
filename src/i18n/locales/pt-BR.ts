@@ -2592,6 +2592,14 @@ const ptBR: typeof en = {
   "board.loading": "Carregando quadro…", // Loading board…
   "board.hidePanel": "Ocultar painel de chat", // Hide chat panel
   "board.showPanel": "Mostrar painel de chat", // Show chat panel
+  "board.workers": "Workers", // Workers
+  "board.workerProfile": "Perfil do worker", // Worker Profile
+  "board.workerProfileHint": "Tarefas com rótulos fora dos rótulos de um worker não podem ser atribuídas a ele; deixe os rótulos vazios para aceitar qualquer tarefa. As instruções são adicionadas a cada brief de tarefa que o worker recebe.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "Worker", // Worker
+  "board.workerLabels": "Rótulos", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "Instruções", // Instructions
+  "board.workerSave": "Salvar", // Save
 };
 
 export default ptBR;

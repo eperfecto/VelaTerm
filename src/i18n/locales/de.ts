@@ -2587,6 +2587,14 @@ const de: typeof en = {
   "board.loading": "Board wird geladen…", // Loading board…
   "board.hidePanel": "Chat-Bereich ausblenden", // Hide chat panel
   "board.showPanel": "Chat-Bereich einblenden", // Show chat panel
+  "board.workers": "Worker", // Workers
+  "board.workerProfile": "Worker-Profil", // Worker Profile
+  "board.workerProfileHint": "Aufgaben mit Labels außerhalb der Labels eines Workers können ihm nicht zugewiesen werden; leere Labels akzeptieren jede Aufgabe. Anweisungen werden jedem Aufgaben-Briefing des Workers angehängt.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "Worker", // Worker
+  "board.workerLabels": "Labels", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "Anweisungen", // Instructions
+  "board.workerSave": "Speichern", // Save
 };
 
 export default de;

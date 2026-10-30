@@ -2531,6 +2531,14 @@ const zhTW: typeof en = {
   "board.loading": "正在載入看板…", // Loading board…
   "board.hidePanel": "隱藏聊天面板", // Hide chat panel
   "board.showPanel": "顯示聊天面板", // Show chat panel
+  "board.workers": "工作者", // Workers
+  "board.workerProfile": "工作者設定檔", // Worker Profile
+  "board.workerProfileHint": "標籤不在工作者標籤內的任務無法指派給它；標籤留空則接受任何任務。指令會附加到工作者收到的每個任務簡報中。", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "工作者", // Worker
+  "board.workerLabels": "標籤", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "指令", // Instructions
+  "board.workerSave": "儲存", // Save
 };
 
 export default zhTW;
