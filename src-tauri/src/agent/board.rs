@@ -9,7 +9,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{db::repo, host::AppCtx, models::Session};
+use crate::host::AppCtx;
 
 pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS board_tasks (
@@ -93,22 +93,7 @@ fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64
 }
 
-fn session(app: &AppCtx, id: &str) -> Result<Session, String> {
-    repo::get_session(&app.db().conn.lock().unwrap(), id)?
-        .filter(|s| s.archived_at.is_none())
-        .ok_or_else(|| "The session is missing or archived".into())
-}
-
-fn resolve_session(app: &AppCtx, reference: &str) -> Result<String, String> {
-    match repo::resolve_session_ref(&app.db().conn.lock().unwrap(), reference)? {
-        repo::SessionRefMatch::One(id) => Ok(id),
-        repo::SessionRefMatch::None => Err("Worker session not found".into()),
-        repo::SessionRefMatch::Ambiguous(candidates) => Err(format!(
-            "Ambiguous worker; use a session ID:\n{}",
-            candidates.iter().map(|(id, name)| format!("{id}  {name}")).collect::<Vec<_>>().join("\n")
-        )),
-    }
-}
+use super::tell::{resolve as resolve_session, session};
 
 fn parse_status(value: &str) -> Result<&'static str, String> {
     let normalized = value.trim().to_lowercase().replace('-', "_");
@@ -220,14 +205,29 @@ struct Event<'a> {
     text: &'a str,
 }
 
-fn record(app: &AppCtx, task_id: &str, event: &Event) -> Result<i64, String> {
-    let conn = app.db().conn.lock().unwrap();
+fn insert_event(conn: &rusqlite::Connection, task_id: &str, event: &Event) -> Result<i64, String> {
     conn.execute(
         "INSERT INTO board_events(task_id,actor_id,action,from_status,to_status,text,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
         params![task_id, event.actor, event.action, event.from, event.to, event.text, now_ms()],
     )
     .map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Apply a task change and its event in one transaction. The watchdog reads events to decide whether a
+/// worker updated its task, so a change must never exist without its event.
+fn apply(
+    app: &AppCtx,
+    task_id: &str,
+    event: &Event,
+    change: impl FnOnce(&rusqlite::Connection) -> Result<(), String>,
+) -> Result<i64, String> {
+    let mut conn = app.db().conn.lock().unwrap();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    change(&tx)?;
+    let id = insert_event(&tx, task_id, event)?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(id)
 }
 
 /// Deliver a board message and link it to the event that produced it, so a worker's later silence
@@ -325,7 +325,25 @@ fn worker_for(app: &AppCtx, chief: &str, reference: &str) -> Result<Option<Strin
         return Err("The chief cannot be a worker on its own board".into());
     }
     session(app, &id)?;
-    Ok(Some(id))
+    // A session resolves to exactly one board; a second one would make its commands ambiguous.
+    let conflict: Option<String> = app
+        .db()
+        .conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT CASE WHEN chief_id=?1 THEN 'chief' ELSE 'worker' END FROM board_tasks \
+             WHERE chief_id=?1 OR (worker_id=?1 AND chief_id!=?2) LIMIT 1",
+            params![id, chief],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    match conflict.as_deref() {
+        Some("chief") => Err("That session is the chief of its own board and cannot also be a worker".into()),
+        Some(_) => Err("That session already works on another board".into()),
+        None => Ok(Some(id)),
+    }
 }
 
 fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
@@ -338,7 +356,7 @@ fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
     let label = req.label.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let link = req.link.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let id = uuid::Uuid::new_v4().to_string();
-    {
+    let event = {
         let mut conn = app.db().conn.lock().unwrap();
         let tx = conn.transaction().map_err(|e| e.to_string())?;
         let number: i64 = tx
@@ -351,12 +369,13 @@ fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
             params![id, chief, number, title, req.text.trim(), label, link, status, worker, position, at],
         )
         .map_err(|e| e.to_string())?;
+        let event = insert_event(&tx, &id, &Event { actor: chief, action: "add", from: None, to: Some(status), text: title })?;
         tx.commit().map_err(|e| e.to_string())?;
-    }
+        event
+    };
     let task = app.db().conn.lock().unwrap()
         .query_row(&format!("SELECT {TASK_COLUMNS} FROM board_tasks WHERE id=?1"), [&id], read_task)
         .map_err(|e| e.to_string())?;
-    let event = record(app, &task.id, &Event { actor: chief, action: "add", from: None, to: Some(status), text: title })?;
     let message = match (&task.worker_id, status) {
         (Some(worker), "in_progress") => Some(send(app, event, &task, chief, worker, &brief(app, &task))),
         _ => None,
@@ -367,44 +386,49 @@ fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
 
 fn assign(app: &AppCtx, chief: &str, mut task: Task, reference: &str) -> Result<Value, String> {
     let worker = worker_for(app, chief, reference)?;
-    app.db()
-        .conn
-        .lock()
-        .unwrap()
-        .execute(
-            "UPDATE board_tasks SET worker_id=?2,updated_at=?3 WHERE id=?1",
-            params![task.id, worker, now_ms()],
-        )
-        .map_err(|e| e.to_string())?;
-    let previous = std::mem::replace(&mut task.worker_id, worker.clone());
     let text = worker.as_deref().unwrap_or("none");
-    let event = record(app, &task.id, &Event { actor: chief, action: "assign", from: None, to: None, text })?;
+    let event = apply(app, &task.id, &Event { actor: chief, action: "assign", from: None, to: None, text }, |conn| {
+        conn.execute("UPDATE board_tasks SET worker_id=?2,updated_at=?3 WHERE id=?1", params![task.id, worker, now_ms()])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })?;
+    let previous = std::mem::replace(&mut task.worker_id, worker.clone());
+    if previous == worker {
+        changed(app, &task);
+        return Ok(json!({"task":task,"message":null,"released":null}));
+    }
+    // The outgoing worker stops here; otherwise it keeps working and its next update is refused.
+    let released = previous.map(|previous| {
+        let notice = format!("[Board] {} \"{}\" is no longer assigned to you. Stop working on it.", task.reference, task.title);
+        send(app, event, &task, chief, &previous, &notice)
+    });
+    // Sent last, so the event links to the brief that the watchdog follows.
     let message = match &worker {
-        Some(worker) if task.status == "in_progress" && previous.as_ref() != Some(worker) => {
-            Some(send(app, event, &task, chief, worker, &brief(app, &task)))
-        }
+        Some(worker) if task.status == "in_progress" => Some(send(app, event, &task, chief, worker, &brief(app, &task))),
         _ => None,
     };
     changed(app, &task);
-    Ok(json!({"task":task,"message":message}))
+    Ok(json!({"task":task,"message":message,"released":released}))
 }
 
 fn move_task(app: &AppCtx, caller: &str, role: Role, mut task: Task, status: &str, text: &str) -> Result<Value, String> {
     let status = parse_status(status)?;
     let from = task.status.clone();
-    {
-        let conn = app.db().conn.lock().unwrap();
-        let position = if from == status { task.position } else { next_position(&conn, &task.chief_id, status)? };
+    let mut position = task.position;
+    let event = apply(app, &task.id, &Event { actor: caller, action: "move", from: Some(from.as_str()), to: Some(status), text }, |conn| {
+        if from != status {
+            position = next_position(conn, &task.chief_id, status)?;
+        }
         conn.execute(
             "UPDATE board_tasks SET status=?2,blocked_reason=NULL,position=?3,updated_at=?4 WHERE id=?1",
             params![task.id, status, position, now_ms()],
         )
-        .map_err(|e| e.to_string())?;
-        task.position = position;
-    }
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    })?;
+    task.position = position;
     task.status = status.to_owned();
     task.blocked_reason = None;
-    let event = record(app, &task.id, &Event { actor: caller, action: "move", from: Some(from.as_str()), to: Some(status), text })?;
     let message = match role {
         Role::Worker => {
             let name = session(app, caller).map(|s| s.name).unwrap_or_default();
@@ -436,18 +460,13 @@ fn set_blocked(app: &AppCtx, caller: &str, role: Role, mut task: Task, reason: O
         return Err("Explain what is blocking the task".into());
     }
     let reason = reason.map(str::trim);
-    app.db()
-        .conn
-        .lock()
-        .unwrap()
-        .execute(
-            "UPDATE board_tasks SET blocked_reason=?2,updated_at=?3 WHERE id=?1",
-            params![task.id, reason, now_ms()],
-        )
-        .map_err(|e| e.to_string())?;
-    task.blocked_reason = reason.map(str::to_owned);
     let action = if reason.is_some() { "block" } else { "unblock" };
-    let event = record(app, &task.id, &Event { actor: caller, action, from: None, to: None, text: reason.unwrap_or("") })?;
+    let event = apply(app, &task.id, &Event { actor: caller, action, from: None, to: None, text: reason.unwrap_or("") }, |conn| {
+        conn.execute("UPDATE board_tasks SET blocked_reason=?2,updated_at=?3 WHERE id=?1", params![task.id, reason, now_ms()])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })?;
+    task.blocked_reason = reason.map(str::to_owned);
     let target = match role {
         Role::Worker => Some(task.chief_id.clone()),
         Role::Chief => task.worker_id.clone(),
@@ -591,25 +610,21 @@ fn watchdog(app: &AppCtx, worker: &str, last_message: &str, interrupted: bool) {
     ) else {
         return;
     };
-    if app
-        .db()
-        .conn
-        .lock()
-        .unwrap()
-        .execute("UPDATE board_tasks SET blocked_reason=?2,updated_at=?3 WHERE id=?1", params![task.id, reason, now_ms()])
-        .is_err()
-    {
+    let blocked = Event { actor: SYSTEM_ACTOR, action: "block", from: None, to: None, text: reason };
+    let Ok(event) = apply(app, &task.id, &blocked, |conn| {
+        conn.execute("UPDATE board_tasks SET blocked_reason=?2,updated_at=?3 WHERE id=?1", params![task.id, reason, now_ms()])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }) else {
         return;
-    }
+    };
     task.blocked_reason = Some(reason.into());
     crate::diagnostics::record("WARN", "board_handoff", json!({"taskId":task.id,"sessionId":worker,"status":"blocked"}));
-    if let Ok(event) = record(app, &task.id, &Event { actor: SYSTEM_ACTOR, action: "block", from: None, to: None, text: reason }) {
-        let notice = format!(
-            "[Board] {} \"{}\" is blocked: {reason}\nWorker session: {worker}\nUse vboard show {} before resuming.",
-            task.reference, task.title, task.reference
-        );
-        send(app, event, &task, worker, &task.chief_id.clone(), &notice);
-    }
+    let notice = format!(
+        "[Board] {} \"{}\" is blocked: {reason}\nWorker session: {worker}\nUse vboard show {} before resuming.",
+        task.reference, task.title, task.reference
+    );
+    send(app, event, &task, worker, &task.chief_id.clone(), &notice);
     changed(app, &task);
 }
 
@@ -673,21 +688,26 @@ pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
     let mut i = 1;
     while i < args.len() {
         let flag = args[i].as_str();
-        if flag.starts_with('-') && flag.len() > 1 {
-            let value = args.get(i + 1).ok_or_else(|| format!("Missing value for {flag}"))?.clone();
-            match flag {
-                "-m" | "--message" => text = Some(value),
-                "--label" => req.label = Some(value),
-                "--link" => req.link = Some(value),
-                "--status" => req.status = Some(value),
-                "--worker" => req.worker = Some(value),
-                _ => return Err(format!("Unknown option {flag}")),
-            }
-            i += 2;
-        } else {
-            positional.push(args[i].clone());
-            i += 1;
+        if flag == "--" {
+            // Everything after `--` is positional, so a title may itself start with a dash.
+            positional.extend(args[i + 1..].iter().cloned());
+            break;
         }
+        let target = match flag {
+            "-m" | "--message" => &mut text,
+            "--label" => &mut req.label,
+            "--link" => &mut req.link,
+            "--status" => &mut req.status,
+            "--worker" => &mut req.worker,
+            _ if flag.starts_with("--") => return Err(format!("Unknown option {flag}")),
+            _ => {
+                positional.push(args[i].clone());
+                i += 1;
+                continue;
+            }
+        };
+        *target = Some(args.get(i + 1).ok_or_else(|| format!("Missing value for {flag}"))?.clone());
+        i += 2;
     }
     let expected = match action.as_str() {
         "list" => 0,
@@ -865,6 +885,32 @@ mod tests {
     }
 
     #[test]
+    fn a_session_works_on_one_board_and_reassignment_releases_the_previous_worker() {
+        let app = fixture();
+        let mut own = req("legacy", "add");
+        own.title = Some("Legacy board".into());
+        own.worker = Some(EXEC.into());
+        action(&app, &own).unwrap();
+        add_task(&app, "Rendimiento", |r| { r.worker = Some(PLAN.into()); r.status = Some("in_progress".into()); });
+        assert!(action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some("legacy".into()))).unwrap_err().contains("chief of its own board"));
+        assert!(action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap_err().contains("another board"));
+        let mut extra = req(CHIEF, "add");
+        extra.title = Some("Extra".into());
+        extra.worker = Some(EXEC.into());
+        assert!(action(&app, &extra).unwrap_err().contains("another board"));
+
+        action(&app, &on("legacy", "assign", "T1", |r| r.worker = Some("none".into()))).unwrap();
+        let reassigned = action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap();
+        assert_eq!(reassigned["task"]["workerId"], EXEC);
+        assert!(tells(&app, PLAN).last().unwrap().0.contains("no longer assigned to you"));
+        assert!(tells(&app, EXEC).last().unwrap().0.contains("You are the worker for T1"));
+        assert!(action(&app, &on(PLAN, "move", "T1", |r| r.status = Some("review".into()))).unwrap_err().contains("no board"));
+        let same = action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap();
+        assert!(same["message"].is_null() && same["released"].is_null());
+        cleanup(app);
+    }
+
+    #[test]
     fn blocking_is_a_flag_that_notifies_the_other_side_and_a_move_clears_it() {
         let app = fixture();
         add_task(&app, "Histograma", |r| { r.worker = Some(PLAN.into()); r.status = Some("in_progress".into()); });
@@ -928,6 +974,8 @@ mod tests {
         assert!(parse_args(&args(&["move", "T3"])).is_err());
         assert!(parse_args(&args(&["show", "T3", "--bogus", "x"])).is_err());
         assert!(parse_args(&args(&["frobnicate"])).is_err());
+        assert_eq!(parse_args(&args(&["add", "-5% latency"])).unwrap().unwrap().title.as_deref(), Some("-5% latency"));
+        assert_eq!(parse_args(&args(&["add", "--", "--flag-like"])).unwrap().unwrap().title.as_deref(), Some("--flag-like"));
         assert_eq!(parse_ref("t12").unwrap(), 12);
         assert!(parse_ref("T0").is_err());
     }

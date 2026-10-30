@@ -42,7 +42,7 @@ pub(super) fn session(app: &AppCtx, id: &str) -> Result<Session, String> {
         .ok_or_else(|| "The session is missing or archived".into())
 }
 
-fn resolve(app: &AppCtx, reference: &str) -> Result<String, String> {
+pub(super) fn resolve(app: &AppCtx, reference: &str) -> Result<String, String> {
     match repo::resolve_session_ref(&app.db().conn.lock().unwrap(), reference)? {
         repo::SessionRefMatch::One(id) => Ok(id),
         repo::SessionRefMatch::None => Err("Target session not found".into()),
@@ -156,9 +156,10 @@ pub(super) fn notify(app: &AppCtx, sender_id: &str, target: &str, origin: Value,
     let delivery = if recipient.engine != "chat" || !super::plan_execute::supported(recipient.kind) {
         json!("retained")
     } else {
-        match deliver(app, target, &wire, &message_id, "queue") {
+        // The retry advice in a delivery error is for vtell; this message has no caller-held ID to retry.
+        match submit(app, target, &wire, &message_id, vec![], "queue") {
             Ok(outcome) => json!(outcome),
-            Err(error) => json!({"error": error}),
+            Err(error) => json!({"error": format!("Delivery to {target} failed: {error}. The change is saved and the message stays in the session ledger.")}),
         }
     };
     Ok(json!({"messageId": message_id, "targetSessionId": target, "delivery": delivery}))
@@ -185,13 +186,18 @@ pub(super) fn deliver_with_images(
     app: &AppCtx, target: &str, wire: &str, id: &str,
     images: Vec<super::chat::protocol::ChatImage>, behavior: &str,
 ) -> Result<&'static str, String> {
-    let result = (|| {
-        if !app.chat().is_alive(target) {
-            core::chat_start(app, target, None, None, false)?;
-        }
-        core::chat_send(app, target, wire, images, Some(behavior), Some(id))
-    })();
-    result.map_err(|error| format!("Delivery to {target} failed: {error}. Message {id} is retained; retry the same command with this message ID and unchanged text."))
+    submit(app, target, wire, id, images, behavior).map_err(|error| format!("Delivery to {target} failed: {error}. Message {id} is retained; retry the same command with this message ID and unchanged text."))
+}
+
+/// Start the target's chat if needed and submit one message, returning the engine's own error.
+fn submit(
+    app: &AppCtx, target: &str, wire: &str, id: &str,
+    images: Vec<super::chat::protocol::ChatImage>, behavior: &str,
+) -> Result<&'static str, String> {
+    if !app.chat().is_alive(target) {
+        core::chat_start(app, target, None, None, false)?;
+    }
+    core::chat_send(app, target, wire, images, Some(behavior), Some(id))
 }
 
 /// Only the target's exact persisted wire message can acquire a sender identity.
