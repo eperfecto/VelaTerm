@@ -50,6 +50,7 @@ impl Db {
         conn.execute_batch(crate::agent::plan_execute::SCHEMA).map_err(|e| e.to_string())?;
         crate::agent::plan_execute::migrate(&conn)?;
         conn.execute_batch(crate::agent::tell::SCHEMA).map_err(|e| e.to_string())?;
+        conn.execute_batch(crate::agent::board::SCHEMA).map_err(|e| e.to_string())?;
         crate::mobile_push::init(&conn)?;
         crate::memory::init(&conn)?;
         crate::kb::init(&conn)?;

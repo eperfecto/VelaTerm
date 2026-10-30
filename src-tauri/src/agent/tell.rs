@@ -141,6 +141,29 @@ pub fn send(app: &AppCtx, req: &Request) -> Result<Value, String> {
     Ok(json!({"delivery":delivery,"messageId":req.message_id,"targetSessionId":target}))
 }
 
+/// Record a platform message, such as a board notice, in the ordinary session ledger and queue it for the
+/// target. A target that is not a native chat session keeps the message as `retained`; the ledger row is
+/// still written so the message can be read later. A delivery failure is reported, not raised, because
+/// the change that produced the message has already been committed.
+pub(super) fn notify(app: &AppCtx, sender_id: &str, target: &str, origin: Value, text: &str) -> Result<Value, String> {
+    let message_id = format!("msg-{}", uuid::Uuid::new_v4());
+    let wire = format!("[VelaTerm message {message_id}]\n{origin}\n\n{text}").trim_end().to_owned();
+    app.db().conn.lock().unwrap().execute(
+        "INSERT INTO session_tells(id,sender_id,target_id,fingerprint,wire,origin) VALUES (?1,?2,?3,'system',?4,?5)",
+        params![message_id, sender_id, target, wire, origin.to_string()],
+    ).map_err(|e| e.to_string())?;
+    let recipient = session(app, target)?;
+    let delivery = if recipient.engine != "chat" || !super::plan_execute::supported(recipient.kind) {
+        json!("retained")
+    } else {
+        match deliver(app, target, &wire, &message_id, "queue") {
+            Ok(outcome) => json!(outcome),
+            Err(error) => json!({"error": error}),
+        }
+    };
+    Ok(json!({"messageId": message_id, "targetSessionId": target, "delivery": delivery}))
+}
+
 /// The submission behavior a request asks for. Steering joins the turn already running; queuing waits
 /// for it to end. A steer with no turn to join is sent as an ordinary message rather than refused.
 pub(super) fn behavior(steer: bool) -> &'static str {

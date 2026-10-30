@@ -6647,6 +6647,7 @@ fn frame_context_tokens(message: &Value) -> Option<u64> {
 fn emit(app: &AppCtx, session_id: &str, mut payload: Value) {
     super::super::translation::observe(app, session_id, &payload);
     super::super::plan_execute::observe(app, session_id, &payload);
+    super::super::board::observe(app, session_id, &payload);
     super::super::tell::decorate(app, session_id, &mut payload);
     app.emit(&event_name(session_id), payload);
 }
