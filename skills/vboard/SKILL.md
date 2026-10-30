@@ -54,6 +54,8 @@ name substring.
 - When you need a decision or are stuck, `vboard block T3 -m "what is blocking you"`. Only the chief
   unblocks a task, and you cannot move a blocked task; wait for the chief.
 - Only the chief moves a task to `done`. Move finished work to `review`.
+- A session works on one board at a time. Tasks in `done` no longer count, so once all your tasks are
+  done another chief can assign you work.
 - End every turn that started from a `[Board]` message with a board update. Ending silently blocks the
   task.
 

@@ -152,7 +152,7 @@ fn board_of(app: &AppCtx, caller: &str) -> Result<Option<(String, Role)>, String
         return Ok(Some((caller.to_owned(), Role::Chief)));
     }
     let mut query = conn
-        .prepare("SELECT DISTINCT chief_id FROM board_tasks WHERE worker_id=?1")
+        .prepare("SELECT DISTINCT chief_id FROM board_tasks WHERE worker_id=?1 AND status!='done'")
         .map_err(|e| e.to_string())?;
     let chiefs = query
         .query_map([caller], |r| r.get::<_, String>(0))
@@ -384,7 +384,7 @@ fn worker_for(app: &AppCtx, chief: &str, reference: &str) -> Result<Option<Strin
         .query_row(
             "SELECT 'chief' FROM boards WHERE chief_id=?1 \
              UNION ALL SELECT CASE WHEN chief_id=?1 THEN 'chief' ELSE 'worker' END FROM board_tasks \
-             WHERE chief_id=?1 OR (worker_id=?1 AND chief_id!=?2) LIMIT 1",
+             WHERE chief_id=?1 OR (worker_id=?1 AND chief_id!=?2 AND status!='done') LIMIT 1",
             params![id, chief],
             |r| r.get(0),
         )
@@ -478,6 +478,26 @@ fn assign(app: &AppCtx, chief: &str, actor: &str, role: Role, mut task: Task, re
 fn move_task(app: &AppCtx, caller: &str, role: Role, mut task: Task, status: &str, text: &str) -> Result<Value, String> {
     let status = parse_status(status)?;
     let from = task.status.clone();
+    // Done tasks release their worker to other boards, so reopening one needs a worker that is still free.
+    if from == "done" && status != "done" {
+        if let Some(worker) = &task.worker_id {
+            let busy = app
+                .db()
+                .conn
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT 1 FROM board_tasks WHERE worker_id=?1 AND chief_id!=?2 AND status!='done' LIMIT 1",
+                    params![worker, task.chief_id],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+            if busy.is_some() {
+                return Err(format!("{}'s worker now works on another board; assign another worker first", task.reference));
+            }
+        }
+    }
     let mut position = task.position;
     let event = apply(app, &task.id, &Event { actor: caller, action: "move", from: Some(from.as_str()), to: Some(status), text }, |conn| {
         if from != status {
@@ -1137,6 +1157,28 @@ mod tests {
         action(&app, &on(PLAN, "move", "T1", |r| r.status = Some("review".into()))).unwrap();
         let done = action(&app, &on(CHIEF, "move", "T1", |r| r.status = Some("done".into()))).unwrap();
         assert_eq!(done["task"]["status"], "done");
+        cleanup(app);
+    }
+
+    #[test]
+    fn done_tasks_release_their_worker_to_another_board() {
+        let app = fixture();
+        let mut other = req("legacy", "add");
+        other.title = Some("Legacy task".into());
+        other.worker = Some(EXEC.into());
+        other.status = Some("in_progress".into());
+        action(&app, &other).unwrap();
+        add_task(&app, "Rendimiento", |_| {});
+        assert!(action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap_err().contains("another board"));
+
+        action(&app, &on("legacy", "move", "T1", |r| r.status = Some("done".into()))).unwrap();
+        action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap();
+        assert_eq!(action(&app, &req(EXEC, "list")).unwrap()["chiefId"], CHIEF);
+        let reopened = action(&app, &on("legacy", "move", "T1", |r| r.status = Some("review".into())));
+        assert!(reopened.unwrap_err().contains("assign another worker first"));
+        assert_eq!(get_task(&app, "legacy", 1).unwrap().status, "done");
+        action(&app, &on("legacy", "assign", "T1", |r| r.worker = Some("none".into()))).unwrap();
+        action(&app, &on("legacy", "move", "T1", |r| r.status = Some("review".into()))).unwrap();
         cleanup(app);
     }
 
