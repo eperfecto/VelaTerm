@@ -1059,6 +1059,13 @@ pub fn parse_args(args: &[String]) -> Result<Option<Request>, String> {
         *target = Some(args.get(i + 1).ok_or_else(|| format!("Missing value for {flag}"))?.clone());
         i += 2;
     }
+    // The two flags differ by one letter; a silently ignored one would look like a successful change.
+    if req.labels.is_some() && action != "profile" {
+        return Err("--labels only applies to vboard profile; use --label for a task".into());
+    }
+    if req.label.is_some() && action != "add" {
+        return Err("--label only applies to vboard add; use --labels for a worker profile".into());
+    }
     let expected = match action.as_str() {
         "list" => 0,
         "show" | "block" | "unblock" | "profile" => 1,
@@ -1558,6 +1565,10 @@ mod tests {
         assert!(brief.contains("Details\n\nYour instructions on this board:\nRun cargo test before review\n\nWhen you finish"));
         add_task(&app, "Sin perfil", |r| { r.worker = Some(EXEC.into()); r.status = Some("in_progress".into()); });
         assert!(!tells(&app, EXEC)[0].0.contains("Your instructions on this board"));
+        add_task(&app, "Later", |r| r.worker = Some(PLAN.into()));
+        action(&app, &on(CHIEF, "move", "T4", |r| r.status = Some("in_progress".into()))).unwrap();
+        let moved = tells(&app, PLAN).last().unwrap().0.clone();
+        assert!(moved.contains("You are the worker for T4") && moved.contains("Your instructions on this board:\nRun cargo test before review"));
         cleanup(app);
     }
 
@@ -1608,6 +1619,8 @@ mod tests {
         let clear = parse_args(&args(&["profile", "worker one", "--labels", "", "-m", ""])).unwrap().unwrap();
         assert_eq!((clear.labels.as_deref(), clear.text.as_str(), clear.keep_instructions), (Some(""), "", false));
         assert!(parse_args(&args(&["profile"])).is_err());
+        assert!(parse_args(&args(&["add", "X", "--labels", "BE"])).unwrap_err().contains("--labels only applies"));
+        assert!(parse_args(&args(&["profile", "w", "--label", "BE"])).unwrap_err().contains("--label only applies"));
         assert!(parse_args(&args(&["profile", "a", "b"])).is_err());
     }
 
