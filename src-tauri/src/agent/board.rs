@@ -490,7 +490,7 @@ fn check_labels(app: &AppCtx, chief: &str, worker: &str, reference: &str, label:
 
 /// Create or update a worker's profile. Absent labels or instructions keep the current ones; an empty
 /// value clears them. Not a task change, so no event is recorded.
-fn profile(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
+fn profile(app: &AppCtx, chief: &str, role: Role, req: &Request) -> Result<Value, String> {
     let worker = worker_for(app, chief, req.worker.as_deref().ok_or("Missing worker session")?)?
         .ok_or("Choose a worker session for the profile")?;
     let mut profile = profile_of(app, chief, &worker)?.unwrap_or_default();
@@ -514,6 +514,16 @@ fn profile(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
     app.emit("board://changed", json!({"chiefId":chief,"taskId":null}));
     let name = session(app, &worker).map(|s| s.name).unwrap_or_default();
+    // The chief assigns work, so it must know the labels a later assignment will be checked against.
+    if role == Role::User {
+        let labels = if profile.labels.is_empty() { "any".to_owned() } else { profile.labels.join(", ") };
+        let mut notice = format!("[Board] The user updated {name}'s worker profile. Labels: {labels}.");
+        if !profile.instructions.is_empty() {
+            notice.push_str(&format!("\n\nInstructions:\n{}", profile.instructions));
+        }
+        let origin = json!({"sessionId":chief,"name":USER_ACTOR,"agent":"terminal","role":"board","chiefId":chief});
+        let _ = super::tell::notify(app, chief, chief, origin, &notice);
+    }
     Ok(json!({"worker":worker_json(&worker, &name, &profile)}))
 }
 
@@ -732,7 +742,7 @@ fn perform(app: &AppCtx, chief: &str, caller: &str, role: Role, req: &Request) -
     if req.action == "profile" {
         return match role {
             Role::Worker => Err("Only the chief can edit worker profiles".into()),
-            Role::Chief | Role::User => profile(app, chief, req),
+            Role::Chief | Role::User => profile(app, chief, role, req),
         };
     }
     let task = get_task(app, chief, parse_ref(req.task.as_deref().ok_or("Missing task reference")?)?)?;
@@ -820,6 +830,11 @@ pub fn user_action(app: &AppCtx, chief: &str, request: UserRequest) -> Result<Va
     let _guard = lock().lock().unwrap();
     require_board(app, chief)?;
     let keep_instructions = request.text.is_none();
+    // The CLI caps its text; requests from the board view get the same bound.
+    let oversized = [&request.text, &request.title, &request.labels].iter().any(|v| v.as_ref().is_some_and(|t| t.len() > 65536));
+    if oversized {
+        return Err("Keep board text under 65536 bytes".into());
+    }
     let req = Request {
         session_id: chief.to_owned(),
         action: request.action,
@@ -1575,6 +1590,11 @@ mod tests {
         let cleared = user(&app, "legacy", "profile", None, |r| { r.worker = Some(PLAN.into()); r.text = Some(String::new()); }).unwrap();
         assert_eq!(cleared["worker"]["instructions"], "");
         assert!(user(&app, "legacy", "profile", None, |_| {}).unwrap_err().contains("Missing worker"));
+        let notices = tells(&app, "legacy");
+        assert!(notices[0].0.contains("The user updated Planning session's worker profile. Labels: FE, QA."));
+        assert!(notices[0].0.ends_with("Instructions:\nHi"));
+        let big = user(&app, "legacy", "profile", None, |r| { r.worker = Some(PLAN.into()); r.text = Some("x".repeat(65537)); });
+        assert!(big.unwrap_err().contains("65536"));
         cleanup(app);
     }
 

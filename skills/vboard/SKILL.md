@@ -45,7 +45,9 @@ name substring.
   for) a worker whose labels do not include it: `T3 is labeled FE but <worker> only takes BE, BFF`. A
   worker without labels takes any task, and an unlabeled task fits any worker. The instructions are
   appended to every brief that worker receives on your board. An omitted `--labels` or `-m` keeps the
-  current value; `--labels ""` or `-m ""` clears it. The user can edit profiles from the board view too.
+  current value; `--labels ""` or `-m ""` clears it. The user can edit profiles from the board view too,
+  and you receive a `[Board] The user updated ...'s worker profile` notice. Changing a profile does not
+  re-check tasks already assigned to that worker; review them with `vboard list` and reassign if needed.
 - A session created as a board from VelaTerm is already a chief before its first task. The user can add,
   assign, move, block and unblock tasks from the board view with your permissions; each change reaches
   the worker as if you made it, and you receive a `[Board] The user ...` notice such as
