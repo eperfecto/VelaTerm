@@ -17,6 +17,7 @@ vi.mock("../session/ChatPane", () => ({
 import { invoke, listen } from "../../../ipc/transport";
 import { setLang } from "../../../i18n";
 import { useTermStore } from "../../../store/termStore";
+import { platform } from "../../../platform";
 import { BOARD_TASK_MIME, BoardView } from "./BoardView";
 
 const session = (id: string, over: Partial<Session> = {}): Session => ({
@@ -95,6 +96,23 @@ describe("BoardView", () => {
     expect(blocked.getByText("No worker")).toBeTruthy();
     expect(blocked.getByLabelText("Blocked: Waiting for design")).toBeTruthy();
     expect(screen.getByText("0/3")).toBeTruthy();
+  });
+
+  it("opens only web links from a card in the system browser", async () => {
+    const open = vi.spyOn(platform.opener, "openExternal").mockResolvedValue(undefined);
+    tasks[0] = { ...tasks[0], link: "https://example.com/1" };
+    tasks[2] = { ...tasks[2], link: "file:///etc/passwd" };
+    try {
+      await renderBoard();
+      fireEvent.click(within(card("T1")).getByLabelText("Open Link"));
+      expect(open).toHaveBeenCalledWith("https://example.com/1");
+      fireEvent.click(within(card("T3")).getByLabelText("Open Link"));
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      tasks[0] = { ...tasks[0], link: null };
+      tasks[2] = { ...tasks[2], link: null };
+      open.mockRestore();
+    }
   });
 
   it("moves a card dropped on another column through board_action", async () => {

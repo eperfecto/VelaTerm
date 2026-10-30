@@ -22,6 +22,11 @@ import {
 } from "../../../ipc/board";
 import { onBoardChanged } from "../../../ipc/events";
 import { platform } from "../../../platform";
+
+/** Open a task link in the system browser. Only web links open; the backend stores no other scheme. */
+function openLink(link: string) {
+  if (/^https?:\/\//i.test(link)) void platform.opener.openExternal(link).catch(() => {});
+}
 import type { BoardTab } from "../../../store/termStore";
 import { useTermStore } from "../../../store/termStore";
 import { effectiveStatus, projectRoot, type Session } from "../../../types";
@@ -146,7 +151,7 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
           {
             label: t("board.openLink"),
             icon: <Icons.external size={13} />,
-            onClick: () => void platform.opener.openExternal(task.link!).catch(() => {}),
+            onClick: () => openLink(task.link!),
           },
         ]
       : []),
@@ -355,7 +360,11 @@ function TaskCard({
             rel="noreferrer"
             title={t("board.openLink")}
             aria-label={t("board.openLink")}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              openLink(task.link!);
+            }}
           >
             <Icons.external size={12} />
           </a>

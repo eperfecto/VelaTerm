@@ -406,6 +406,10 @@ fn add(app: &AppCtx, chief: &str, actor: &str, role: Role, req: &Request) -> Res
     let worker = req.worker.as_deref().map(|w| worker_for(app, chief, w)).transpose()?.flatten();
     let label = req.label.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let link = req.link.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    // The board view opens links with one click, so only web links are stored.
+    if link.is_some_and(|l| !(l.starts_with("https://") || l.starts_with("http://"))) {
+        return Err("A task link must start with http:// or https://".into());
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let event = {
         let mut conn = app.db().conn.lock().unwrap();
@@ -989,6 +993,10 @@ mod tests {
         assert_eq!(one["task"]["status"], "backlog");
         assert_eq!(one["task"]["label"], "FE");
         assert_eq!(one["task"]["body"], "Details");
+        let mut local = req(CHIEF, "add");
+        local.title = Some("Local link".into());
+        local.link = Some("file:///etc/passwd".into());
+        assert!(action(&app, &local).unwrap_err().contains("http:// or https://"));
         assert_eq!(two["task"]["ref"], "T2");
         assert_eq!(two["task"]["position"], 1);
         let other = { let mut r = req("legacy", "add"); r.title = Some("Other board".into()); action(&app, &r).unwrap() };

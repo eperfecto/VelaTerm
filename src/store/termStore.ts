@@ -1047,6 +1047,8 @@ interface TermStore {
   boardTabs: Record<string, BoardTab>;
   /** Sessions flagged as boards; `openSession` shows their board instead of their chat. */
   boardIds: string[];
+  /** Whether `boardIds` has been loaded once; before that a chief cannot be told from a plain chat. */
+  boardIdsLoaded: boolean;
   /** Re-read which sessions are boards. Failures keep the previous list. */
   refreshBoardIds: () => Promise<void>;
 
@@ -2159,11 +2161,13 @@ export const useTermStore = create<TermStore>((set, get) => ({
   taskTabs: {},
   boardTabs: {},
   boardIds: [],
+  boardIdsLoaded: false,
   refreshBoardIds: async () => {
     try {
       const ids = await fetchBoardIds();
       const prev = get().boardIds;
       if (ids.length !== prev.length || ids.some((id, i) => id !== prev[i])) set({ boardIds: ids });
+      if (!get().boardIdsLoaded) set({ boardIdsLoaded: true });
     } catch {
       // Keep the last known list; the next board change or tree load retries.
     }
@@ -2991,6 +2995,12 @@ export const useTermStore = create<TermStore>((set, get) => ({
     get().wakeSession(id);
     const owner = projectOpening(get(), id);
     if (owner !== null && owner !== get().activeProjectId) get().setActiveProject(owner);
+    // Opened before the board list arrived: open it again once known, so a chief still shows its board.
+    if (!get().boardIdsLoaded) {
+      void get().refreshBoardIds().then(() => {
+        if (get().boardIds.includes(id)) get().openSession(id, opts);
+      });
+    }
     // A board's chief opens its board tab instead of its chat; the chat is in the board's side panel.
     if (get().boardIds.includes(id)) {
       const tabId = boardTabId(id);

@@ -66,4 +66,24 @@ describe("board tabs", () => {
     expect(st.openTabs).not.toContain("board-chief");
     expect(st.boardTabs).toEqual({});
   });
+  it("shows a chief opened before the board list arrived as its board once the list loads", async () => {
+    useTermStore.setState({
+      sessions: [session("chief")],
+      openTabs: [],
+      paneTrees: {},
+      activeTabId: null,
+      activeSessionId: null,
+      focusedPaneId: null,
+      liveTabs: [],
+      boardTabs: {},
+      boardIds: [],
+      boardIdsLoaded: false,
+      singleTabMode: true,
+    });
+    useTermStore.getState().openSession("chief");
+    await vi.waitFor(() => expect(useTermStore.getState().boardTabs["board-chief"]).toBeTruthy());
+    const st = useTermStore.getState();
+    expect(st.boardIdsLoaded).toBe(true);
+    expect(st.activeTabId).toBe("board-chief");
+  });
 });
