@@ -2496,6 +2496,41 @@ const zhTW: typeof en = {
   "artifact.cardOpenTitle": "在此會話旁開啟", // Open beside this session
   "artifact.cardKind": "HTML 頁面", // HTML page
   "artifact.frameTitle": (name: string) => `${name} 的預覽`, // Preview of ${name}
+  "board.title": "看板", // Board
+  "board.new": "新增看板…", // New Board…
+  "board.newTitle": "新增看板", // New Board
+  "board.name": "看板名稱", // Board name
+  "board.agent": "代理", // Agent
+  "board.create": "建立", // Create
+  "board.createFailed": "無法建立看板工作階段。", // Could not create the board session.
+  "board.addTask": "+ 任務", // + Task
+  "board.addTaskSubmit": "新增任務", // Add Task
+  "board.newTask": "新任務", // New Task
+  "board.taskTitle": "標題", // Title
+  "board.taskBody": "描述", // Description
+  "board.taskLabel": "標籤", // Label
+  "board.taskLabelPlaceholder": "FE、BE…", // FE, BE…
+  "board.taskLink": "連結", // Link
+  "board.progress": "進度", // Progress
+  "board.column.backlog": "待辦", // Backlog
+  "board.column.in_progress": "進行中", // In Progress
+  "board.column.review": "審查", // Review
+  "board.column.done": "完成", // Done
+  "board.noWorker": "無執行者", // No worker
+  "board.blocked": "已封鎖", // Blocked
+  "board.assign": "指派執行者", // Assign Worker
+  "board.block": "封鎖…", // Block…
+  "board.blockSubmit": "封鎖", // Block
+  "board.blockReason": "原因", // Reason
+  "board.unblock": "解除封鎖", // Unblock
+  "board.openLink": "開啟連結", // Open Link
+  "board.moveTo": "移動到", // Move To
+  "board.taskMenu": "任務操作", // Task actions
+  "board.chief": "主管", // Chief
+  "board.notChat": "此工作階段未使用聊天檢視，無法在此顯示其對話。", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "正在載入看板…", // Loading board…
+  "board.hidePanel": "隱藏聊天面板", // Hide chat panel
+  "board.showPanel": "顯示聊天面板", // Show chat panel
 };
 
 export default zhTW;

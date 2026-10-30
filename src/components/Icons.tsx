@@ -113,6 +113,8 @@ const Icons: Record<string, IconComponent> = {
   // Artifact preview: the tab icon, Split mode, device viewports, fit-to-area, and the offline shield.
   appWindow: I([r("rect", { key: 1, x: 2.5, y: 3, width: 11, height: 10, rx: 1.5 }), r("path", { key: 2, d: "M2.5 6h11M4.6 4.5h.01M6.2 4.5h.01" })]),
   columns: I([r("rect", { key: 1, x: 2.5, y: 3, width: 11, height: 10, rx: 1.5 }), r("path", { key: 2, d: "M8 3v10" })]),
+  // Task board: three columns of cards.
+  board: I([r("rect", { key: 1, x: 2, y: 2.5, width: 12, height: 11, rx: 1.5 }), r("path", { key: 2, d: "M6 2.5v11M10 2.5v11M3.5 5h1M7.5 5h1M7.5 7h1M11.5 5h1" })]),
   tablet: I([r("rect", { key: 1, x: 3.5, y: 2, width: 9, height: 12, rx: 1.5 }), r("path", { key: 2, d: "M7.2 12h1.6" })]),
   phone: I([r("rect", { key: 1, x: 5, y: 2, width: 6, height: 12, rx: 1.3 }), r("path", { key: 2, d: "M7.4 12h1.2" })]),
   fit: I(r("path", { key: 1, d: "M2.5 6V3.5a1 1 0 011-1H6M10 2.5h2.5a1 1 0 011 1V6M13.5 10v2.5a1 1 0 01-1 1H10M6 13.5H3.5a1 1 0 01-1-1V10" })),

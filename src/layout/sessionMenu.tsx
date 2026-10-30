@@ -24,6 +24,7 @@ import {
 } from "../ipc/commands";
 import { copyText, openDir } from "../ipc/info";
 import { createAgentPreset } from "../ipc/presets";
+import { boardRegister } from "../ipc/board";
 import { PresetIcon } from "./agentPresetIcon";
 import { agentPickerUrl, navigateAgentPicker, newAgentPickerRoute } from "./NewAgentSession/navigation";
 import { onGitbashDownloadDone } from "../ipc/events";
@@ -108,6 +109,9 @@ function computeQuickAgents(sessions: Session[]): SessionKind[] {
   return ordered;
 }
 
+/** Agents a board's chief can run on: the native chat agents that plan/execute also drives. */
+export const BOARD_AGENT_KINDS: SessionKind[] = ["claude", "codex", "opencode", "pi", "omp"];
+
 export type Dialog =
   | { type: "newGroup"; projectId: string; parentGroupId: string | null }
   | {
@@ -132,6 +136,8 @@ export type Dialog =
   | { type: "projectInfo"; id: string }
   // Binds an existing group to a worktree; sessions already in the group keep their own directory.
   | { type: "moveGroupWorktree"; groupId: string }
+  // New Board asks for a name and a chat-capable agent, creates that chat session, and flags it as a board.
+  | { type: "newBoard"; projectId: string; groupId: string | null; parentSessionId: string | null }
   | { type: "confirmDelete"; node: TreeNodeRef }
   | { type: "confirmDeleteMany"; nodes: SelNode[] }
   | {
@@ -400,8 +406,10 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
       agentPath?: string | null;
       /** How the agent is driven from the start; absent means its own terminal interface. */
       engine?: SessionEngine | null;
+      /** False leaves the new session closed, for callers that open it themselves. */
+      open?: boolean;
     },
-  ) => {
+  ): Promise<Session | null> => {
     const st = useTermStore.getState();
     // Include ephemeral terminals when numbering so menu and tab/Cmd+T entry points do not collide.
     const all = [...st.sessions, ...Object.values(st.ephemeralSessions)];
@@ -479,7 +487,28 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
           ? { cwd: opts.cwd.trim() }
           : {}),
     });
-    if (created) openSession(created.id);
+    if (created && opts?.open !== false) openSession(created.id);
+    return created;
+  };
+
+  // A board is a chief chat session flagged as a board. Register it before opening, so opening shows the
+  // board rather than the chat. A failed registration leaves an ordinary chat session behind.
+  const handleNewBoard = async (
+    projectId: string,
+    groupId: string | null,
+    parentSessionId: string | null,
+    name: string,
+    kind: SessionKind,
+  ) => {
+    const created = await handleNewSession(projectId, groupId, kind, parentSessionId, null, {
+      name,
+      engine: "chat",
+      open: false,
+    });
+    if (!created) throw new Error(t("board.createFailed"));
+    await boardRegister(created.id);
+    await useTermStore.getState().refreshBoardIds();
+    openSession(created.id);
   };
 
 
@@ -811,6 +840,11 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
       return [{ label: t("tree.newPlanExecuteSession"), icon: <Icons.planExecute size={14} />, href,
         onClick: () => navigatePlanExecute(href) }];
     })(),
+    {
+      label: t("board.new"),
+      icon: <Icons.board size={14} />,
+      onClick: () => setDialog({ type: "newBoard", projectId, groupId, parentSessionId }),
+    },
     ...(!groupId && !parentSessionId && useTermStore.getState().projects.some((p) => p.id === projectId && p.rootPath)
       ? [{
           label: `${t("importSessions.title")}…`,
@@ -1325,6 +1359,32 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
               return;
             }
             await setGroupWorktree(dialog.groupId, path, baseRef);
+            setDialog(null);
+          }}
+        />
+      )}
+      {dialog?.type === "newBoard" && (
+        <FormModal
+          title={t("board.newTitle")}
+          fields={[
+            { key: "name", label: t("board.name"), required: true, autoFocus: true },
+            {
+              key: "kind",
+              label: t("board.agent"),
+              select: BOARD_AGENT_KINDS.map((k) => ({ value: k, label: kindLabel(k) })),
+            },
+          ]}
+          initial={{ kind: BOARD_AGENT_KINDS[0] }}
+          submitLabel={t("board.create")}
+          onCancel={() => setDialog(null)}
+          onSubmit={async ({ name, kind }) => {
+            await handleNewBoard(
+              dialog.projectId,
+              dialog.groupId,
+              dialog.parentSessionId,
+              name.trim(),
+              kind as SessionKind,
+            );
             setDialog(null);
           }}
         />

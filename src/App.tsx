@@ -22,6 +22,7 @@ import { TitleBar } from "./layout/TitleBar/TitleBar";
 import { runMenuAction } from "./layout/TitleBar/appMenuActions";
 import { listShells } from "./ipc/commands";
 import {
+  onBoardChanged,
   onMenuAction,
   onPresetsChanged,
   onSessionState,
@@ -184,7 +185,18 @@ function App() {
     let treeTimer: ReturnType<typeof setTimeout> | undefined;
     const unlistenTree = onTreeChanged(() => {
       clearTimeout(treeTimer);
-      treeTimer = setTimeout(() => void useTermStore.getState().loadTree(), 300);
+      treeTimer = setTimeout(() => {
+        void useTermStore.getState().loadTree();
+        // Archiving or deleting a chief drops its board from the list.
+        void useTermStore.getState().refreshBoardIds();
+      }, 300);
+    });
+    // Which sessions are boards: read once, then follow board changes, which include a new registration.
+    void useTermStore.getState().refreshBoardIds();
+    let boardTimer: ReturnType<typeof setTimeout> | undefined;
+    const unlistenBoards = onBoardChanged(() => {
+      clearTimeout(boardTimer);
+      boardTimer = setTimeout(() => void useTermStore.getState().refreshBoardIds(), 300);
     });
     // Agent presets are edited far less often than the tree and are broadcast separately, so reload the
     // list directly without debouncing.
@@ -223,6 +235,8 @@ function App() {
       void unlistenView.then((fn) => fn());
       clearTimeout(treeTimer);
       void unlistenTree.then((fn) => fn());
+      clearTimeout(boardTimer);
+      void unlistenBoards.then((fn) => fn());
       void unlistenPresets.then((fn) => fn());
       void unlistenSessionState.then((fn) => fn());
       void unlistenMenu.then((fn) => fn());

@@ -2569,6 +2569,41 @@ const ru: typeof en = {
   "artifact.cardOpenTitle": "Открыть рядом с этой сессией", // Open beside this session
   "artifact.cardKind": "HTML-страница", // HTML page
   "artifact.frameTitle": (name: string) => `Просмотр: ${name}`, // Preview of ${name}
+  "board.title": "Доска", // Board
+  "board.new": "Новая доска…", // New Board…
+  "board.newTitle": "Новая доска", // New Board
+  "board.name": "Название доски", // Board name
+  "board.agent": "Агент", // Agent
+  "board.create": "Создать", // Create
+  "board.createFailed": "Не удалось создать сеанс доски.", // Could not create the board session.
+  "board.addTask": "+ Задача", // + Task
+  "board.addTaskSubmit": "Добавить задачу", // Add Task
+  "board.newTask": "Новая задача", // New Task
+  "board.taskTitle": "Заголовок", // Title
+  "board.taskBody": "Описание", // Description
+  "board.taskLabel": "Метка", // Label
+  "board.taskLabelPlaceholder": "FE, BE…", // FE, BE…
+  "board.taskLink": "Ссылка", // Link
+  "board.progress": "Прогресс", // Progress
+  "board.column.backlog": "Бэклог", // Backlog
+  "board.column.in_progress": "В работе", // In Progress
+  "board.column.review": "Ревью", // Review
+  "board.column.done": "Готово", // Done
+  "board.noWorker": "Без исполнителя", // No worker
+  "board.blocked": "Заблокирована", // Blocked
+  "board.assign": "Назначить исполнителя", // Assign Worker
+  "board.block": "Заблокировать…", // Block…
+  "board.blockSubmit": "Заблокировать", // Block
+  "board.blockReason": "Причина", // Reason
+  "board.unblock": "Разблокировать", // Unblock
+  "board.openLink": "Открыть ссылку", // Open Link
+  "board.moveTo": "Переместить в", // Move To
+  "board.taskMenu": "Действия с задачей", // Task actions
+  "board.chief": "Руководитель", // Chief
+  "board.notChat": "Этот сеанс не использует режим чата, поэтому его переписку нельзя показать здесь.", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "Загрузка доски…", // Loading board…
+  "board.hidePanel": "Скрыть панель чата", // Hide chat panel
+  "board.showPanel": "Показать панель чата", // Show chat panel
 };
 
 export default ru;

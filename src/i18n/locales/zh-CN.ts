@@ -2495,6 +2495,41 @@ const zhCN: typeof en = {
   "artifact.cardOpenTitle": "在此会话旁打开",
   "artifact.cardKind": "HTML 页面",
   "artifact.frameTitle": (name: string) => `${name} 的预览`,
+  "board.title": "看板", // Board
+  "board.new": "新建看板…", // New Board…
+  "board.newTitle": "新建看板", // New Board
+  "board.name": "看板名称", // Board name
+  "board.agent": "智能体", // Agent
+  "board.create": "创建", // Create
+  "board.createFailed": "无法创建看板会话。", // Could not create the board session.
+  "board.addTask": "+ 任务", // + Task
+  "board.addTaskSubmit": "添加任务", // Add Task
+  "board.newTask": "新建任务", // New Task
+  "board.taskTitle": "标题", // Title
+  "board.taskBody": "描述", // Description
+  "board.taskLabel": "标签", // Label
+  "board.taskLabelPlaceholder": "FE、BE…", // FE, BE…
+  "board.taskLink": "链接", // Link
+  "board.progress": "进度", // Progress
+  "board.column.backlog": "待办", // Backlog
+  "board.column.in_progress": "进行中", // In Progress
+  "board.column.review": "评审", // Review
+  "board.column.done": "完成", // Done
+  "board.noWorker": "无执行者", // No worker
+  "board.blocked": "已阻塞", // Blocked
+  "board.assign": "分配执行者", // Assign Worker
+  "board.block": "阻塞…", // Block…
+  "board.blockSubmit": "阻塞", // Block
+  "board.blockReason": "原因", // Reason
+  "board.unblock": "解除阻塞", // Unblock
+  "board.openLink": "打开链接", // Open Link
+  "board.moveTo": "移动到", // Move To
+  "board.taskMenu": "任务操作", // Task actions
+  "board.chief": "主管", // Chief
+  "board.notChat": "此会话未使用聊天视图，无法在此显示其对话。", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "正在加载看板…", // Loading board…
+  "board.hidePanel": "隐藏聊天面板", // Hide chat panel
+  "board.showPanel": "显示聊天面板", // Show chat panel
 };
 
 export default zhCN;

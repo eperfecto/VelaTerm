@@ -2506,6 +2506,41 @@ const vi: typeof en = {
   "artifact.cardOpenTitle": "Mở bên cạnh phiên này",
   "artifact.cardKind": "Trang HTML",
   "artifact.frameTitle": (name: string) => `Bản xem trước của ${name}`,
+  "board.title": "Bảng", // Board
+  "board.new": "Bảng mới…", // New Board…
+  "board.newTitle": "Bảng mới", // New Board
+  "board.name": "Tên bảng", // Board name
+  "board.agent": "Agent", // Agent
+  "board.create": "Tạo", // Create
+  "board.createFailed": "Không thể tạo phiên của bảng.", // Could not create the board session.
+  "board.addTask": "+ Tác vụ", // + Task
+  "board.addTaskSubmit": "Thêm tác vụ", // Add Task
+  "board.newTask": "Tác vụ mới", // New Task
+  "board.taskTitle": "Tiêu đề", // Title
+  "board.taskBody": "Mô tả", // Description
+  "board.taskLabel": "Nhãn", // Label
+  "board.taskLabelPlaceholder": "FE, BE…", // FE, BE…
+  "board.taskLink": "Liên kết", // Link
+  "board.progress": "Tiến độ", // Progress
+  "board.column.backlog": "Tồn đọng", // Backlog
+  "board.column.in_progress": "Đang làm", // In Progress
+  "board.column.review": "Xem xét", // Review
+  "board.column.done": "Hoàn thành", // Done
+  "board.noWorker": "Chưa có worker", // No worker
+  "board.blocked": "Bị chặn", // Blocked
+  "board.assign": "Giao worker", // Assign Worker
+  "board.block": "Chặn…", // Block…
+  "board.blockSubmit": "Chặn", // Block
+  "board.blockReason": "Lý do", // Reason
+  "board.unblock": "Bỏ chặn", // Unblock
+  "board.openLink": "Mở liên kết", // Open Link
+  "board.moveTo": "Chuyển sang", // Move To
+  "board.taskMenu": "Thao tác tác vụ", // Task actions
+  "board.chief": "Chief", // Chief
+  "board.notChat": "Phiên này không dùng chế độ trò chuyện nên không thể hiển thị cuộc trò chuyện tại đây.", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "Đang tải bảng…", // Loading board…
+  "board.hidePanel": "Ẩn bảng trò chuyện", // Hide chat panel
+  "board.showPanel": "Hiện bảng trò chuyện", // Show chat panel
 };
 
 export default vi;

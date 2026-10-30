@@ -2528,6 +2528,41 @@ const ko: typeof en = {
   "artifact.cardOpenTitle": "이 세션 옆에 열기", // Open beside this session
   "artifact.cardKind": "HTML 페이지", // HTML page
   "artifact.frameTitle": (name: string) => `${name} 미리보기`, // Preview of ${name}
+  "board.title": "보드", // Board
+  "board.new": "새 보드…", // New Board…
+  "board.newTitle": "새 보드", // New Board
+  "board.name": "보드 이름", // Board name
+  "board.agent": "에이전트", // Agent
+  "board.create": "만들기", // Create
+  "board.createFailed": "보드 세션을 만들 수 없습니다.", // Could not create the board session.
+  "board.addTask": "+ 작업", // + Task
+  "board.addTaskSubmit": "작업 추가", // Add Task
+  "board.newTask": "새 작업", // New Task
+  "board.taskTitle": "제목", // Title
+  "board.taskBody": "설명", // Description
+  "board.taskLabel": "레이블", // Label
+  "board.taskLabelPlaceholder": "FE, BE…", // FE, BE…
+  "board.taskLink": "링크", // Link
+  "board.progress": "진행률", // Progress
+  "board.column.backlog": "백로그", // Backlog
+  "board.column.in_progress": "진행 중", // In Progress
+  "board.column.review": "검토", // Review
+  "board.column.done": "완료", // Done
+  "board.noWorker": "워커 없음", // No worker
+  "board.blocked": "차단됨", // Blocked
+  "board.assign": "워커 할당", // Assign Worker
+  "board.block": "차단…", // Block…
+  "board.blockSubmit": "차단", // Block
+  "board.blockReason": "사유", // Reason
+  "board.unblock": "차단 해제", // Unblock
+  "board.openLink": "링크 열기", // Open Link
+  "board.moveTo": "이동", // Move To
+  "board.taskMenu": "작업 동작", // Task actions
+  "board.chief": "치프", // Chief
+  "board.notChat": "이 세션은 채팅 보기를 사용하지 않으므로 대화를 여기에 표시할 수 없습니다.", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "보드 불러오는 중…", // Loading board…
+  "board.hidePanel": "채팅 패널 숨기기", // Hide chat panel
+  "board.showPanel": "채팅 패널 표시", // Show chat panel
 };
 
 export default ko;

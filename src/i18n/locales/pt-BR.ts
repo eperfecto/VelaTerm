@@ -2557,6 +2557,41 @@ const ptBR: typeof en = {
   "artifact.cardOpenTitle": "Abrir ao lado desta sessão", // Open beside this session
   "artifact.cardKind": "Página HTML", // HTML page
   "artifact.frameTitle": (name: string) => `Visualização de ${name}`, // Preview of ${name}
+  "board.title": "Quadro", // Board
+  "board.new": "Novo quadro…", // New Board…
+  "board.newTitle": "Novo quadro", // New Board
+  "board.name": "Nome do quadro", // Board name
+  "board.agent": "Agente", // Agent
+  "board.create": "Criar", // Create
+  "board.createFailed": "Não foi possível criar a sessão do quadro.", // Could not create the board session.
+  "board.addTask": "+ Tarefa", // + Task
+  "board.addTaskSubmit": "Adicionar tarefa", // Add Task
+  "board.newTask": "Nova tarefa", // New Task
+  "board.taskTitle": "Título", // Title
+  "board.taskBody": "Descrição", // Description
+  "board.taskLabel": "Rótulo", // Label
+  "board.taskLabelPlaceholder": "FE, BE…", // FE, BE…
+  "board.taskLink": "Link", // Link
+  "board.progress": "Progresso", // Progress
+  "board.column.backlog": "Backlog", // Backlog
+  "board.column.in_progress": "Em andamento", // In Progress
+  "board.column.review": "Revisão", // Review
+  "board.column.done": "Concluída", // Done
+  "board.noWorker": "Sem worker", // No worker
+  "board.blocked": "Bloqueada", // Blocked
+  "board.assign": "Atribuir worker", // Assign Worker
+  "board.block": "Bloquear…", // Block…
+  "board.blockSubmit": "Bloquear", // Block
+  "board.blockReason": "Motivo", // Reason
+  "board.unblock": "Desbloquear", // Unblock
+  "board.openLink": "Abrir link", // Open Link
+  "board.moveTo": "Mover para", // Move To
+  "board.taskMenu": "Ações da tarefa", // Task actions
+  "board.chief": "Chief", // Chief
+  "board.notChat": "Esta sessão não usa a visualização de chat, então a conversa não pode ser exibida aqui.", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "Carregando quadro…", // Loading board…
+  "board.hidePanel": "Ocultar painel de chat", // Hide chat panel
+  "board.showPanel": "Mostrar painel de chat", // Show chat panel
 };
 
 export default ptBR;

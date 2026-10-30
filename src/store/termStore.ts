@@ -45,6 +45,7 @@ import { mobileNotifications } from "../mobile/nativeNotifications";
 import type { ScreenDetection } from "../terminal/screenDetect";
 import * as tree from "../ipc/tree";
 import { listAgentPresets } from "../ipc/presets";
+import { boardIds as fetchBoardIds } from "../ipc/board";
 import { platform } from "../platform";
 import {
   collectSessionIds,
@@ -728,6 +729,7 @@ function reconcileTabs(state: {
   docTabs: Record<string, DocTab>;
   browserTabs: Record<string, BrowserTab>;
   taskTabs: Record<string, TaskTab>;
+  boardTabs?: Record<string, BoardTab>;
   scopeTabsToProject?: boolean;
   activeProjectId?: string | null;
   projects?: readonly { id: string }[];
@@ -738,7 +740,14 @@ function reconcileTabs(state: {
   ]);
   const paneTrees: Record<string, PaneNode> = {};
   const openTabs: string[] = [];
+  const allBoardTabs = state.boardTabs ?? {};
   for (const tabId of state.openTabs) {
+    const board = allBoardTabs[tabId];
+    if (board) {
+      // A board tab closes with its chief session.
+      if (valid.has(board.chiefId)) openTabs.push(tabId);
+      continue;
+    }
     if (state.docTabs[tabId] || state.browserTabs[tabId] || state.taskTabs[tabId]) {
       // Preserve metadata-backed document/browser/task tabs without pane trees. A browser tab bound to a
       // tree node uses the node ID and closes when that node is deleted or archived.
@@ -772,6 +781,10 @@ function reconcileTabs(state: {
   for (const [id, task] of Object.entries(state.taskTabs)) {
     if (inOpen.has(id)) taskTabs[id] = task;
   }
+  const boardTabs: Record<string, BoardTab> = {};
+  for (const [id, board] of Object.entries(allBoardTabs)) {
+    if (inOpen.has(id)) boardTabs[id] = board;
+  }
   let { activeTabId, activeSessionId, focusedPaneId } = state;
   if (!activeTabId || !openTabs.includes(activeTabId)) {
     activeTabId =
@@ -786,8 +799,8 @@ function reconcileTabs(state: {
         taskTabs,
       })[0] ?? null;
   }
-  if (activeTabId && (docTabs[activeTabId] || browserTabs[activeTabId] || taskTabs[activeTabId])) {
-    // Document/browser/task tabs have no active session or focused pane.
+  if (activeTabId && (docTabs[activeTabId] || browserTabs[activeTabId] || taskTabs[activeTabId] || boardTabs[activeTabId])) {
+    // Document/browser/task/board tabs have no active session or focused pane.
     activeSessionId = null;
     focusedPaneId = null;
   } else {
@@ -822,6 +835,7 @@ function reconcileTabs(state: {
     docTabs,
     browserTabs,
     taskTabs,
+    boardTabs,
   };
 }
 
@@ -899,6 +913,22 @@ export interface TaskTab {
   returnTabId?: string;
   returnPaneId?: string;
 }
+
+/**
+ * Board tab for a chief chat session flagged as a board (S12-S13). Opening such a session shows its task
+ * board here instead of its chat, so the tab has no pane tree; the chat lives in the board's side panel. Keyed
+ * `"board-" + chiefId` so it never collides with a pane-tree tab of the same session, and carried through
+ * mirror mode like browser tabs, but not persisted across restart.
+ */
+export interface BoardTab {
+  /** `"board-" + chiefId`, used in `openTabs`. */
+  id: string;
+  /** The chief chat session that owns the board. */
+  chiefId: string;
+}
+
+/** Tab ID of the board owned by `chiefId`. */
+export const boardTabId = (chiefId: string) => `board-${chiefId}`;
 
 /** Restore a task's source only within the selected tab; other navigation keeps the first-leaf fallback. */
 function taskReturnLeaf(tree: PaneNode, tabId: string, task?: TaskTab) {
@@ -1013,6 +1043,12 @@ interface TermStore {
   browserTabs: Record<string, BrowserTab>;
   /** Metadata for `task-` entries in `openTabs`. Client-local, see `TaskTab`. */
   taskTabs: Record<string, TaskTab>;
+  /** Metadata for `board-` entries in `openTabs`, see `BoardTab`. */
+  boardTabs: Record<string, BoardTab>;
+  /** Sessions flagged as boards; `openSession` shows their board instead of their chat. */
+  boardIds: string[];
+  /** Re-read which sessions are boards. Failures keep the previous list. */
+  refreshBoardIds: () => Promise<void>;
 
   // Mirror mode: one shared arrangement across every client of this service (see mirrorSync.ts).
   /**
@@ -2121,6 +2157,17 @@ export const useTermStore = create<TermStore>((set, get) => ({
   docTabs: {},
   browserTabs: {},
   taskTabs: {},
+  boardTabs: {},
+  boardIds: [],
+  refreshBoardIds: async () => {
+    try {
+      const ids = await fetchBoardIds();
+      const prev = get().boardIds;
+      if (ids.length !== prev.length || ids.some((id, i) => id !== prev[i])) set({ boardIds: ids });
+    } catch {
+      // Keep the last known list; the next board change or tree load retries.
+    }
+  },
 
   mirrorEnabled: false,
   remoteClients: 0,
@@ -2250,6 +2297,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
               docTabs: {},
               browserTabs: {},
               taskTabs: {},
+              boardTabs: {},
             });
             // Restore visible tabs, background tabs, and split trees intact.
             layoutPatch = {
@@ -2303,6 +2351,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
           docTabs: state.docTabs,
           browserTabs: state.browserTabs,
           taskTabs: state.taskTabs,
+          boardTabs: state.boardTabs,
           scopeTabsToProject: state.scopeTabsToProject,
           activeProjectId,
           projects: t.projects,
@@ -2942,6 +2991,23 @@ export const useTermStore = create<TermStore>((set, get) => ({
     get().wakeSession(id);
     const owner = projectOpening(get(), id);
     if (owner !== null && owner !== get().activeProjectId) get().setActiveProject(owner);
+    // A board's chief opens its board tab instead of its chat; the chat is in the board's side panel.
+    if (get().boardIds.includes(id)) {
+      const tabId = boardTabId(id);
+      set((state) => ({
+        ...(state.boardTabs[tabId]
+          ? {}
+          : {
+              boardTabs: { ...state.boardTabs, [tabId]: { id: tabId, chiefId: id } },
+              openTabs: [...state.openTabs, tabId],
+            }),
+        activeTabId: tabId,
+        activeSessionId: null,
+        focusedPaneId: null,
+      }));
+      saveLayoutTick();
+      return;
+    }
     set((state) => {
       // Opening/focusing no longer clears notifications immediately; `useNotifications` waits two seconds.
       const notifications = state.notifications;
@@ -3110,8 +3176,8 @@ export const useTermStore = create<TermStore>((set, get) => ({
   setActiveTab: (tabId) => {
     set((state) => {
       const activeProjectId = env.isRemoteWindow ? null : projectShowing(state, tabId);
-      if (state.docTabs[tabId] || state.browserTabs[tabId] || state.taskTabs[tabId]) {
-        // Document/browser/task tabs have no session or focused pane, naturally disabling session-only controls.
+      if (state.docTabs[tabId] || state.browserTabs[tabId] || state.taskTabs[tabId] || state.boardTabs[tabId]) {
+        // Document/browser/task/board tabs have no session or focused pane, naturally disabling session-only controls.
         return {
           activeTabId: tabId,
           activeSessionId: null,
@@ -3167,6 +3233,8 @@ export const useTermStore = create<TermStore>((set, get) => ({
       const taskTabs = { ...state.taskTabs };
       const closingTask = taskTabs[tabId];
       delete taskTabs[tabId];
+      const boardTabs = { ...state.boardTabs };
+      delete boardTabs[tabId];
 
       let { activeTabId, activeSessionId, focusedPaneId } = state;
       if (activeTabId === tabId) {
@@ -3198,6 +3266,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
         docTabs,
         browserTabs,
         taskTabs,
+        boardTabs,
         pinnedTabs,
         activeTabId,
         lastActiveSessionTabId,
@@ -4482,6 +4551,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
       ephemeralSessions: { ...s.ephemeralSessions, ...c.ephemeralSessions },
       docTabs: { ...s.docTabs, ...c.docTabs },
       browserTabs: { ...s.browserTabs, ...c.browserTabs },
+      boardTabs: { ...s.boardTabs, ...c.boardTabs },
       selection: layout.left.selection,
       inspectTarget: layout.left.inspectTarget,
       leftCollapsed: layout.left.collapsed,

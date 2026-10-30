@@ -28,6 +28,7 @@ import {
   zonePreview,
   zoneSplit,
 } from "./paneDrop";
+import { BoardView } from "./board/BoardView";
 import { BrowserView } from "./browser/BrowserView";
 import { env } from "../../platform/env";
 import { DormantPane } from "./DormantPane";
@@ -154,6 +155,7 @@ export function CenterPane() {
   const docTabs = useTermStore((s) => s.docTabs);
   const browserTabs = useTermStore((s) => s.browserTabs);
   const taskTabs = useTermStore((s) => s.taskTabs);
+  const boardTabs = useTermStore((s) => s.boardTabs);
   const paneTrees = useTermStore((s) => s.paneTrees);
   const activeTabId = useTermStore((s) => s.activeTabId);
   const activeSessionId = useTermStore((s) => s.activeSessionId);
@@ -426,6 +428,14 @@ export function CenterPane() {
           .filter((tabId) => taskTabs[tabId])
           .map((tabId) => (
             <TaskView key={tabId} tab={taskTabs[tabId]} hidden={tabId !== activeTabId} />
+          ))}
+
+        {/* Board tabs stay mounted as well: their side-panel chats would otherwise detach, which lets the
+            chief's and workers' agents go once idle. */}
+        {openTabs
+          .filter((tabId) => boardTabs[tabId])
+          .map((tabId) => (
+            <BoardView key={tabId} tab={boardTabs[tabId]} hidden={tabId !== activeTabId} />
           ))}
 
         {/* Browser tabs also remain mounted because unmounting destroys the native child WebView.

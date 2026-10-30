@@ -203,6 +203,20 @@ export function onTreeChanged(cb: () => void): Promise<UnlistenFn> {
   return listen("tree://changed", () => cb());
 }
 
+/** Payload of `board://changed`: the board whose tasks changed, and the task when one specific task did. */
+export interface BoardChanged {
+  chiefId: string;
+  taskId: string | null;
+}
+
+/**
+ * Listen for board changes from any client or the `vboard` CLI, including a session being registered as a
+ * board. Board views refetch their own board; the store refreshes which sessions are boards.
+ */
+export function onBoardChanged(cb: (change: BoardChanged) => void): Promise<UnlistenFn> {
+  return listen<BoardChanged>("board://changed", (payload) => cb(payload));
+}
+
 /**
  * Listen for agent-preset changes broadcast after any client creates, edits, deletes or reorders one.
  * Presets appear in every client's new-session menu, so each reloads its list. Kept separate from the tree

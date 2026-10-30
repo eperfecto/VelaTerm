@@ -86,6 +86,8 @@ export function TabBar() {
   const docTabs = useTermStore((s) => s.docTabs);
   const browserTabs = useTermStore((s) => s.browserTabs);
   const taskTabs = useTermStore((s) => s.taskTabs);
+  // Absent in stores built before boards existed, such as test doubles.
+  const boardTabs = useTermStore((s) => s.boardTabs) ?? {};
   const setActiveTab = useTermStore((s) => s.setActiveTab);
   const closeTab = useTermStore((s) => s.closeTab);
   const requestCloseDocTab = useTermStore((s) => s.requestCloseDocTab);
@@ -426,6 +428,41 @@ export function TabBar() {
             </div>
           );
         }
+        // Board tab: board icon, the chief session's name, and a close action. Closing it leaves the chief
+        // and its workers running; the board lives on the server.
+        const board = boardTabs[tabId];
+        if (board) {
+          const isActive = tabId === activeTabId;
+          const label = sessions.find((s) => s.id === board.chiefId)?.name ?? t("board.title");
+          return (
+            <div
+              key={tabId}
+              ref={(el) => { tabRefs.current[tabId] = el; }}
+              className={tabClass(tabId, isActive)}
+              title={label}
+              onClick={() => setActiveTab(tabId)}
+              onContextMenu={(e) => openTabMenu(e, tabId)}
+              onMouseEnter={(e) => onTabEnter(e, label)}
+              onMouseLeave={onTabLeave}
+              {...dragProps(tabId)}
+              {...middleCloseProps(tabId)}
+            >
+              <span style={{ color: "var(--text-dim)", display: "grid", flex: "none" }}>
+                <Icons.board size={13} />
+              </span>
+              <span className="tnm">{label}</span>
+              <span
+                className="x"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeTab(tabId);
+                }}
+              >
+                <Icons.x size={12} />
+              </span>
+            </div>
+          );
+        }
         // Background-task tab: an icon for the task kind, the task's description, and a close action.
         const task = taskTabs[tabId];
         if (task) {
@@ -649,8 +686,8 @@ export function TabBar() {
                   ]
                 : [];
             items = [...headItems, ...mdItems, { label: "", separator: true }, ...closeItems];
-          } else if (taskTabs[tabId]) {
-            // A task tab has no session, file or node behind it: close actions only.
+          } else if (taskTabs[tabId] || boardTabs[tabId]) {
+            // A task or board tab has no pane or file behind it: close actions only.
             items = closeItems;
           } else {
             // Persisted sessions receive full operations; draft terminals/browsers receive temporary actions
