@@ -282,7 +282,7 @@ async fn handle_socket(
         crate::host::SETTINGS_CHANGED,
         crate::session_state::STATE_EVENT,
     ];
-    let full_events: [&str; 18] = [
+    let full_events: [&str; 19] = [
         "spawn://request",
         "spawn://resolved",
         "plan-execute://proposal",
@@ -308,6 +308,8 @@ async fn handle_socket(
         crate::agent::remote_model_catalog::EVENT,
         "translation://settings",
         "translation://defaults",
+        // The board view refreshes on task changes made by agents, the watchdog or another client.
+        "board://changed",
     ];
     let global_events: &[&str] = if share.is_some() {
         &share_events
