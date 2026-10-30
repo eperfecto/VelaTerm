@@ -127,4 +127,20 @@ describe("New Board entry in the session menu", () => {
     expect(testState.openSession).toHaveBeenCalledTimes(1);
     view.unmount();
   });
+
+  it("archives the created session when registration fails and opens nothing", async () => {
+    vi.mocked(boardRegister).mockRejectedValueOnce(new Error("A board must be a native chat agent session"));
+    testState.state.archiveSession.mockReset().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useSessionMenu());
+    const item = result.current.newSessionItems("project-1", "group-1", null).find((i) => i.label === "board.new");
+    act(() => item?.onClick?.({} as React.MouseEvent));
+    const view = render(result.current.dialogs);
+    fireEvent.change(view.getByLabelText(/board\.name/), { target: { value: "Release board" } });
+    await act(async () => { fireEvent.click(view.getByRole("button", { name: "board.create" })); });
+
+    await waitFor(() => expect(testState.state.archiveSession).toHaveBeenCalledWith("chief-1"));
+    expect(testState.openSession).not.toHaveBeenCalled();
+    expect(testState.state.refreshBoardIds).not.toHaveBeenCalled();
+    view.unmount();
+  });
 });

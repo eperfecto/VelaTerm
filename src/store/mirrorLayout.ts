@@ -304,7 +304,7 @@ function metaMap<T>(v: unknown): Record<string, T> {
 function boardTabMap(v: unknown): Record<string, BoardTab> {
   const out: Record<string, BoardTab> = {};
   for (const [k, raw] of Object.entries(metaMap<Record<string, unknown>>(v))) {
-    if (typeof raw.chiefId === "string") out[k] = { id: raw.id as string, chiefId: raw.chiefId };
+    if (typeof raw.chiefId === "string") out[k] = { id: k, chiefId: raw.chiefId };
   }
   return out;
 }

@@ -81,14 +81,13 @@ export function BoardView({ tab, hidden }: { tab: BoardTab; hidden: boolean }) {
     };
   }, [chiefId, load]);
 
-  /** Run one board action as the user, then refetch; the change event refreshes other clients. */
+  /** Run one board action as the user. The board://changed it emits refreshes this view and other clients. */
   const act = useCallback(
     async (request: BoardActionRequest) => {
       await boardAction(chiefId, request);
       setError(null);
-      load();
     },
-    [chiefId, load],
+    [chiefId],
   );
   // Card actions report a refusal in the board's error banner; forms show theirs inside the form.
   const run = (request: BoardActionRequest) => void act(request).catch((e: unknown) => setError(errorText(e)));

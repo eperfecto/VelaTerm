@@ -492,7 +492,8 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
   };
 
   // A board is a chief chat session flagged as a board. Register it before opening, so opening shows the
-  // board rather than the chat. A failed registration leaves an ordinary chat session behind.
+  // board rather than the chat. A failed registration archives the session it created, so a retry leaves
+  // no orphan chat behind.
   const handleNewBoard = async (
     projectId: string,
     groupId: string | null,
@@ -506,7 +507,12 @@ export function useSessionMenu(opts?: { groupNavigation?: boolean }): SessionMen
       open: false,
     });
     if (!created) throw new Error(t("board.createFailed"));
-    await boardRegister(created.id);
+    try {
+      await boardRegister(created.id);
+    } catch (error) {
+      await useTermStore.getState().archiveSession(created.id).catch(() => {});
+      throw error;
+    }
     await useTermStore.getState().refreshBoardIds();
     openSession(created.id);
   };
