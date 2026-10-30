@@ -22,8 +22,9 @@ vboard block T3 -m reason
 vboard unblock T3
 ```
 
-Text given with `-m`, or piped on stdin, is delivered to the other side of the task. Quote titles and
-session names containing spaces. `SESSION` accepts a session ID, an ID prefix, an exact name or a unique
+Text given with `-m`, or piped on stdin with `-m -`, is delivered to the other side of the task. Without
+`-m -` the command never reads stdin. Quote titles and session names containing spaces; put `--` before
+a title that starts with a dash. `SESSION` accepts a session ID, an ID prefix, an exact name or a unique
 name substring.
 
 ## As the chief

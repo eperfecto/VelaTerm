@@ -238,10 +238,14 @@ fn send(app: &AppCtx, event_id: i64, task: &Task, sender: &str, target: &str, te
         "chiefId":task.chief_id,"task":task.reference});
     match super::tell::notify(app, sender, target, origin, text) {
         Ok(result) => {
-            let _ = app.db().conn.lock().unwrap().execute(
+            let linked = app.db().conn.lock().unwrap().execute(
                 "UPDATE board_events SET message_id=?2,target_id=?3 WHERE id=?1",
                 params![event_id, result["messageId"].as_str(), target],
             );
+            // Without the link the watchdog cannot follow this message; make that visible.
+            if let Err(error) = linked {
+                crate::diagnostics::record("WARN", "board_link", json!({"eventId":event_id,"error":error.to_string()}));
+            }
             result
         }
         Err(error) => json!({"targetSessionId":target,"delivery":{"error":error}}),
@@ -673,7 +677,7 @@ vboard block T3 -m reason
 vboard unblock T3
 
 The first vboard add from a session makes it the chief of its board. A worker can list its board and
-show, move or block only its own tasks. Text given with -m, or piped on stdin, is delivered to the other
+show, move or block only its own tasks. Text given with -m, or piped on stdin with -m -, is delivered to the other
 side: a worker's move or block reaches the chief, a chief's move reaches the worker. Moving a task into
 in_progress sends its worker the task brief. Moving a task clears its blocked flag.";
 
@@ -748,15 +752,20 @@ pub fn run_cli(args: &[String]) -> ! {
             return Ok(None);
         };
         req.session_id = std::env::var("VLX_SESSION_ID").map_err(|_| "Run inside a VelaTerm session")?;
-        let reads_text = matches!(req.action.as_str(), "add" | "move" | "block");
-        if reads_text && req.text.is_empty() && !std::io::stdin().is_terminal() {
+        // Text is optional for most actions, so stdin is read only when asked for: an agent shell can
+        // leave stdin as an open pipe that never closes.
+        if req.text == "-" {
+            if std::io::stdin().is_terminal() {
+                return Err("-m - reads the text from stdin; pipe it in".into());
+            }
+            req.text.clear();
             std::io::stdin().take(65537).read_to_string(&mut req.text).map_err(|_| "Cannot read message text")?;
         }
         if req.text.len() > 65536 {
             return Err("Keep message text under 65536 bytes".into());
         }
         if req.action == "block" && req.text.trim().is_empty() {
-            return Err("Explain what is blocking the task with -m or on stdin".into());
+            return Err("Explain what is blocking the task with -m, or pipe it with -m -".into());
         }
         super::tell::post_local("board", &serde_json::to_value(req).unwrap()).map(Some)
     })();
