@@ -2530,6 +2530,14 @@ const zhCN: typeof en = {
   "board.loading": "正在加载看板…", // Loading board…
   "board.hidePanel": "隐藏聊天面板", // Hide chat panel
   "board.showPanel": "显示聊天面板", // Show chat panel
+  "board.workers": "工作者", // Workers
+  "board.workerProfile": "工作者配置", // Worker Profile
+  "board.workerProfileHint": "标签不在工作者标签内的任务无法分配给它；标签留空则接受任何任务。指令会附加到工作者收到的每个任务简报中。", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "工作者", // Worker
+  "board.workerLabels": "标签", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "指令", // Instructions
+  "board.workerSave": "保存", // Save
 };
 
 export default zhCN;

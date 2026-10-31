@@ -2580,6 +2580,14 @@ const ja: typeof en = {
   "board.loading": "ボードを読み込み中…", // Loading board…
   "board.hidePanel": "チャットパネルを隠す", // Hide chat panel
   "board.showPanel": "チャットパネルを表示", // Show chat panel
+  "board.workers": "ワーカー", // Workers
+  "board.workerProfile": "ワーカープロファイル", // Worker Profile
+  "board.workerProfileHint": "ワーカーのラベルに含まれないラベルのタスクは割り当てられません。ラベルを空にするとすべてのタスクを受け付けます。指示はワーカーが受け取るすべてのタスク概要に追加されます。", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "ワーカー", // Worker
+  "board.workerLabels": "ラベル", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "指示", // Instructions
+  "board.workerSave": "保存", // Save
 };
 
 export default ja;

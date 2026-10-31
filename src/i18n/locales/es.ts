@@ -2595,6 +2595,14 @@ const es: typeof en = {
   "board.loading": "Cargando tablero…", // Loading board…
   "board.hidePanel": "Ocultar panel de chat", // Hide chat panel
   "board.showPanel": "Mostrar panel de chat", // Show chat panel
+  "board.workers": "Workers", // Workers
+  "board.workerProfile": "Perfil del worker", // Worker Profile
+  "board.workerProfileHint": "No se pueden asignar a un worker tareas con etiquetas fuera de las suyas; deja las etiquetas vacías para aceptar cualquier tarea. Las instrucciones se añaden a cada brief de tarea que recibe el worker.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
+  "board.worker": "Worker", // Worker
+  "board.workerLabels": "Etiquetas", // Labels
+  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
+  "board.workerInstructions": "Instrucciones", // Instructions
+  "board.workerSave": "Guardar", // Save
 };
 
 export default es;

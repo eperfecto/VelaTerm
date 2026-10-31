@@ -2593,6 +2593,14 @@ const en = {
   "board.loading": "Loading board…",
   "board.hidePanel": "Hide chat panel",
   "board.showPanel": "Show chat panel",
+  "board.workers": "Workers",
+  "board.workerProfile": "Worker Profile",
+  "board.workerProfileHint": "Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.",
+  "board.worker": "Worker",
+  "board.workerLabels": "Labels",
+  "board.workerLabelsPlaceholder": "BE, BFF…",
+  "board.workerInstructions": "Instructions",
+  "board.workerSave": "Save",
 };
 
 export default en;
