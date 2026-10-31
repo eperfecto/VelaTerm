@@ -631,7 +631,7 @@ function buildLayout(keepEphemeral: boolean): PersistedLayout {
 /** Debounces routine layout writes to local storage. */
 let saveLayoutTimer: ReturnType<typeof setTimeout> | undefined;
 function scopedActiveProject(state: Parameters<typeof projectShowing>[0] & { activeTabId: string | null }): string | null {
-  return env.isRemoteWindow ? null : projectShowing(state, state.activeTabId);
+  return projectShowing(state, state.activeTabId);
 }
 
 function saveLayoutTick() {
@@ -2198,9 +2198,8 @@ export const useTermStore = create<TermStore>((set, get) => ({
         if (at > 0) sessionActivity[s.id] = at;
       }
       let activeProjectId =
-        !env.isRemoteWindow &&
         state.activeProjectId &&
-        t.projects.some((p) => p.id === state.activeProjectId)
+        t.projects.some((p) => p.id === state.activeProjectId && p.rootPath !== "")
           ? state.activeProjectId
           : null;
       let layoutPatch = {};
@@ -2260,7 +2259,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
             layoutPatch = {
               ...layoutPatch,
               activeProjectId:
-                restoredTab && !env.isRemoteWindow
+                restoredTab
                   ? tabProjectId(
                       {
                         paneTrees: reconciled.paneTrees,
@@ -2309,21 +2308,19 @@ export const useTermStore = create<TermStore>((set, get) => ({
         });
         layoutPatch = reconciled;
         // A refresh can move the active tab's session to another project, so follow the tab.
-        if (!env.isRemoteWindow) {
-          activeProjectId = projectShowing(
-            {
-              scopeTabsToProject: state.scopeTabsToProject,
-              activeProjectId,
-              projects: t.projects,
-              sessions: t.sessions,
-              ephemeralSessions: state.ephemeralSessions,
-              openTabs: reconciled.openTabs,
-              paneTrees: reconciled.paneTrees,
-              taskTabs: reconciled.taskTabs,
-            },
-            reconciled.activeTabId,
-          );
-        }
+        activeProjectId = projectShowing(
+          {
+            scopeTabsToProject: state.scopeTabsToProject,
+            activeProjectId,
+            projects: t.projects,
+            sessions: t.sessions,
+            ephemeralSessions: state.ephemeralSessions,
+            openTabs: reconciled.openTabs,
+            paneTrees: reconciled.paneTrees,
+            taskTabs: reconciled.taskTabs,
+          },
+          reconciled.activeTabId,
+        );
       }
       const sidebarTreeViews = state.sidebarTreeViews;
       const primaryView =
@@ -2856,8 +2853,6 @@ export const useTermStore = create<TermStore>((set, get) => ({
   setInspectTarget: (node) => set({ inspectTarget: node }),
 
   setActiveProject: (projectId) => {
-    // Remote windows follow another window's tabs, so they never filter their own.
-    if (env.isRemoteWindow) return;
     set((state) => {
       if (state.activeProjectId === projectId) return {};
       if (projectId !== null) {
@@ -3109,7 +3104,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
 
   setActiveTab: (tabId) => {
     set((state) => {
-      const activeProjectId = env.isRemoteWindow ? null : projectShowing(state, tabId);
+      const activeProjectId = projectShowing(state, tabId);
       if (state.docTabs[tabId] || state.browserTabs[tabId] || state.taskTabs[tabId]) {
         // Document/browser/task tabs have no session or focused pane, naturally disabling session-only controls.
         return {
@@ -4507,7 +4502,17 @@ export const useTermStore = create<TermStore>((set, get) => ({
           ? activeSessionId
           : s.mirrorFocusSessionId,
     }));
-    set((s) => ({ activeProjectId: scopedActiveProject(s) }));
+    // The scope travels with the arrangement too. A peer that predates it, or names a project this client
+    // cannot scope to, leaves the current one; either way the active tab must stay visible.
+    // A local active tab the peer's project would hide (a task tab, say) keeps this client's project; the
+    // two scopes then differ until the next local change, which is intended.
+    set((s) => {
+      const peer = c.activeProjectId;
+      const known =
+        peer === null ||
+        (peer !== undefined && (!s.treeLoaded || s.projects.some((p) => p.id === peer)));
+      return { activeProjectId: scopedActiveProject(known ? { ...s, activeProjectId: peer } : s) };
+    });
     // A mirrored arrangement counts as the layout for this session. Without this, a first `loadTree`
     // still in flight would take its restore branch and replace the peer's layout with this client's
     // stale localStorage copy — and then publish that copy back, rearranging the peer too.
@@ -4879,9 +4884,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
   setScopeTabsToProject: (v) => {
     set((state) => ({
       scopeTabsToProject: v,
-      activeProjectId: env.isRemoteWindow
-        ? null
-        : projectShowing({ ...state, scopeTabsToProject: v }, state.activeTabId),
+      activeProjectId: projectShowing({ ...state, scopeTabsToProject: v }, state.activeTabId),
     }));
     persistAndApplyVisual(get);
   },
@@ -5120,6 +5123,8 @@ export const useTermStore = create<TermStore>((set, get) => ({
       cleanPastedImages: loadCleanPastedImages(),
       recordSessions: loadRecordSessions(),
     });
+    // Another client may have switched scoping on; the active tab must stay visible either way.
+    set((s) => ({ activeProjectId: scopedActiveProject(s) }));
     applyTheme(theme, ps.darkStyle);
     applyVisual(visualOf(ps));
     notifyAgentsColorScheme(get);

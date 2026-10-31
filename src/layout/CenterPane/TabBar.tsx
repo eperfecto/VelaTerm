@@ -541,7 +541,7 @@ export function TabBar() {
       {!isShareSurface && <button className="tab-add" title={t("tab.newTerminal")} onClick={() => newScratchTab()}>
         <Icons.plus size={14} />
       </button>}
-      {!isShareSurface && !env.isRemoteWindow && scopeTabsToProject && (
+      {!isShareSurface && scopeTabsToProject && (
         <button className="tab-add" title={t("tab.newGlobalTerminal")} onClick={() => newScratchTab({ global: true })}>
           <Icons.globe size={14} />
         </button>

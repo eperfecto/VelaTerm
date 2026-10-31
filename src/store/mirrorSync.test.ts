@@ -155,6 +155,8 @@ function snapshotSource(tab: string): Parameters<typeof buildMirrorLayout>[0] {
     lastActiveSessionTabId: tab,
     activeSessionId: tab,
     focusedPaneId: `p-${tab}`,
+    activeProjectId: null,
+    scopeTabsToProject: false,
     paneTrees: { [tab]: leaf(`p-${tab}`, tab) },
     ephemeralSessions: {},
     docTabs: {},
@@ -337,6 +339,79 @@ describe("publishing local changes", () => {
     vi.advanceTimersByTime(500);
 
     expect(mirrorPush).toHaveBeenCalledTimes(1);
+    stop();
+  });
+});
+
+describe("mirroring the active project", () => {
+  /** Two projects owning tabs A and B, with the tab bar scoped to the first. */
+  function seedProjects() {
+    const project = (id: string) => ({ id, name: id, rootPath: `/tmp/${id}`, sortOrder: 0, collapsed: false, createdAt: 0 });
+    const session = (id: string, projectId: string) => ({
+      id, projectId, groupId: null, name: id, kind: "terminal" as const, collapsed: false, sortOrder: 0, createdAt: 0,
+    });
+    useTermStore.setState({
+      treeLoaded: true,
+      projects: [project("P1"), project("P2")],
+      sessions: [session("A", "P1"), session("B", "P2")],
+      scopeTabsToProject: true,
+      activeProjectId: "P1",
+    });
+  }
+  /** A peer frame showing `tab` and scoped to `projectId`. */
+  function scopedPeer(tab: string, projectId: string, rev: number): MirrorSnapshot {
+    const state = buildMirrorLayout({ ...snapshotSource(tab), scopeTabsToProject: true, activeProjectId: projectId });
+    return { rev, source: "ws-2", state: JSON.parse(JSON.stringify(state)) };
+  }
+
+  it("adopts a peer's project without pushing it back", async () => {
+    seedProjects();
+    alignEnabledEmpty();
+    const stop = start();
+    await settle();
+    mirrorPush.mockClear();
+
+    emitLayout(scopedPeer("B", "P2", 2));
+    vi.advanceTimersByTime(500);
+
+    expect(useTermStore.getState().activeProjectId).toBe("P2");
+    expect(mirrorPush).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("pushes nothing when its own active tab keeps the local project over the peer's", async () => {
+    seedProjects();
+    alignEnabledEmpty();
+    const stop = start();
+    await settle();
+    mirrorPush.mockClear();
+
+    // The peer names P2 while its active tab A belongs to P1; keeping A visible keeps P1 here.
+    emitLayout(scopedPeer("A", "P2", 2));
+    vi.advanceTimersByTime(500);
+
+    expect(useTermStore.getState().activeProjectId).toBe("P1");
+    expect(mirrorPush).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("publishes a local project switch after the debounce", async () => {
+    seedProjects();
+    useTermStore.setState({
+      openTabs: ["A", "B"],
+      paneTrees: { A: leaf("p-A", "A"), B: leaf("p-B", "B") },
+    });
+    alignEnabledEmpty();
+    const stop = start();
+    await settle();
+    mirrorPush.mockClear();
+
+    useTermStore.getState().setActiveProject("P2");
+    expect(mirrorPush).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(500);
+
+    expect(mirrorPush).toHaveBeenCalledTimes(1);
+    expect((mirrorPush.mock.calls[0][0] as { center: { activeProjectId: string } }).center.activeProjectId).toBe("P2");
     stop();
   });
 });
