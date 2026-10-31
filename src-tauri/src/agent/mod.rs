@@ -4,6 +4,7 @@
 //! embeds the session ID and one-time token in the hook URL, and emits when the agent POSTs state changes here.
 
 pub mod antigravity;
+pub mod board;
 pub mod chat;
 pub mod codex_models;
 pub mod claude_models;

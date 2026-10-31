@@ -42,7 +42,7 @@ pub(super) fn session(app: &AppCtx, id: &str) -> Result<Session, String> {
         .ok_or_else(|| "The session is missing or archived".into())
 }
 
-fn resolve(app: &AppCtx, reference: &str) -> Result<String, String> {
+pub(super) fn resolve(app: &AppCtx, reference: &str) -> Result<String, String> {
     match repo::resolve_session_ref(&app.db().conn.lock().unwrap(), reference)? {
         repo::SessionRefMatch::One(id) => Ok(id),
         repo::SessionRefMatch::None => Err("Target session not found".into()),
@@ -141,6 +141,30 @@ pub fn send(app: &AppCtx, req: &Request) -> Result<Value, String> {
     Ok(json!({"delivery":delivery,"messageId":req.message_id,"targetSessionId":target}))
 }
 
+/// Record a platform message, such as a board notice, in the ordinary session ledger and queue it for the
+/// target. A target that is not a native chat session keeps the message as `retained`; the ledger row is
+/// still written so the message can be read later. A delivery failure is reported, not raised, because
+/// the change that produced the message has already been committed.
+pub(super) fn notify(app: &AppCtx, sender_id: &str, target: &str, origin: Value, text: &str) -> Result<Value, String> {
+    let recipient = session(app, target)?;
+    let message_id = format!("msg-{}", uuid::Uuid::new_v4());
+    let wire = format!("[VelaTerm message {message_id}]\n{origin}\n\n{text}").trim_end().to_owned();
+    app.db().conn.lock().unwrap().execute(
+        "INSERT INTO session_tells(id,sender_id,target_id,fingerprint,wire,origin) VALUES (?1,?2,?3,'system',?4,?5)",
+        params![message_id, sender_id, target, wire, origin.to_string()],
+    ).map_err(|e| e.to_string())?;
+    let delivery = if recipient.engine != "chat" || !super::plan_execute::supported(recipient.kind) {
+        json!("retained")
+    } else {
+        // The retry advice in a delivery error is for vtell; this message has no caller-held ID to retry.
+        match submit(app, target, &wire, &message_id, vec![], "queue") {
+            Ok(outcome) => json!(outcome),
+            Err(error) => json!({"error": format!("Delivery to {target} failed: {error}. The change is saved and the message stays in the session ledger.")}),
+        }
+    };
+    Ok(json!({"messageId": message_id, "targetSessionId": target, "delivery": delivery}))
+}
+
 /// The submission behavior a request asks for. Steering joins the turn already running; queuing waits
 /// for it to end. A steer with no turn to join is sent as an ordinary message rather than refused.
 pub(super) fn behavior(steer: bool) -> &'static str {
@@ -162,13 +186,18 @@ pub(super) fn deliver_with_images(
     app: &AppCtx, target: &str, wire: &str, id: &str,
     images: Vec<super::chat::protocol::ChatImage>, behavior: &str,
 ) -> Result<&'static str, String> {
-    let result = (|| {
-        if !app.chat().is_alive(target) {
-            core::chat_start(app, target, None, None, false)?;
-        }
-        core::chat_send(app, target, wire, images, Some(behavior), Some(id))
-    })();
-    result.map_err(|error| format!("Delivery to {target} failed: {error}. Message {id} is retained; retry the same command with this message ID and unchanged text."))
+    submit(app, target, wire, id, images, behavior).map_err(|error| format!("Delivery to {target} failed: {error}. Message {id} is retained; retry the same command with this message ID and unchanged text."))
+}
+
+/// Start the target's chat if needed and submit one message, returning the engine's own error.
+fn submit(
+    app: &AppCtx, target: &str, wire: &str, id: &str,
+    images: Vec<super::chat::protocol::ChatImage>, behavior: &str,
+) -> Result<&'static str, String> {
+    if !app.chat().is_alive(target) {
+        core::chat_start(app, target, None, None, false)?;
+    }
+    core::chat_send(app, target, wire, images, Some(behavior), Some(id))
 }
 
 /// Only the target's exact persisted wire message can acquire a sender identity.

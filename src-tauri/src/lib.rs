@@ -404,6 +404,10 @@ pub fn run_flow(args: &[String]) -> ! {
     agent::plan_execute::run_cli(args)
 }
 
+pub fn run_board(args: &[String]) -> ! {
+    agent::board::run_cli(args)
+}
+
 /// Hidden `--view <file|URL>` entry used by `vopen`; POST `/view` to open a center-pane tab, then exit.
 pub fn run_view(args: &[String]) -> ! {
     agent::cli_client::run_view(args)

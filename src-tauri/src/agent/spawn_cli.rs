@@ -1,5 +1,5 @@
 //! Installation and discovery of built-in command shims and their companion skills (`vspawn`,
-//! `vspawn-tree`, `vopen`, `vrefer`, `vsearch`, `vask`, `vself`, `vflow`, `vtell`, and `vkb`).
+//! `vspawn-tree`, `vopen`, `vrefer`, `vsearch`, `vask`, `vself`, `vflow`, `vboard`, `vtell`, and `vkb`).
 //!
 //! At startup VelaTerm installs thin shims under the application data `bin/` directory and prepends it
 //! to each session shell's PATH, allowing `vspawn "task"`, `vopen <file>`, `vrefer <session>`, and
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 /// Built-in `(command name, main-program subcommand arguments)` shims. `vspawn` creates a child session
 /// without a worktree, `vspawn-tree` forces `--worktree`, `vopen` opens a document or browser tab,
 /// `vrefer` reads another session's conversation, `vsearch` searches across every session, `vstat` reports which sessions are busy, and `vkb` queries code
-/// and the knowledge base. `vtell` sends session messages and execution reports, and
+/// and the knowledge base. `vboard` manages a chief's task board, `vtell` sends session messages and execution reports, and
 /// `vrun` starts a long-running command and waits for it, so its completion reaches whoever started it.
 ///
 /// Unique `v`-prefixed names avoid shadowing system commands such as Vim's `/usr/bin/view`, so simply
@@ -29,6 +29,7 @@ const SHIMS: &[(&str, &str)] = &[
     ("vself", "--self"),
     ("vkb", "--knowledge"),
     ("vflow", "--flow"),
+    ("vboard", "--board"),
     ("vtell", "--tell"),
     ("vrun", "--run"),
 ];
@@ -70,6 +71,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("vstat", include_str!("../../../skills/vstat/SKILL.md")),
     ("vself", include_str!("../../../skills/vself/SKILL.md")),
     ("vflow", include_str!("../../../skills/vflow/SKILL.md")),
+    ("vboard", include_str!("../../../skills/vboard/SKILL.md")),
     ("vtell", include_str!("../../../skills/vtell/SKILL.md")),
     ("vkb", include_str!("../../../skills/vkb/SKILL.md")),
 ];
