@@ -133,7 +133,7 @@ export function useKeyboardShortcuts() {
       }
 
       if (matchCombo(e, sc("closePane"))) {
-        const { activeTabId, docTabs, browserTabs, taskTabs, requestCloseDocTab, closeTab, activeSessionId, closePane } =
+        const { activeTabId, docTabs, browserTabs, taskTabs, boardTabs, requestCloseDocTab, closeTab, activeSessionId, closePane } =
           useTermStore.getState();
         // Document tabs close directly when clean or route dirty state to DocView confirmation.
         if (activeTabId && docTabs[activeTabId]) {
@@ -141,9 +141,9 @@ export function useKeyboardShortcuts() {
           requestCloseDocTab(activeTabId);
           return;
         }
-        // Browser and task tabs close directly: a browser tab has no unsaved state (unmounting destroys the
-        // child WebView), and a task tab only shows what the agent reports.
-        if (activeTabId && (browserTabs[activeTabId] || taskTabs[activeTabId])) {
+        // Browser, task and board tabs close directly: a browser tab has no unsaved state (unmounting destroys
+        // the child WebView), a task tab only shows what the agent reports, and a board lives on the server.
+        if (activeTabId && (browserTabs[activeTabId] || taskTabs[activeTabId] || boardTabs?.[activeTabId])) {
           e.preventDefault();
           closeTab(activeTabId);
           return;

@@ -365,6 +365,11 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         "plan_execute_split_read" => crate::agent::plan_execute::split::read(app, &req_str(args,"runId")?),
         "plan_execute_split_confirm" => crate::agent::plan_execute::split::confirm(app, &serde_json::from_value(args.get("request").cloned().unwrap_or_default()).map_err(|e|format!("Invalid task confirmation: {e}"))?),
         "plan_execute_split_cancel" => crate::agent::plan_execute::split::cancel(app, &req_str(args,"runId")?, &req_str(args,"proposalId")?),
+        // Board view. board_action acts as the user with chief permissions; the CLI's /board route never can.
+        "board_register" => crate::agent::board::register(app, &req_str(args, "chiefId")?),
+        "board_ids" => to_value(crate::agent::board::ids(app)?),
+        "board_list" => crate::agent::board::board_list(app, &req_str(args, "chiefId")?),
+        "board_action" => crate::agent::board::user_action(app, &req_str(args, "chiefId")?, serde_json::from_value(args.get("request").cloned().unwrap_or_default()).map_err(|e| format!("Invalid board request: {e}"))?),
         "launch_options" => to_value(crate::agent::launch_options::catalog()),
         "launch_models" => to_value(crate::agent::launch_models::list(app,
             SessionKind::from_db(&req_str(args, "kind")?),

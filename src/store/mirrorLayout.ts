@@ -26,7 +26,7 @@ import {
 import type { InspectorTab } from "../theme";
 import { AGENT_STATES, type AgentState, type Session } from "../types";
 import type { DocTab } from "./docTab";
-import type { BrowserTab, SelNode, SidebarTreeView, TaskTab } from "./termStore";
+import type { BoardTab, BrowserTab, SelNode, SidebarTreeView, TaskTab } from "./termStore";
 
 /** Current snapshot schema. A peer running an older or newer version is ignored rather than half-applied. */
 export const MIRROR_LAYOUT_VERSION = 2;
@@ -54,6 +54,11 @@ export interface MirrorCenter {
    * native child WebView, desktop only) so following the layout never deletes the peer's browser tabs.
    */
   browserTabs: Record<string, BrowserTab>;
+  /**
+   * Metadata for `board-` tabs; the board itself is read from the server, so the peer opens the same one.
+   * Always built and sanitized; optional only so hand-written snapshots without boards still type-check.
+   */
+  boardTabs?: Record<string, BoardTab>;
 }
 
 /**
@@ -104,6 +109,8 @@ export interface MirrorLayoutSource {
   ephemeralSessions: Record<string, Session>;
   docTabs: Record<string, DocTab>;
   browserTabs: Record<string, BrowserTab>;
+  /** Optional so older sources without boards still build; absent means no board tabs. */
+  boardTabs?: Record<string, BoardTab>;
   /**
    * Task tabs are client-local and never published: a peer without the opening conversation's context
    * could show nothing useful, so they are filtered out of `openTabs` and `activeTabId` below.
@@ -175,6 +182,7 @@ export function buildMirrorLayout(s: MirrorLayoutSource): MirrorLayout {
       ephemeralSessions: pick(s.ephemeralSessions, sessionIds),
       docTabs: pick(s.docTabs, tabIds),
       browserTabs: pick(s.browserTabs, tabIds),
+      boardTabs: pick(s.boardTabs ?? {}, tabIds),
     },
     left: {
       selection: [...s.selection],
@@ -288,6 +296,15 @@ function metaMap<T>(v: unknown): Record<string, T> {
   if (!isObj(v)) return out;
   for (const [k, raw] of Object.entries(v)) {
     if (isObj(raw) && typeof raw.id === "string") out[k] = raw as T;
+  }
+  return out;
+}
+
+/** Board-tab metadata keyed by tab ID; an entry without its chief session is unusable and dropped. */
+function boardTabMap(v: unknown): Record<string, BoardTab> {
+  const out: Record<string, BoardTab> = {};
+  for (const [k, raw] of Object.entries(metaMap<Record<string, unknown>>(v))) {
+    if (typeof raw.chiefId === "string") out[k] = { id: k, chiefId: raw.chiefId };
   }
   return out;
 }
@@ -482,6 +499,7 @@ export function sanitizeMirrorLayout(raw: unknown): MirrorLayout | null {
       ephemeralSessions: metaMap<Session>(center.ephemeralSessions),
       docTabs: metaMap<DocTab>(center.docTabs),
       browserTabs: metaMap<BrowserTab>(center.browserTabs),
+      boardTabs: boardTabMap(center.boardTabs),
     },
     left: {
       selection: Array.isArray(left.selection)

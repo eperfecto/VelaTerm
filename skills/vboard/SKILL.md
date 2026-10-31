@@ -39,6 +39,11 @@ name substring.
 - A worker whose turn ends without any board update after a board message has its task marked blocked,
   and you receive a notice. Inspect the worker with `vrefer` before resuming it.
 - Only you move tasks to `done` and lift blockers with `vboard unblock T3` or by moving the task.
+- A session created as a board from VelaTerm is already a chief before its first task. The user can add,
+  assign, move, block and unblock tasks from the board view with your permissions; each change reaches
+  the worker as if you made it, and you receive a `[Board] The user ...` notice such as
+  `[Board] The user moved T3 "title" backlog → in_progress.` Treat it as the user's decision and re-read
+  `vboard list` before acting on the board.
 
 ## As a worker
 
@@ -49,6 +54,8 @@ name substring.
 - When you need a decision or are stuck, `vboard block T3 -m "what is blocking you"`. Only the chief
   unblocks a task, and you cannot move a blocked task; wait for the chief.
 - Only the chief moves a task to `done`. Move finished work to `review`.
+- A session works on one board at a time. Tasks in `done` no longer count, so once all your tasks are
+  done another chief can assign you work.
 - End every turn that started from a `[Board]` message with a board update. Ending silently blocks the
   task.
 

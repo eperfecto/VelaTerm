@@ -29,12 +29,17 @@ CREATE TABLE IF NOT EXISTS board_events (
 );
 CREATE INDEX IF NOT EXISTS board_events_task ON board_events(task_id);
 CREATE INDEX IF NOT EXISTS board_events_message ON board_events(message_id);
+CREATE TABLE IF NOT EXISTS boards (
+ chief_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE, created_at INTEGER NOT NULL
+);
 ";
 
 /// Board columns in display order. Blocked is a flag on a task, never a column.
 pub const STATUSES: [&str; 4] = ["backlog", "in_progress", "review", "done"];
 
 const SYSTEM_ACTOR: &str = "system";
+/// Actor recorded for changes made from the board view. No session has this id, so the CLI cannot claim it.
+const USER_ACTOR: &str = "user";
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -82,6 +87,29 @@ pub struct Task {
 enum Role {
     Chief,
     Worker,
+    /// The human acting from the board view: chief permissions, reachable only from dispatch.
+    User,
+}
+
+/// The board-view request: a CLI request without a session, since the user acts on a named board.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserRequest {
+    pub action: String,
+    #[serde(default)]
+    pub task: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub link: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub worker: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 fn lock() -> &'static Mutex<()> {
@@ -109,18 +137,22 @@ fn parse_ref(value: &str) -> Result<i64, String> {
     digits.parse::<i64>().ok().filter(|n| *n > 0).ok_or_else(|| format!("Invalid task reference {value:?}; use T3 or 3"))
 }
 
-/// The caller's board: its own when it is a chief, otherwise the one board it works on.
+/// The caller's board: its own when it is a registered board or owns tasks, otherwise the one board it works on.
 fn board_of(app: &AppCtx, caller: &str) -> Result<Option<(String, Role)>, String> {
     let conn = app.db().conn.lock().unwrap();
     let owns = conn
-        .query_row("SELECT 1 FROM board_tasks WHERE chief_id=?1 LIMIT 1", [caller], |_| Ok(()))
+        .query_row(
+            "SELECT 1 FROM boards WHERE chief_id=?1 UNION ALL SELECT 1 FROM board_tasks WHERE chief_id=?1 LIMIT 1",
+            [caller],
+            |_| Ok(()),
+        )
         .optional()
         .map_err(|e| e.to_string())?;
     if owns.is_some() {
         return Ok(Some((caller.to_owned(), Role::Chief)));
     }
     let mut query = conn
-        .prepare("SELECT DISTINCT chief_id FROM board_tasks WHERE worker_id=?1")
+        .prepare("SELECT DISTINCT chief_id FROM board_tasks WHERE worker_id=?1 AND status!='done'")
         .map_err(|e| e.to_string())?;
     let chiefs = query
         .query_map([caller], |r| r.get::<_, String>(0))
@@ -277,6 +309,20 @@ fn changed(app: &AppCtx, task: &Task) {
     app.emit("board://changed", json!({"chiefId":task.chief_id,"taskId":task.id}));
 }
 
+/// The session a change is delivered from. The user has no session, so its changes reach workers
+/// from the chief, exactly as a chief change would.
+fn speaker<'a>(role: Role, caller: &'a str, chief: &'a str) -> &'a str {
+    if role == Role::User { chief } else { caller }
+}
+
+/// Keep the chief informed of what the user changed on its board. Sent before any worker message, so
+/// the event stays linked to the worker message the watchdog follows.
+fn tell_chief(app: &AppCtx, role: Role, event: i64, task: &Task, text: String) {
+    if role == Role::User {
+        send(app, event, task, &task.chief_id, &task.chief_id, &text);
+    }
+}
+
 fn task_json(app: &AppCtx, task: &Task, states: &[super::status_watch::StatusRow]) -> Value {
     let mut value = serde_json::to_value(task).unwrap();
     if let Some(worker) = &task.worker_id {
@@ -297,7 +343,7 @@ fn list(app: &AppCtx, chief: &str, role: Role) -> Result<Value, String> {
         })
         .collect();
     let chief_name = session(app, chief).map(|s| s.name).ok();
-    Ok(json!({"chiefId":chief,"board":chief_name,"role":if role == Role::Chief {"chief"} else {"worker"},"columns":columns}))
+    Ok(json!({"chiefId":chief,"board":chief_name,"role":if role == Role::Worker {"worker"} else {"chief"},"columns":columns}))
 }
 
 fn show(app: &AppCtx, task: &Task) -> Result<Value, String> {
@@ -336,8 +382,9 @@ fn worker_for(app: &AppCtx, chief: &str, reference: &str) -> Result<Option<Strin
         .lock()
         .unwrap()
         .query_row(
-            "SELECT CASE WHEN chief_id=?1 THEN 'chief' ELSE 'worker' END FROM board_tasks \
-             WHERE chief_id=?1 OR (worker_id=?1 AND chief_id!=?2) LIMIT 1",
+            "SELECT 'chief' FROM boards WHERE chief_id=?1 \
+             UNION ALL SELECT CASE WHEN chief_id=?1 THEN 'chief' ELSE 'worker' END FROM board_tasks \
+             WHERE chief_id=?1 OR (worker_id=?1 AND chief_id!=?2 AND status!='done') LIMIT 1",
             params![id, chief],
             |r| r.get(0),
         )
@@ -350,7 +397,7 @@ fn worker_for(app: &AppCtx, chief: &str, reference: &str) -> Result<Option<Strin
     }
 }
 
-fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
+fn add(app: &AppCtx, chief: &str, actor: &str, role: Role, req: &Request) -> Result<Value, String> {
     let title = req.title.as_deref().map(str::trim).unwrap_or("");
     if title.is_empty() || title.chars().count() > 200 {
         return Err("Give the task a title of 1 to 200 characters".into());
@@ -359,6 +406,10 @@ fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
     let worker = req.worker.as_deref().map(|w| worker_for(app, chief, w)).transpose()?.flatten();
     let label = req.label.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let link = req.link.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    // The board view opens links with one click, so only web links are stored.
+    if link.is_some_and(|l| !(l.starts_with("https://") || l.starts_with("http://"))) {
+        return Err("A task link must start with http:// or https://".into());
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let event = {
         let mut conn = app.db().conn.lock().unwrap();
@@ -373,13 +424,14 @@ fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
             params![id, chief, number, title, req.text.trim(), label, link, status, worker, position, at],
         )
         .map_err(|e| e.to_string())?;
-        let event = insert_event(&tx, &id, &Event { actor: chief, action: "add", from: None, to: Some(status), text: title })?;
+        let event = insert_event(&tx, &id, &Event { actor, action: "add", from: None, to: Some(status), text: title })?;
         tx.commit().map_err(|e| e.to_string())?;
         event
     };
     let task = app.db().conn.lock().unwrap()
         .query_row(&format!("SELECT {TASK_COLUMNS} FROM board_tasks WHERE id=?1"), [&id], read_task)
         .map_err(|e| e.to_string())?;
+    tell_chief(app, role, event, &task, format!("[Board] The user added {} \"{}\".", task.reference, task.title));
     let message = match (&task.worker_id, status) {
         (Some(worker), "in_progress") => Some(send(app, event, &task, chief, worker, &brief(app, &task))),
         _ => None,
@@ -388,10 +440,10 @@ fn add(app: &AppCtx, chief: &str, req: &Request) -> Result<Value, String> {
     Ok(json!({"task":task,"message":message}))
 }
 
-fn assign(app: &AppCtx, chief: &str, mut task: Task, reference: &str) -> Result<Value, String> {
+fn assign(app: &AppCtx, chief: &str, actor: &str, role: Role, mut task: Task, reference: &str) -> Result<Value, String> {
     let worker = worker_for(app, chief, reference)?;
     let text = worker.as_deref().unwrap_or("none");
-    let event = apply(app, &task.id, &Event { actor: chief, action: "assign", from: None, to: None, text }, |conn| {
+    let event = apply(app, &task.id, &Event { actor, action: "assign", from: None, to: None, text }, |conn| {
         conn.execute("UPDATE board_tasks SET worker_id=?2,updated_at=?3 WHERE id=?1", params![task.id, worker, now_ms()])
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -401,6 +453,14 @@ fn assign(app: &AppCtx, chief: &str, mut task: Task, reference: &str) -> Result<
         changed(app, &task);
         return Ok(json!({"task":task,"message":null,"released":null}));
     }
+    let notice = match &worker {
+        Some(worker) => {
+            let name = session(app, worker).map(|s| s.name).unwrap_or_default();
+            format!("[Board] The user assigned {} \"{}\" to {name}.", task.reference, task.title)
+        }
+        None => format!("[Board] The user unassigned {} \"{}\".", task.reference, task.title),
+    };
+    tell_chief(app, role, event, &task, notice);
     // The outgoing worker stops here; otherwise it keeps working and its next update is refused.
     let released = previous.map(|previous| {
         let notice = format!("[Board] {} \"{}\" is no longer assigned to you. Stop working on it.", task.reference, task.title);
@@ -418,6 +478,26 @@ fn assign(app: &AppCtx, chief: &str, mut task: Task, reference: &str) -> Result<
 fn move_task(app: &AppCtx, caller: &str, role: Role, mut task: Task, status: &str, text: &str) -> Result<Value, String> {
     let status = parse_status(status)?;
     let from = task.status.clone();
+    // Done tasks release their worker to other boards, so reopening one needs a worker that is still free.
+    if from == "done" && status != "done" {
+        if let Some(worker) = &task.worker_id {
+            let busy = app
+                .db()
+                .conn
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT 1 FROM board_tasks WHERE worker_id=?1 AND chief_id!=?2 AND status!='done' LIMIT 1",
+                    params![worker, task.chief_id],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+            if busy.is_some() {
+                return Err(format!("{}'s worker now works on another board; assign another worker first", task.reference));
+            }
+        }
+    }
     let mut position = task.position;
     let event = apply(app, &task.id, &Event { actor: caller, action: "move", from: Some(from.as_str()), to: Some(status), text }, |conn| {
         if from != status {
@@ -433,6 +513,11 @@ fn move_task(app: &AppCtx, caller: &str, role: Role, mut task: Task, status: &st
     task.position = position;
     task.status = status.to_owned();
     task.blocked_reason = None;
+    let mut notice = format!("[Board] The user moved {} \"{}\" {from} → {status}.", task.reference, task.title);
+    if !text.trim().is_empty() {
+        notice.push_str(&format!("\n\n{}", text.trim()));
+    }
+    tell_chief(app, role, event, &task, notice);
     let message = match role {
         Role::Worker => {
             let name = session(app, caller).map(|s| s.name).unwrap_or_default();
@@ -442,7 +527,7 @@ fn move_task(app: &AppCtx, caller: &str, role: Role, mut task: Task, status: &st
             }
             Some(send(app, event, &task, caller, &task.chief_id.clone(), &notice))
         }
-        Role::Chief => task.worker_id.clone().map(|worker| {
+        Role::Chief | Role::User => task.worker_id.clone().map(|worker| {
             let notice = if status == "in_progress" && from != "in_progress" {
                 brief(app, &task)
             } else {
@@ -452,7 +537,7 @@ fn move_task(app: &AppCtx, caller: &str, role: Role, mut task: Task, status: &st
                 }
                 notice
             };
-            send(app, event, &task, caller, &worker, &notice)
+            send(app, event, &task, speaker(role, caller, &task.chief_id), &worker, &notice)
         }),
     };
     changed(app, &task);
@@ -471,16 +556,20 @@ fn set_blocked(app: &AppCtx, caller: &str, role: Role, mut task: Task, reason: O
             .map_err(|e| e.to_string())
     })?;
     task.blocked_reason = reason.map(str::to_owned);
+    tell_chief(app, role, event, &task, match reason {
+        Some(reason) => format!("[Board] The user blocked {} \"{}\".\n\n{reason}", task.reference, task.title),
+        None => format!("[Board] The user unblocked {} \"{}\".", task.reference, task.title),
+    });
     let target = match role {
         Role::Worker => Some(task.chief_id.clone()),
-        Role::Chief => task.worker_id.clone(),
+        Role::Chief | Role::User => task.worker_id.clone(),
     };
     let message = target.map(|target| {
         let notice = match reason {
             Some(reason) => format!("[Board] {} \"{}\" is blocked.\n\n{reason}", task.reference, task.title),
             None => format!("[Board] {} \"{}\" is no longer blocked.", task.reference, task.title),
         };
-        send(app, event, &task, caller, &target, &notice)
+        send(app, event, &task, speaker(role, caller, &task.chief_id), &target, &notice)
     });
     changed(app, &task);
     Ok(json!({"task":task,"message":message}))
@@ -493,20 +582,27 @@ pub fn action(app: &AppCtx, req: &Request) -> Result<Value, String> {
     if req.action == "add" {
         return match board {
             Some((_, Role::Worker)) => Err("Only the chief can add tasks to this board".into()),
-            _ => add(app, &req.session_id, req),
+            _ => add(app, &req.session_id, &req.session_id, Role::Chief, req),
         };
     }
     let (chief, role) = board.ok_or("This session has no board yet; create one with vboard add")?;
+    perform(app, &chief, &req.session_id, role, req)
+}
+
+/// Run a non-add action on a board. `caller` is the actor recorded in events: a session id, or the
+/// user's literal actor for Role::User.
+fn perform(app: &AppCtx, chief: &str, caller: &str, role: Role, req: &Request) -> Result<Value, String> {
     if req.action == "list" {
-        return list(app, &chief, role);
+        return list(app, chief, role);
     }
-    let task = get_task(app, &chief, parse_ref(req.task.as_deref().ok_or("Missing task reference")?)?)?;
-    if role == Role::Worker && task.worker_id.as_deref() != Some(req.session_id.as_str()) {
+    let task = get_task(app, chief, parse_ref(req.task.as_deref().ok_or("Missing task reference")?)?)?;
+    if role == Role::Worker && task.worker_id.as_deref() != Some(caller) {
         return Err(format!("{} is not assigned to this session", task.reference));
     }
     match (req.action.as_str(), role) {
         ("show", _) => show(app, &task),
-        ("assign", Role::Chief) => assign(app, &chief, task, req.worker.as_deref().ok_or("Missing worker session")?),
+        ("assign", Role::Worker) => Err("Only the chief can assign tasks".into()),
+        ("assign", _) => assign(app, chief, caller, role, task, req.worker.as_deref().ok_or("Missing worker session")?),
         ("move", _) => {
             let status = parse_status(req.status.as_deref().ok_or("Missing status")?)?;
             // The chief closes work and lifts blockers; a move would clear the blocked flag.
@@ -516,14 +612,88 @@ pub fn action(app: &AppCtx, req: &Request) -> Result<Value, String> {
             if role == Role::Worker && task.blocked_reason.is_some() {
                 return Err(format!("{} is blocked; only the chief can unblock it", task.reference));
             }
-            move_task(app, &req.session_id, role, task, status, &req.text)
+            move_task(app, caller, role, task, status, &req.text)
         }
-        ("block", _) => set_blocked(app, &req.session_id, role, task, Some(&req.text)),
-        ("unblock", Role::Chief) => set_blocked(app, &req.session_id, role, task, None),
+        ("block", _) => set_blocked(app, caller, role, task, Some(&req.text)),
         ("unblock", Role::Worker) => Err("Only the chief can unblock tasks".into()),
-        ("assign", Role::Worker) => Err("Only the chief can assign tasks".into()),
+        ("unblock", _) => set_blocked(app, caller, role, task, None),
         _ => Err("Unknown board action".into()),
     }
+}
+
+/// A session that is a board: registered, or owning tasks. Anything else is refused by the view's commands.
+fn require_board(app: &AppCtx, chief: &str) -> Result<(), String> {
+    session(app, chief)?;
+    match board_of(app, chief)? {
+        Some((_, Role::Chief)) => Ok(()),
+        _ => Err("That session is not a board".into()),
+    }
+}
+
+/// Flag a native chat agent session as a board, so it is a chief before its first task. Idempotent.
+pub fn register(app: &AppCtx, chief: &str) -> Result<Value, String> {
+    let _guard = lock().lock().unwrap();
+    let target = session(app, chief)?;
+    if target.engine != "chat" || !super::plan_execute::supported(target.kind) {
+        return Err("A board must be a native chat agent session".into());
+    }
+    if let Some((_, Role::Worker)) = board_of(app, chief)? {
+        return Err("That session already works on another board and cannot also be a chief".into());
+    }
+    app.db()
+        .conn
+        .lock()
+        .unwrap()
+        .execute("INSERT OR IGNORE INTO boards(chief_id,created_at) VALUES (?1,?2)", params![chief, now_ms()])
+        .map_err(|e| e.to_string())?;
+    app.emit("board://changed", json!({"chiefId":chief,"taskId":null}));
+    Ok(json!({"chiefId":chief}))
+}
+
+/// Every live board: registered sessions and sessions that own tasks.
+pub fn ids(app: &AppCtx) -> Result<Vec<String>, String> {
+    let conn = app.db().conn.lock().unwrap();
+    let mut query = conn
+        .prepare(
+            "SELECT b.chief_id FROM (SELECT chief_id FROM boards UNION SELECT chief_id FROM board_tasks) b \
+             JOIN sessions s ON s.id=b.chief_id WHERE s.archived_at IS NULL ORDER BY b.chief_id",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = query
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// The board as its chief sees it, for the board view.
+pub fn board_list(app: &AppCtx, chief: &str) -> Result<Value, String> {
+    let _guard = lock().lock().unwrap();
+    require_board(app, chief)?;
+    list(app, chief, Role::Chief)
+}
+
+/// Act on a board as the user, from the board view. Only dispatch reaches this; the CLI route always
+/// derives its role from the calling session.
+pub fn user_action(app: &AppCtx, chief: &str, request: UserRequest) -> Result<Value, String> {
+    let _guard = lock().lock().unwrap();
+    require_board(app, chief)?;
+    let req = Request {
+        session_id: chief.to_owned(),
+        action: request.action,
+        task: request.task,
+        title: request.title,
+        label: request.label,
+        link: request.link,
+        status: request.status,
+        worker: request.worker,
+        text: request.text.unwrap_or_default(),
+    };
+    if req.action == "add" {
+        return add(app, chief, USER_ACTOR, Role::User, &req);
+    }
+    perform(app, chief, USER_ACTOR, Role::User, &req)
 }
 
 /// Observe turn boundaries. A worker whose turn was started by a board message and ended without any
@@ -843,6 +1013,10 @@ mod tests {
         assert_eq!(one["task"]["status"], "backlog");
         assert_eq!(one["task"]["label"], "FE");
         assert_eq!(one["task"]["body"], "Details");
+        let mut local = req(CHIEF, "add");
+        local.title = Some("Local link".into());
+        local.link = Some("file:///etc/passwd".into());
+        assert!(action(&app, &local).unwrap_err().contains("http:// or https://"));
         assert_eq!(two["task"]["ref"], "T2");
         assert_eq!(two["task"]["position"], 1);
         let other = { let mut r = req("legacy", "add"); r.title = Some("Other board".into()); action(&app, &r).unwrap() };
@@ -987,6 +1161,28 @@ mod tests {
     }
 
     #[test]
+    fn done_tasks_release_their_worker_to_another_board() {
+        let app = fixture();
+        let mut other = req("legacy", "add");
+        other.title = Some("Legacy task".into());
+        other.worker = Some(EXEC.into());
+        other.status = Some("in_progress".into());
+        action(&app, &other).unwrap();
+        add_task(&app, "Rendimiento", |_| {});
+        assert!(action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap_err().contains("another board"));
+
+        action(&app, &on("legacy", "move", "T1", |r| r.status = Some("done".into()))).unwrap();
+        action(&app, &on(CHIEF, "assign", "T1", |r| r.worker = Some(EXEC.into()))).unwrap();
+        assert_eq!(action(&app, &req(EXEC, "list")).unwrap()["chiefId"], CHIEF);
+        let reopened = action(&app, &on("legacy", "move", "T1", |r| r.status = Some("review".into())));
+        assert!(reopened.unwrap_err().contains("assign another worker first"));
+        assert_eq!(get_task(&app, "legacy", 1).unwrap().status, "done");
+        action(&app, &on("legacy", "assign", "T1", |r| r.worker = Some("none".into()))).unwrap();
+        action(&app, &on("legacy", "move", "T1", |r| r.status = Some("review".into()))).unwrap();
+        cleanup(app);
+    }
+
+    #[test]
     fn a_turn_with_a_board_update_is_not_blocked() {
         let app = fixture();
         add_task(&app, "Rendimiento", |r| { r.worker = Some(PLAN.into()); r.status = Some("in_progress".into()); });
@@ -994,6 +1190,125 @@ mod tests {
         action(&app, &on(PLAN, "move", "T1", |r| { r.status = Some("in_progress".into()); r.text = "Progress".into(); })).unwrap();
         watchdog(&app, PLAN, &brief, false);
         assert!(get_task(&app, CHIEF, 1).unwrap().blocked_reason.is_none());
+        cleanup(app);
+    }
+
+    fn set_engine(app: &AppCtx, id: &str, engine: &str) {
+        app.db().conn.lock().unwrap().execute("UPDATE sessions SET engine=?2 WHERE id=?1", params![id, engine]).unwrap();
+    }
+
+    /// Register `legacy` (a claude session) as a board, then return it to a non-chat engine so board
+    /// messages to it are retained instead of starting a real chat.
+    fn register_legacy(app: &AppCtx) {
+        set_engine(app, "legacy", "chat");
+        register(app, "legacy").unwrap();
+        set_engine(app, "legacy", "tui");
+    }
+
+    fn user(app: &AppCtx, chief: &str, act: &str, task: Option<&str>, f: impl FnOnce(&mut UserRequest)) -> Result<Value, String> {
+        let mut r = UserRequest { action: act.into(), task: task.map(str::to_owned), ..Default::default() };
+        f(&mut r);
+        user_action(app, chief, r)
+    }
+
+    #[test]
+    fn registering_a_board_is_idempotent_and_limited_to_chat_agents_without_another_board() {
+        let app = fixture();
+        assert!(register(&app, "legacy").unwrap_err().contains("native chat agent"), "a tui session is not a board");
+        set_engine(&app, "owner", "chat");
+        assert!(register(&app, "owner").unwrap_err().contains("native chat agent"), "a terminal kind is not supported");
+        assert!(register(&app, "archived-child").unwrap_err().contains("missing or archived"));
+        set_engine(&app, "legacy", "chat");
+        assert_eq!(register(&app, "legacy").unwrap()["chiefId"], "legacy");
+        assert_eq!(register(&app, "legacy").unwrap()["chiefId"], "legacy");
+        let rows: i64 = app.db().conn.lock().unwrap().query_row("SELECT COUNT(*) FROM boards", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1);
+        add_task(&app, "Rendimiento", |r| r.worker = Some(PLAN.into()));
+        set_engine(&app, PLAN, "chat");
+        assert!(register(&app, PLAN).unwrap_err().contains("another board"));
+        cleanup(app);
+    }
+
+    #[test]
+    fn board_ids_lists_registered_and_task_boards_but_not_archived_ones() {
+        let app = fixture();
+        assert!(ids(&app).unwrap().is_empty());
+        register_legacy(&app);
+        add_task(&app, "Rendimiento", |_| {});
+        assert_eq!(ids(&app).unwrap(), vec!["legacy".to_owned(), CHIEF.to_owned()]);
+        app.db().conn.lock().unwrap().execute("UPDATE sessions SET archived_at=1 WHERE id='legacy'", []).unwrap();
+        assert_eq!(ids(&app).unwrap(), vec![CHIEF.to_owned()]);
+        cleanup(app);
+    }
+
+    #[test]
+    fn an_empty_registered_board_lists_as_its_chief() {
+        let app = fixture();
+        assert!(board_list(&app, "legacy").unwrap_err().contains("not a board"));
+        register_legacy(&app);
+        let board = board_list(&app, "legacy").unwrap();
+        assert_eq!(board["chiefId"], "legacy");
+        assert_eq!(board["role"], "chief");
+        let columns = board["columns"].as_array().unwrap();
+        assert_eq!(columns.iter().map(|c| c["status"].as_str().unwrap()).collect::<Vec<_>>(), STATUSES.to_vec());
+        assert!(columns.iter().all(|c| c["tasks"].as_array().unwrap().is_empty()));
+        cleanup(app);
+    }
+
+    #[test]
+    fn a_registered_board_session_is_a_chief_for_cli_actions_and_never_a_worker() {
+        let app = fixture();
+        register_legacy(&app);
+        assert_eq!(action(&app, &req("legacy", "list")).unwrap()["role"], "chief");
+        let mut first = req("legacy", "add");
+        first.title = Some("Primera".into());
+        assert_eq!(action(&app, &first).unwrap()["task"]["ref"], "T1");
+        assert!(action(&app, &on("legacy", "move", "T1", |r| r.status = Some("done".into()))).is_ok());
+        let mut other = req(CHIEF, "add");
+        other.title = Some("Rendimiento".into());
+        other.worker = Some("legacy".into());
+        assert!(action(&app, &other).unwrap_err().contains("chief of its own board"));
+        cleanup(app);
+    }
+
+    #[test]
+    fn user_actions_act_as_chief_record_the_user_and_keep_the_chief_informed() {
+        let app = fixture();
+        assert!(user(&app, CHIEF, "add", None, |r| r.title = Some("Early".into())).unwrap_err().contains("not a board"));
+        add_task(&app, "Base", |_| {});
+        let added = user(&app, CHIEF, "add", None, |r| { r.title = Some("Rendimiento".into()); r.label = Some("BE".into()); }).unwrap();
+        assert_eq!(added["task"]["ref"], "T2");
+        assert!(tells(&app, CHIEF).last().unwrap().0.ends_with("[Board] The user added T2 \"Rendimiento\"."));
+
+        user(&app, CHIEF, "assign", Some("T2"), |r| r.worker = Some(PLAN.into())).unwrap();
+        assert!(tells(&app, CHIEF).last().unwrap().0.contains("[Board] The user assigned T2 \"Rendimiento\" to Planning session."));
+        assert!(tells(&app, PLAN).is_empty(), "assigning a backlog task must not dispatch it");
+
+        let started = user(&app, CHIEF, "move", Some("T2"), |r| r.status = Some("in_progress".into())).unwrap();
+        assert_eq!(started["task"]["status"], "in_progress");
+        let brief = tells(&app, PLAN);
+        assert_eq!(brief.len(), 1);
+        assert!(brief[0].0.contains("You are the worker for T2"));
+        assert!(tells(&app, CHIEF).last().unwrap().0.contains("[Board] The user moved T2 \"Rendimiento\" backlog → in_progress."));
+        let events = action(&app, &on(CHIEF, "show", "T2", |_| {})).unwrap()["events"].clone();
+        assert_eq!(events[0]["actorId"], USER_ACTOR);
+        assert_eq!(events[0]["targetId"], PLAN, "the event stays linked to the worker brief the watchdog follows");
+
+        action(&app, &on(PLAN, "block", "T2", |r| r.text = "Need input".into())).unwrap();
+        user(&app, CHIEF, "unblock", Some("T2"), |_| {}).unwrap();
+        assert!(tells(&app, PLAN).last().unwrap().0.contains("no longer blocked"));
+        assert!(tells(&app, CHIEF).last().unwrap().0.contains("[Board] The user unblocked T2 \"Rendimiento\"."));
+        user(&app, CHIEF, "block", Some("T2"), |r| r.text = Some("Waiting on design".into())).unwrap();
+        assert!(tells(&app, CHIEF).last().unwrap().0.contains("[Board] The user blocked T2 \"Rendimiento\".\n\nWaiting on design"));
+        let done = user(&app, CHIEF, "move", Some("T2"), |r| r.status = Some("done".into())).unwrap();
+        assert_eq!(done["task"]["status"], "done");
+        assert!(tells(&app, PLAN).last().unwrap().0.contains("The chief moved T2"));
+
+        assert_eq!(user(&app, CHIEF, "list", None, |_| {}).unwrap()["role"], "chief");
+        let events = action(&app, &on(CHIEF, "show", "T2", |_| {})).unwrap()["events"].clone();
+        let actors = events.as_array().unwrap().iter().filter(|e| e["actorId"] == USER_ACTOR).count();
+        assert_eq!(actors, 6, "add, assign, move, unblock, block and move are recorded as the user");
+        assert!(action(&app, &req(USER_ACTOR, "list")).unwrap_err().contains("missing or archived"), "the CLI cannot act as the user");
         cleanup(app);
     }
 

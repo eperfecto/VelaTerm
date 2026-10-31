@@ -2545,6 +2545,41 @@ const ja: typeof en = {
   "artifact.cardOpenTitle": "このセッションの横に開く", // Open beside this session
   "artifact.cardKind": "HTML ページ", // HTML page
   "artifact.frameTitle": (name: string) => `${name} のプレビュー`, // Preview of ${name}
+  "board.title": "ボード", // Board
+  "board.new": "新しいボード…", // New Board…
+  "board.newTitle": "新しいボード", // New Board
+  "board.name": "ボード名", // Board name
+  "board.agent": "エージェント", // Agent
+  "board.create": "作成", // Create
+  "board.createFailed": "ボードのセッションを作成できませんでした。", // Could not create the board session.
+  "board.addTask": "+ タスク", // + Task
+  "board.addTaskSubmit": "タスクを追加", // Add Task
+  "board.newTask": "新しいタスク", // New Task
+  "board.taskTitle": "タイトル", // Title
+  "board.taskBody": "説明", // Description
+  "board.taskLabel": "ラベル", // Label
+  "board.taskLabelPlaceholder": "FE、BE…", // FE, BE…
+  "board.taskLink": "リンク", // Link
+  "board.progress": "進捗", // Progress
+  "board.column.backlog": "バックログ", // Backlog
+  "board.column.in_progress": "進行中", // In Progress
+  "board.column.review": "レビュー", // Review
+  "board.column.done": "完了", // Done
+  "board.noWorker": "ワーカーなし", // No worker
+  "board.blocked": "ブロック中", // Blocked
+  "board.assign": "ワーカーを割り当て", // Assign Worker
+  "board.block": "ブロック…", // Block…
+  "board.blockSubmit": "ブロック", // Block
+  "board.blockReason": "理由", // Reason
+  "board.unblock": "ブロック解除", // Unblock
+  "board.openLink": "リンクを開く", // Open Link
+  "board.moveTo": "移動先", // Move To
+  "board.taskMenu": "タスクの操作", // Task actions
+  "board.chief": "チーフ", // Chief
+  "board.notChat": "このセッションはチャット表示を使用していないため、会話をここに表示できません。", // This session does not use the chat view, so its conversation cannot be shown here.
+  "board.loading": "ボードを読み込み中…", // Loading board…
+  "board.hidePanel": "チャットパネルを隠す", // Hide chat panel
+  "board.showPanel": "チャットパネルを表示", // Show chat panel
 };
 
 export default ja;
