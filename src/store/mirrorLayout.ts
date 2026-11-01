@@ -54,6 +54,11 @@ export interface MirrorCenter {
    * native child WebView, desktop only) so following the layout never deletes the peer's browser tabs.
    */
   browserTabs: Record<string, BrowserTab>;
+  /**
+   * Project the scoped tab bar shows; `null` shows every tab. Absent in snapshots from clients that predate
+   * it, in which case the receiver keeps deriving its own.
+   */
+  activeProjectId?: string | null;
 }
 
 /**
@@ -104,6 +109,8 @@ export interface MirrorLayoutSource {
   ephemeralSessions: Record<string, Session>;
   docTabs: Record<string, DocTab>;
   browserTabs: Record<string, BrowserTab>;
+  activeProjectId: string | null;
+  scopeTabsToProject: boolean;
   /**
    * Task tabs are client-local and never published: a peer without the opening conversation's context
    * could show nothing useful, so they are filtered out of `openTabs` and `activeTabId` below.
@@ -175,6 +182,8 @@ export function buildMirrorLayout(s: MirrorLayoutSource): MirrorLayout {
       ephemeralSessions: pick(s.ephemeralSessions, sessionIds),
       docTabs: pick(s.docTabs, tabIds),
       browserTabs: pick(s.browserTabs, tabIds),
+      // Unscoped, the recorded project filters nothing here and must not narrow a peer's tab bar.
+      activeProjectId: s.scopeTabsToProject ? s.activeProjectId : null,
     },
     left: {
       selection: [...s.selection],
@@ -482,6 +491,9 @@ export function sanitizeMirrorLayout(raw: unknown): MirrorLayout | null {
       ephemeralSessions: metaMap<Session>(center.ephemeralSessions),
       docTabs: metaMap<DocTab>(center.docTabs),
       browserTabs: metaMap<BrowserTab>(center.browserTabs),
+      ...(typeof center.activeProjectId === "string" || center.activeProjectId === null
+        ? { activeProjectId: center.activeProjectId }
+        : {}),
     },
     left: {
       selection: Array.isArray(left.selection)

@@ -46,7 +46,11 @@ vi.mock("../ipc/chat", () => ({
   chatStop: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../notify", () => ({ notify: vi.fn() }));
-vi.mock("../ipc/transport", () => ({ isTauri: true, invokeNative: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../ipc/transport", () => ({
+  isTauri: true,
+  invoke: vi.fn().mockResolvedValue(undefined),
+  invokeNative: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("../ipc/browser", () => ({ setBrowserUrl: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../platform", () => ({
   env,
@@ -55,6 +59,7 @@ vi.mock("../platform", () => ({
 
 import * as ipcTree from "../ipc/tree";
 import { useTermStore } from "./termStore";
+import { buildMirrorLayout, sanitizeMirrorLayout, type MirrorLayout } from "./mirrorLayout";
 import { visibleTabIds } from "./visibleTabs";
 
 type State = ReturnType<typeof useTermStore.getState>;
@@ -174,11 +179,14 @@ describe("switching the active project", () => {
     expect(s.activeTabId).toBe("a1");
   });
 
-  it("never picks an active project in a remote window", () => {
+  it("scopes a remote window the same way as the desktop", () => {
     seed({ activeProjectId: null });
     env.isRemoteWindow = true;
     useTermStore.getState().setActiveProject("B");
-    expect(useTermStore.getState().activeProjectId).toBeNull();
+    const s = useTermStore.getState();
+    expect(s.activeProjectId).toBe("B");
+    expect(s.activeTabId).toBe("b1");
+    expect(visibleTabIds(s)).toEqual(["b1"]);
   });
 });
 
@@ -256,11 +264,12 @@ describe("keeping the active tab visible", () => {
     expect(visibleTabIds(s)).toContain("a1");
   });
 
-  it("keeps the active project null in a remote window when activating a tab", () => {
-    seed({ activeProjectId: null });
+  it("follows the activated tab's project in a remote window", () => {
     env.isRemoteWindow = true;
     useTermStore.getState().setActiveTab("b1");
-    expect(useTermStore.getState().activeProjectId).toBeNull();
+    const s = useTermStore.getState();
+    expect(s.activeProjectId).toBe("B");
+    expect(visibleTabIds(s)).toContain("b1");
   });
 });
 
@@ -353,12 +362,12 @@ describe("opening sessions and terminals", () => {
     expect(useTermStore.getState().activeProjectId).toBe("B");
   });
 
-  it("creating a session keeps the active project null in a remote window", async () => {
+  it("creating a session in a remote window makes its project active", async () => {
     seed({ activeProjectId: null });
     env.isRemoteWindow = true;
     vi.mocked(ipcTree.createSession).mockResolvedValue(session("b9", "B"));
     await useTermStore.getState().addSession({ projectId: "B", groupId: null, name: "b9" });
-    expect(useTermStore.getState().activeProjectId).toBeNull();
+    expect(useTermStore.getState().activeProjectId).toBe("B");
   });
   it("a new terminal in a project is saved under that project", async () => {
     await useTermStore.getState().newScratchTab({ target: { projectId: "B" }, name: "dev server" });
@@ -467,5 +476,132 @@ describe("opening sessions and terminals", () => {
     });
     useTermStore.getState().openSession("b2");
     expect(useTermStore.getState().openTabs).toEqual(["b2"]);
+  });
+});
+
+describe("following a mirrored peer", () => {
+  /** What a peer showing `patch` would publish, round-tripped through JSON as the socket does. */
+  function peerLayout(patch: Partial<State>): MirrorLayout {
+    const snapshot = buildMirrorLayout({ ...useTermStore.getState(), ...patch });
+    return sanitizeMirrorLayout(JSON.parse(JSON.stringify(snapshot)))!;
+  }
+  const peerOnB = { activeProjectId: "B", activeTabId: "b1", activeSessionId: "b1", focusedPaneId: "p-b1" };
+
+  it("publishes the active project", () => {
+    expect(buildMirrorLayout(useTermStore.getState()).center.activeProjectId).toBe("A");
+  });
+
+  it("adopts the peer's active project, so a client showing every tab starts filtering", () => {
+    seed({ activeProjectId: null });
+    useTermStore.getState().applyMirrorLayout(peerLayout(peerOnB));
+    const s = useTermStore.getState();
+    expect(s.activeProjectId).toBe("B");
+    expect(visibleTabIds(s)).toEqual(["b1"]);
+  });
+
+  it("adopts the peer's active project in a remote window", () => {
+    seed({ activeProjectId: null });
+    env.isRemoteWindow = true;
+    useTermStore.getState().applyMirrorLayout(peerLayout(peerOnB));
+    expect(useTermStore.getState().activeProjectId).toBe("B");
+  });
+
+  it("adopts the peer showing every tab", () => {
+    useTermStore.getState().applyMirrorLayout(peerLayout({ ...peerOnB, activeProjectId: null }));
+    const s = useTermStore.getState();
+    expect(s.activeProjectId).toBeNull();
+    expect(visibleTabIds(s)).toEqual(["a1", "b1", "a2"]);
+  });
+
+  it("keeps the active tab visible when the peer's project would hide it", () => {
+    useTermStore.getState().applyMirrorLayout(peerLayout({ ...peerOnB, activeProjectId: "A" }));
+    const s = useTermStore.getState();
+    expect(s.activeProjectId).toBe("B");
+    expect(visibleTabIds(s)).toContain("b1");
+  });
+
+  it("ignores a peer's collection or unknown project", () => {
+    seed({ treeLoaded: true, projects: [project("A"), project("B"), { ...project("C"), rootPath: "" }] });
+    useTermStore.getState().applyMirrorLayout(peerLayout({ activeProjectId: "C" }));
+    let s = useTermStore.getState();
+    expect(s.activeProjectId).toBe("A");
+    expect(visibleTabIds(s)).toContain(s.activeTabId);
+    useTermStore.getState().applyMirrorLayout(peerLayout({ activeProjectId: "nope" }));
+    s = useTermStore.getState();
+    expect(s.activeProjectId).toBe("A");
+    expect(visibleTabIds(s)).toContain(s.activeTabId);
+  });
+
+  it("keeps a local task tab in front and its project when the peer names another", () => {
+    useTermStore.getState().openTaskTab("a1", {
+      task_id: "t1",
+      task_type: "workflow",
+      description: "d",
+      summary: "s",
+    } as Parameters<State["openTaskTab"]>[1]);
+    const taskTab = useTermStore.getState().activeTabId!;
+    useTermStore.getState().applyMirrorLayout(peerLayout(peerOnB));
+    const s = useTermStore.getState();
+    expect(s.activeTabId).toBe(taskTab);
+    expect(s.activeProjectId).toBe("A");
+    expect(visibleTabIds(s)).toContain(s.activeTabId);
+  });
+
+  describe("adopted before the tree loads, then checked by loadTree", () => {
+    /** Apply a peer naming `projectId` on a client whose tree has not loaded yet, then load `projects`. */
+    async function adoptThenLoad(projectId: string, projects: Project[], sessions: Session[]) {
+      const layout = peerLayout({ ...peerOnB, activeProjectId: projectId });
+      useTermStore.setState({ treeLoaded: false, projects: [], activeProjectId: null });
+      useTermStore.getState().applyMirrorLayout(layout);
+      expect(useTermStore.getState().activeProjectId).toBe(projectId);
+      tree.data = { projects, groups: [], sessions };
+      await useTermStore.getState().loadTree();
+      return useTermStore.getState();
+    }
+
+    it("keeps a project that still exists", async () => {
+      const s = await adoptThenLoad("B", [project("A"), project("B")], [session("a1", "A"), session("a2", "A"), session("b1", "B")]);
+      expect(s.activeProjectId).toBe("B");
+      expect(visibleTabIds(s)).toContain(s.activeTabId);
+    });
+
+    it("drops a project deleted meanwhile", async () => {
+      const s = await adoptThenLoad("B", [project("A")], [session("a1", "A"), session("a2", "A")]);
+      expect(s.activeProjectId).toBeNull();
+      expect(s.activeTabId).not.toBeNull();
+      expect(visibleTabIds(s)).toContain(s.activeTabId);
+    });
+
+    it("drops a collection, which cannot be scoped to", async () => {
+      const s = await adoptThenLoad(
+        "C",
+        [project("A"), project("B"), { ...project("C"), rootPath: "" }],
+        [session("a1", "A"), session("a2", "A"), session("b1", "B")],
+      );
+      expect(s.activeProjectId).toBeNull();
+      expect(visibleTabIds(s)).toContain(s.activeTabId);
+    });
+  });
+
+  it("keeps its own scope when an older peer publishes no active project", () => {
+    const raw = JSON.parse(JSON.stringify(buildMirrorLayout({ ...useTermStore.getState(), ...peerOnB })));
+    delete raw.center.activeProjectId;
+    const layout = sanitizeMirrorLayout(raw)!;
+    expect(layout.center.activeProjectId).toBeUndefined();
+    seed({ activeProjectId: null });
+    useTermStore.getState().applyMirrorLayout(layout);
+    expect(useTermStore.getState().activeProjectId).toBeNull();
+  });
+});
+
+describe("receiving the scope setting from another client", () => {
+  it("re-establishes the visible active tab when scoping turns on", () => {
+    seed({ scopeTabsToProject: false, activeTabId: "b1", activeSessionId: "b1", focusedPaneId: "p-b1" });
+    localStorage.setItem("vlx-settings", JSON.stringify({ scopeTabsToProject: true }));
+    useTermStore.getState().hydrateSettingsFromCache();
+    const s = useTermStore.getState();
+    expect(s.scopeTabsToProject).toBe(true);
+    expect(s.activeProjectId).toBe("B");
+    expect(visibleTabIds(s)).toContain("b1");
   });
 });

@@ -77,6 +77,8 @@ function source(over: Partial<MirrorLayoutSource> = {}): MirrorLayoutSource {
     lastActiveSessionTabId: "A",
     activeSessionId: "A",
     focusedPaneId: "pa",
+    activeProjectId: null,
+    scopeTabsToProject: false,
     paneTrees: { A: leaf("pa", "A") },
     ephemeralSessions: {},
     docTabs: {},
@@ -247,6 +249,11 @@ describe("buildMirrorLayout", () => {
     const s = source({ liveTabs: ["B"], paneTrees: { A: leaf("pa", "A"), B: leaf("pb", "B") } });
     expect(JSON.stringify(buildMirrorLayout(s))).toBe(JSON.stringify(buildMirrorLayout(s)));
   });
+
+  it("publishes the active project only while tabs are scoped", () => {
+    expect(buildMirrorLayout(source({ activeProjectId: "P", scopeTabsToProject: true })).center.activeProjectId).toBe("P");
+    expect(buildMirrorLayout(source({ activeProjectId: "P", scopeTabsToProject: false })).center.activeProjectId).toBeNull();
+  });
 });
 
 describe("sanitizeMirrorLayout", () => {
@@ -282,6 +289,21 @@ describe("sanitizeMirrorLayout", () => {
     const out = sanitizeMirrorLayout(raw)!;
     expect(out.left.selection).toEqual([{ id: "A", kind: "session" }]);
     expect(out.right.inspectorTab).toBe("files");
+  });
+
+  it("keeps a string or null active project and treats anything else as absent", () => {
+    const withProject = (value: unknown) => {
+      const raw = valid();
+      raw.center.activeProjectId = value;
+      return sanitizeMirrorLayout(raw)!.center;
+    };
+    expect(withProject("P").activeProjectId).toBe("P");
+    expect(withProject(null).activeProjectId).toBeNull();
+    expect("activeProjectId" in withProject(7)).toBe(false);
+    expect("activeProjectId" in withProject({ id: "P" })).toBe(false);
+    const raw = valid();
+    delete raw.center.activeProjectId;
+    expect("activeProjectId" in sanitizeMirrorLayout(raw)!.center).toBe(false);
   });
 });
 

@@ -79,6 +79,8 @@ const WATCHED = [
   "sidebarTreeTabs",
   "primarySidebarTreeViewId",
   "activeSidebarTreeViewId",
+  "activeProjectId",
+  "scopeTabsToProject",
 ] as const;
 
 /** Serialize the arrangement this client would publish right now. */

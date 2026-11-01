@@ -121,10 +121,11 @@ describe("TabBar project scoping", () => {
     expect(screen.queryByTitle("tab.newGlobalTerminal")).toBeNull();
   });
 
-  it("hides the global terminal button in a remote window", () => {
+  it("offers the global terminal button in a remote window too", () => {
     platformEnv.isRemoteWindow = true;
     render(<TabBar />);
-    expect(screen.queryByTitle("tab.newGlobalTerminal")).toBeNull();
+    fireEvent.click(screen.getByTitle("tab.newGlobalTerminal"));
+    expect(storeState.newScratchTab).toHaveBeenCalledWith({ global: true });
   });
 
   it("closes only visible tabs from the context menu", () => {
