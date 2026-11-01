@@ -1,7 +1,7 @@
 {
   "name": "velaterm",
   "private": true,
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "VelaTerm — a terminal multiplexer GUI that manages terminals and AI agent sessions in one project/group/session tree",
   "author": "VLINX Software",
   "type": "module",
