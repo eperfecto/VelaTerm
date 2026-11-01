@@ -28,26 +28,15 @@ export interface BoardTask {
   workerState?: string | null;
 }
 
-/** A worker's profile on one board: the task labels it takes and instructions appended to its task briefs. */
-export interface BoardWorker {
-  workerId: string;
-  name: string | null;
-  /** Uppercase labels; empty accepts any task. */
-  labels: string[];
-  instructions: string;
-}
-
 export interface BoardList {
   chiefId: string;
   board: string | null;
   role: "chief";
   columns: { status: BoardStatus; tasks: BoardTask[] }[];
-  /** Worker profiles on this board, ordered by name. */
-  workers: BoardWorker[];
 }
 
 export interface BoardActionRequest {
-  action: "add" | "assign" | "move" | "block" | "unblock" | "show" | "profile";
+  action: "add" | "assign" | "move" | "block" | "unblock" | "show";
   /** Task reference such as `T3`. */
   task?: string;
   title?: string;
@@ -56,10 +45,8 @@ export interface BoardActionRequest {
   status?: BoardStatus;
   /** Worker session ID, or `"none"` to unassign. */
   worker?: string;
-  /** Task body for `add`, report for `move`, reason for `block`, instructions for `profile` ("" clears). */
+  /** Task body for `add`, report for `move`, reason for `block`. */
   text?: string;
-  /** Comma-separated worker labels for `profile`, e.g. "BE, BFF"; omitted keeps them, "" clears them. */
-  labels?: string;
 }
 
 /** Flag a chief chat session as a board. */
@@ -70,7 +57,6 @@ export const boardIds = () => invoke<string[]>("board_ids", {});
 
 export const boardList = (chiefId: string) => invoke<BoardList>("board_list", { chiefId });
 
-/** Act on the board as the human user; the backend notifies the chief and the affected worker.
- *  Task actions return `task`; `profile` returns `worker`. */
+/** Act on the board as the human user; the backend notifies the chief and the affected worker. */
 export const boardAction = (chiefId: string, request: BoardActionRequest) =>
-  invoke<{ task?: BoardTask; worker?: BoardWorker; message?: unknown }>("board_action", { chiefId, request });
+  invoke<{ task: BoardTask; message?: unknown }>("board_action", { chiefId, request });
