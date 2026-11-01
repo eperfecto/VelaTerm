@@ -70,7 +70,6 @@ const WATCHED = [
   "ephemeralSessions",
   "docTabs",
   "browserTabs",
-  "boardTabs",
   "selection",
   "inspectTarget",
   "leftCollapsed",
