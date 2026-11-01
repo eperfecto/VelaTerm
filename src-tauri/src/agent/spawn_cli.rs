@@ -88,7 +88,7 @@ pub fn install(data_dir: &Path) -> std::io::Result<PathBuf> {
     for (name, subcmd) in SHIMS {
         write_shim(&bin, name, subcmd)?;
     }
-    // Retire both wrappers, including the extensionless Git Bash variant on Windows.
+    // Retire withdrawn wrappers, including the extensionless Git Bash variant on Windows.
     for name in ["vknowledge", "vknowledge.cmd", "vorch", "vorch.cmd", "vboard", "vboard.cmd"] {
         match std::fs::remove_file(bin.join(name)) {
             Ok(()) => {}
