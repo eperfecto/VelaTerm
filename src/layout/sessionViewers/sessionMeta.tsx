@@ -174,8 +174,6 @@ export function SessionKindIcon({
   const t = useT();
   // A session created from a preset shows the preset's icon; a deleted preset falls back to the kind's.
   const presets = useTermStore((st) => st.agentPresets);
-  // A chief session flagged as a board shows the board glyph; its workers keep their own icons.
-  const isBoard = useTermStore((st) => st.boardIds?.includes(session.id) ?? false);
   // Agent tools can move a running process into a worktree after launch. Subscribe to coarse runtime state
   // changes and inspect its real cwd then; this avoids polling while still refreshing after a working turn.
   const runtimeKey = useTermStore((st) => {
@@ -209,13 +207,7 @@ export function SessionKindIcon({
   const wtDir = wtPath ? (wtPath.split("/").filter(Boolean).pop() ?? wtPath) : null;
   return (
     <>
-      {isBoard ? (
-        <span style={{ color: "var(--accent)", display: "inline-flex" }} title={t("board.title")}>
-          <Icons.board size={size} />
-        </span>
-      ) : (
-        sessionIconEl(session, presets, size)
-      )}
+      {sessionIconEl(session, presets, size)}
       {inWorktree && (
         <span className="wt-badge" title={`${t("spawn.worktreeLabel")}${wtDir ? `: ${wtDir}` : ""}`}>
           <Icons.branch size={8} sw={2} />

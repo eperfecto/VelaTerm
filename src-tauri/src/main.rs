@@ -80,7 +80,6 @@ fn main() {
         Some("--tell") => velaterm_lib::run_tell(&args),
         Some("--run") => velaterm_lib::run_wait(&args),
         Some("--flow") => velaterm_lib::run_flow(&args),
-        Some("--board") => velaterm_lib::run_board(&args),
         Some("--view") => velaterm_lib::run_view(&args),
         Some("--refer") => velaterm_lib::run_refer(&args),
         Some("--search") => velaterm_lib::run_search(&args),

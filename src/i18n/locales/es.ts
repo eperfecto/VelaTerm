@@ -2560,49 +2560,6 @@ const es: typeof en = {
   "artifact.cardOpenTitle": "Abrir junto a esta sesión", // Open beside this session
   "artifact.cardKind": "Página HTML", // HTML page
   "artifact.frameTitle": (name: string) => `Vista previa de ${name}`, // Preview of ${name}
-  "board.title": "Tablero", // Board
-  "board.new": "Nuevo tablero…", // New Board…
-  "board.newTitle": "Nuevo tablero", // New Board
-  "board.name": "Nombre del tablero", // Board name
-  "board.agent": "Agente", // Agent
-  "board.create": "Crear", // Create
-  "board.createFailed": "No se pudo crear la sesión del tablero.", // Could not create the board session.
-  "board.addTask": "+ Tarea", // + Task
-  "board.addTaskSubmit": "Añadir tarea", // Add Task
-  "board.newTask": "Nueva tarea", // New Task
-  "board.taskTitle": "Título", // Title
-  "board.taskBody": "Descripción", // Description
-  "board.taskLabel": "Etiqueta", // Label
-  "board.taskLabelPlaceholder": "FE, BE…", // FE, BE…
-  "board.taskLink": "Enlace", // Link
-  "board.progress": "Progreso", // Progress
-  "board.column.backlog": "Pendiente", // Backlog
-  "board.column.in_progress": "En curso", // In Progress
-  "board.column.review": "Revisión", // Review
-  "board.column.done": "Hecho", // Done
-  "board.noWorker": "Sin worker", // No worker
-  "board.blocked": "Bloqueada", // Blocked
-  "board.assign": "Asignar worker", // Assign Worker
-  "board.block": "Bloquear…", // Block…
-  "board.blockSubmit": "Bloquear", // Block
-  "board.blockReason": "Motivo", // Reason
-  "board.unblock": "Desbloquear", // Unblock
-  "board.openLink": "Abrir enlace", // Open Link
-  "board.moveTo": "Mover a", // Move To
-  "board.taskMenu": "Acciones de la tarea", // Task actions
-  "board.chief": "Chief", // Chief
-  "board.notChat": "Esta sesión no usa la vista de chat, así que su conversación no se puede mostrar aquí.", // This session does not use the chat view, so its conversation cannot be shown here.
-  "board.loading": "Cargando tablero…", // Loading board…
-  "board.hidePanel": "Ocultar panel de chat", // Hide chat panel
-  "board.showPanel": "Mostrar panel de chat", // Show chat panel
-  "board.workers": "Workers", // Workers
-  "board.workerProfile": "Perfil del worker", // Worker Profile
-  "board.workerProfileHint": "No se pueden asignar a un worker tareas con etiquetas fuera de las suyas; deja las etiquetas vacías para aceptar cualquier tarea. Las instrucciones se añaden a cada brief de tarea que recibe el worker.", // Tasks labeled outside a worker's labels cannot be assigned to it; leave labels empty to accept any task. Instructions are added to every task brief the worker receives.
-  "board.worker": "Worker", // Worker
-  "board.workerLabels": "Etiquetas", // Labels
-  "board.workerLabelsPlaceholder": "BE, BFF…", // BE, BFF…
-  "board.workerInstructions": "Instrucciones", // Instructions
-  "board.workerSave": "Guardar", // Save
 };
 
 export default es;
