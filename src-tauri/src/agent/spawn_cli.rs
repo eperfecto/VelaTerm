@@ -89,7 +89,7 @@ pub fn install(data_dir: &Path) -> std::io::Result<PathBuf> {
         write_shim(&bin, name, subcmd)?;
     }
     // Retire both wrappers, including the extensionless Git Bash variant on Windows.
-    for name in ["vknowledge", "vknowledge.cmd", "vorch", "vorch.cmd"] {
+    for name in ["vknowledge", "vknowledge.cmd", "vorch", "vorch.cmd", "vboard", "vboard.cmd"] {
         match std::fs::remove_file(bin.join(name)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -537,7 +537,7 @@ fn write_skills(dir: &Path, for_codex: bool) -> std::io::Result<()> {
 
 /// Remove the former bundled skill on upgrades as well as explicit installation or removal.
 fn remove_retired_skills(dir: &Path) -> std::io::Result<()> {
-    for name in ["vknowledge", "vorch"] {
+    for name in ["vknowledge", "vorch", "vboard"] {
         match std::fs::remove_dir_all(dir.join(name)) {
             Ok(()) => {},
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
@@ -711,7 +711,7 @@ mod tests {
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("vknowledge"), "#!/bin/sh\nexec \"$VLX_EXE\" --knowledge \"$@\"\n").unwrap();
         std::fs::write(bin.join("vknowledge.cmd"), "@\"%VLX_EXE%\" --knowledge %*\r\n").unwrap();
-        for name in ["vorch", "vorch.cmd"] { std::fs::write(bin.join(name), "retired").unwrap(); }
+        for name in ["vorch", "vorch.cmd", "vboard", "vboard.cmd"] { std::fs::write(bin.join(name), "retired").unwrap(); }
         std::fs::write(bin.join("custom-command"), "keep").unwrap();
         for _ in 0..2 {
             install(&tmp).unwrap();
@@ -719,6 +719,8 @@ mod tests {
             assert!(!bin.join("vknowledge.cmd").exists());
             assert!(!bin.join("vorch").exists());
             assert!(!bin.join("vorch.cmd").exists());
+            assert!(!bin.join("vboard").exists());
+            assert!(!bin.join("vboard.cmd").exists());
             assert!(shim_path(&bin, "vkb").is_file());
             assert_eq!(std::fs::read_to_string(bin.join("custom-command")).unwrap(), "keep");
         }
@@ -767,6 +769,8 @@ mod tests {
                 std::fs::write(dir.join("vknowledge/SKILL.md"), "old bundled skill").unwrap();
                 std::fs::create_dir_all(dir.join("vorch")).unwrap();
                 std::fs::write(dir.join("vorch/SKILL.md"), "old task splitter").unwrap();
+                std::fs::create_dir_all(dir.join("vboard")).unwrap();
+                std::fs::write(dir.join("vboard/SKILL.md"), "withdrawn task board").unwrap();
             }
             if enabled {
                 std::fs::create_dir_all(dirs[0].join("vspawn")).unwrap();
@@ -777,6 +781,7 @@ mod tests {
                 for dir in &dirs {
                     assert!(!dir.join("vknowledge").exists());
                     assert!(!dir.join("vorch").exists());
+                    assert!(!dir.join("vboard").exists());
                     assert_eq!(dir.join("vkb/SKILL.md").exists(), enabled);
                     assert_eq!(dir.join("vask/SKILL.md").exists(), enabled);
                     assert_eq!(dir.join("vself/SKILL.md").exists(), enabled);
