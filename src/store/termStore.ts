@@ -1213,6 +1213,8 @@ interface TermStore {
   composerInlineChipsRevision: number;
   /** Sidebar order: on keeps the most recently active projects and sessions at the top, off is the manual order. */
   sortByActivity: boolean;
+  /** Sidebar worktree level: on gathers sessions sharing a worktree under one row, off lists them as plain siblings. */
+  groupByWorktree: boolean;
   /**
    * Live copy of each persistent session's last activity in milliseconds, keyed by session id. Seeded from the
    * tree snapshot's `lastActiveAt` and advanced immediately by `noteSessionActivity`, so the sidebar reorders
@@ -1623,6 +1625,8 @@ interface TermStore {
   setComposerInlineChips: (ids: ComposerChipId[]) => void;
   /** Switches the sidebar between the activity order and the manual order, persisted like the other preferences. */
   setSortByActivity: (v: boolean) => void;
+  /** Shows or hides the sidebar worktree level, persisted like the other preferences. */
+  setGroupByWorktree: (v: boolean) => void;
   /**
    * Records activity on a persistent session: advances the live copy and asks the backend to persist the stamp.
    * Called by the two input paths (terminal input, chat submission) and by the agent-state observer. Reading is
@@ -1855,6 +1859,7 @@ function persistAndApplyVisual(getState: () => TermStore) {
     composerInlineChips: s.composerInlineChips,
     composerInlineChipsRevision: s.composerInlineChipsRevision,
     sortByActivity: s.sortByActivity,
+    groupByWorktree: s.groupByWorktree,
   };
   saveSettings(ps);
   applyVisual(visualOf(ps));
@@ -4963,6 +4968,10 @@ export const useTermStore = create<TermStore>((set, get) => ({
   },
   setComposerInlineChips: (ids) => {
     set({ composerInlineChips: sanitizeComposerInlineChips(ids) });
+    persistAndApplyVisual(get);
+  },
+  setGroupByWorktree: (v) => {
+    set({ groupByWorktree: v });
     persistAndApplyVisual(get);
   },
   setSortByActivity: (v) => {

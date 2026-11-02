@@ -226,6 +226,9 @@ export interface PersistedSettings {
   /** Sidebar order: on keeps the most recently active projects and sessions at the top, off renders the
    * manual order. Off by default; the manual order is never changed by the mode. */
   sortByActivity: boolean;
+  /** Sidebar worktree level: on gathers sibling sessions sharing a Git worktree under one display-only
+   * worktree row, off lists them as plain siblings. On by default. */
+  groupByWorktree: boolean;
 }
 
 /** Every composer chip the toolbar can show, in the order the toolbar used before the list became
@@ -309,6 +312,7 @@ const SETTINGS_DEFAULTS: PersistedSettings = {
   composerInlineChips: DEFAULT_COMPOSER_INLINE_CHIPS,
   composerInlineChipsRevision: COMPOSER_INLINE_CHIPS_REVISION,
   sortByActivity: false,
+  groupByWorktree: true,
 };
 
 /** Keeps only known chip ids, once each and in the saved order. A missing or malformed value falls back
@@ -415,6 +419,8 @@ export function loadSettings(): PersistedSettings {
     merged.composerInlineChipsRevision = COMPOSER_INLINE_CHIPS_REVISION;
     // Only an explicit boolean true switches the activity order on; anything else keeps the manual order.
     merged.sortByActivity = parsed.sortByActivity === true;
+    // Only an explicit boolean false hides the worktree level; anything else keeps it.
+    merged.groupByWorktree = parsed.groupByWorktree !== false;
     // Migrate boolean gpuRender to termRenderer only when the new key is absent, preserving WebGL for
     // existing users. Future saves write only the new structure and naturally discard the old field.
     if (parsed.termRenderer === undefined && typeof parsed.gpuRender === "boolean") {

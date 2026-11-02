@@ -1170,6 +1170,7 @@ const vi: typeof en = {
   "tree.sortSection": "Thứ tự", // Order
   "tree.sortByActivity": "Sắp xếp theo hoạt động", // Sort by activity
   "tree.sortByActivityHint": "Giữ các dự án và phiên hoạt động gần nhất ở trên cùng; khi tắt sẽ khôi phục thứ tự thủ công.", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "Nhóm theo worktree", // Group by worktree
   "tree.viewMainName": "Chính",
   "tree.viewUntitled": "Chế độ xem chưa đặt tên",
   "tree.viewDefaultName": (n) => `Chế độ xem ${n}`,

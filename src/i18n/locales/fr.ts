@@ -1184,6 +1184,7 @@ const fr: typeof en = {
   "tree.sortSection": "Ordre", // Order
   "tree.sortByActivity": "Trier par activité", // Sort by activity
   "tree.sortByActivityHint": "Garde en haut les projets et sessions actifs le plus récemment ; désactivé, l'ordre manuel revient.", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "Regrouper par worktree", // Group by worktree
   "tree.viewMainName": "Principale",
   "tree.viewUntitled": "Vue sans nom",
   "tree.viewDefaultName": (n) => `Vue ${n}`,

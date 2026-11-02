@@ -1182,6 +1182,7 @@ const de: typeof en = {
   "tree.sortSection": "Reihenfolge", // Order
   "tree.sortByActivity": "Nach Aktivität sortieren", // Sort by activity
   "tree.sortByActivityHint": "Hält die zuletzt aktiven Projekte und Sitzungen oben; aus stellt die manuelle Reihenfolge wieder her.", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "Nach Worktree gruppieren", // Group by worktree
   "tree.viewMainName": "Hauptansicht",
   "tree.viewUntitled": "Unbenannte Ansicht",
   "tree.viewDefaultName": (n) => `Ansicht ${n}`,

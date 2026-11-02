@@ -1193,6 +1193,7 @@ const ru: typeof en = {
   "tree.sortSection": "Порядок", // Order
   "tree.sortByActivity": "Сортировать по активности", // Sort by activity
   "tree.sortByActivityHint": "Держит недавно активные проекты и сессии сверху; при выключении возвращается ручной порядок.", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "Группировать по worktree", // Group by worktree
   "tree.viewMainName": "Основной",
   "tree.viewUntitled": "Безымянное представление",
   "tree.viewDefaultName": (n) => `Представление ${n}`,
