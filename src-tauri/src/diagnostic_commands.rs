@@ -48,6 +48,7 @@ const COMMANDS: &[&str] = &[
     "archive_group",
     "cancel_clone_project",
     "chat_attach",
+    "chat_attach_project",
     "chat_auth_start",
     "chat_auth_logout",
     "chat_auth_cancel",

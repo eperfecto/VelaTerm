@@ -967,6 +967,11 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
             args.get("pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok())
                 .ok_or("A valid process id is required")?,
         )?),
+        "chat_attach_project" => to_value(core::chat_attach_project(
+            app,
+            &req_str(args, "sessionId")?,
+            &req_str(args, "projectId")?,
+        )?),
         "chat_set_mode" => to_value(core::chat_set_mode(
             app,
             &req_str(args, "sessionId")?,

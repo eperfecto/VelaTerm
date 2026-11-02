@@ -61,6 +61,7 @@ The row under the message box holds controls for the next message. Which control
 | Speed | Codex, when several speeds are offered | Pick the service speed |
 | Tone | Codex, on models that support it | "Default tone", "Neutral", "Friendly" or "Pragmatic" |
 | MCP servers | Claude, Codex | Show configured MCP servers and their state; reconnect, disable or enable a server. For Codex, enabling or disabling a server changes your Codex user configuration, which other Codex conversations also use |
+| Attach project | Claude | Let the agent also work in another project's folder (`--add-dir`). Lists the other projects that have a folder, marking the attached ones. The folder is saved in the session's launch arguments, where Edit Session can remove it, and applies from the next message, which restarts the agent and resumes the same conversation. While the agent is busy it refuses: "Wait for the agent to finish, then attach the project." |
 | Background tasks | Claude | See §9 |
 | Account | Claude, Codex | Sign in again or sign out; see §12 |
 | Codex reset credits | Codex | Show and use Codex rate-limit reset credits |

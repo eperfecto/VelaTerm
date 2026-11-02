@@ -240,6 +240,7 @@ export const COMPOSER_CHIP_IDS = [
   "personality",
   "mcp",
   "chrome",
+  "attachProject",
   "tasks",
   "account",
   "codexCredits",

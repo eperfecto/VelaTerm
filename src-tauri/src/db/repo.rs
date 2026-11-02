@@ -695,6 +695,16 @@ pub fn get_project_root(conn: &Connection, project_id: &str) -> Result<Option<St
     .map_err(|e| format!("Failed to read project root: {e}"))
 }
 
+/// Persist a session's custom agent arguments on their own, without rewriting the rest of the row.
+pub fn set_agent_args(conn: &Connection, id: &str, agent_args: Option<&str>) -> Result<(), String> {
+    conn.execute(
+        "UPDATE sessions SET agent_args = ?1 WHERE id = ?2",
+        params![agent_args, id],
+    )
+    .map_err(|e| format!("Failed to update agent arguments: {e}"))?;
+    Ok(())
+}
+
 /// Persist a session's permission mode on its own, without rewriting the rest of the row.
 pub fn set_permission_mode(conn: &Connection, id: &str, mode: &str) -> Result<(), String> {
     conn.execute(

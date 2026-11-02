@@ -678,6 +678,15 @@ export function chatSetServiceTier(sessionId: string, tier?: string): Promise<vo
 }
 
 /** Choose how Codex speaks on subsequent turns; omit to return to the configured personality. */
+/**
+ * Give a Claude chat session access to another project's folder (`--add-dir`). The folder is saved on the
+ * session; an idle agent is let go so the next message relaunches it with the folder, resuming the same
+ * conversation. Resolves whether the folder was newly attached; a busy agent rejects `CHAT_ATTACH_BUSY`.
+ */
+export function chatAttachProject(sessionId: string, projectId: string): Promise<boolean> {
+  return invoke("chat_attach_project", { sessionId, projectId });
+}
+
 export function chatSetPersonality(sessionId: string, personality?: string): Promise<void> {
   return invoke("chat_set_personality", { sessionId, personality });
 }
