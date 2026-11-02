@@ -1589,7 +1589,7 @@ const ja: typeof en = {
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "パスをコピー", // Copy Path
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyRelPath": "相対パスをコピー", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "ダブルクリックで開く",
   "files.deleteConfirm": (name) =>

@@ -1576,7 +1576,7 @@ const ko: typeof en = {
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "경로 복사", // Copy Path
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyRelPath": "상대 경로 복사", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "두 번 클릭하여 열기",
   "files.deleteConfirm": (name) =>

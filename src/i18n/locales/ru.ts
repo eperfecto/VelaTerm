@@ -1604,7 +1604,7 @@ const ru: typeof en = {
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "Копировать путь", // Copy Path
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyRelPath": "Копировать относительный путь", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Двойной клик, чтобы открыть",
   "files.deleteConfirm": (name) =>

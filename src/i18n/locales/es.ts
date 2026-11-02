@@ -1599,7 +1599,7 @@ const es: typeof en = {
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "Copiar ruta de acceso", // Copy Path
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyRelPath": "Copiar ruta relativa", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Doble clic para abrir",
   "files.deleteConfirm": (name) =>

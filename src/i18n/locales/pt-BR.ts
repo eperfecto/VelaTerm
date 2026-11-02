@@ -1597,7 +1597,7 @@ const ptBR: typeof en = {
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "Copiar caminho", // Copy Path
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyRelPath": "Copiar caminho relativo", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Clique duas vezes para abrir",
   "files.deleteConfirm": (name) =>
