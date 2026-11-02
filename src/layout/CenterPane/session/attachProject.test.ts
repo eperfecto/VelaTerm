@@ -34,6 +34,9 @@ describe("attachProjectError", () => {
     expect(attachProjectError("CHAT_ATTACH_BUSY", t)).toBe("chat.attachProject.busy");
     expect(attachProjectError(new Error("CHAT_ATTACH_BUSY"), t)).toBe("chat.attachProject.busy");
     expect(attachProjectError("CHAT_ATTACH_NO_FOLDER", t)).toBe("chat.attachProject.noFolder");
+    expect(attachProjectError("CHAT_PERMISSION_RESTART_BUSY", t)).toBe("chat.attachProject.busy");
+    expect(attachProjectError("CHAT_ATTACH_OWN_PROJECT", t)).toBe("chat.attachProject.ownProject");
+    expect(attachProjectError("CHAT_ATTACH_UNSUPPORTED", t)).toBe("chat.attachProject.unsupported");
     expect(attachProjectError("disk full", t)).toBe("disk full");
   });
 });

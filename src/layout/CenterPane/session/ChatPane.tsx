@@ -2002,6 +2002,9 @@ export function ChatPane({
   const attachedCount = attachOptions.filter((option) => option.tag).length;
   const pickAttachProject = (projectId: string) => {
     void chatAttachProject(session.id, projectId)
+      // The backend already let the idle process go; mark it here too so a message sent before its
+      // exit event arrives starts the agent again instead of reaching the old process.
+      .then((attached) => { if (attached) setEngineRunning(false); })
       .catch((err) => setError(attachProjectError(err, t)));
   };
   const pickPersonality = (value: string) => {

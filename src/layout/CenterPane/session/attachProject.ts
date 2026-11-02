@@ -69,6 +69,8 @@ export function attachProjectError(error: unknown, t: (key: never) => string): s
   const text = error instanceof Error ? error.message : String(error);
   const keys: Record<string, string> = {
     CHAT_ATTACH_BUSY: "chat.attachProject.busy",
+    // A permission restart of the same process is in progress: also a reason to wait.
+    CHAT_PERMISSION_RESTART_BUSY: "chat.attachProject.busy",
     CHAT_ATTACH_NO_FOLDER: "chat.attachProject.noFolder",
     CHAT_ATTACH_OWN_PROJECT: "chat.attachProject.ownProject",
     CHAT_ATTACH_UNSUPPORTED: "chat.attachProject.unsupported",

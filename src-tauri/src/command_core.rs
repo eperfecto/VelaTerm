@@ -2575,7 +2575,7 @@ mod tests {
         {
             let conn = ctx.db().conn.lock().unwrap();
             conn.execute_batch(
-                "INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','own','/tmp/own',0),('q','other','/tmp/other x',0),('c','set',NULL,0);
+                "INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','own','/tmp/own',0),('q','other','/tmp/other x',0),('c','set','',0);
                  INSERT INTO sessions(id,project_id,name,kind,engine,agent_args,created_at) VALUES ('s','p','A','claude','chat','--model opus',0);
                  INSERT INTO sessions(id,project_id,name,kind,engine,created_at) VALUES ('t','p','B','claude','tui',0);",
             )
