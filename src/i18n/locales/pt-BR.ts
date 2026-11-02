@@ -1101,7 +1101,6 @@ const ptBR: typeof en = {
   "tree.sessionInfo": "Informações da sessão", // Session Info
   "tree.groupInfo": "Informações do grupo", // Group Info
   "tree.collectionInfo": "Informações da coleção", // Collection Info
-  "tree.copyPath": "Copiar caminho", // Copy Path
   "tree.openRepository": "Abrir repositório", // Open Repository
   "tree.openInVSCode": "Abrir no VS Code", // Open in VS Code
   "tree.openRepositoryNoRemote": "O repositório Git deste projeto não tem endereço web: adicione um remoto origin que aponte para um servidor.", // No web address for origin
@@ -1597,7 +1596,7 @@ const ptBR: typeof en = {
   "files.newTooltip": "Novo arquivo ou pasta", // New file or folder
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
-  "files.copyPath": "Copy Path",
+  "files.copyPath": "Copiar caminho", // Copy Path
   "files.copyRelPath": "Copy Relative Path",
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Clique duas vezes para abrir",

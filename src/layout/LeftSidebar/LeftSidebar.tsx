@@ -744,7 +744,7 @@ export function LeftSidebar() {
     const copyPathItems = (root: string | null): MenuItem[] => {
       if (!root) return [];
       return [{
-        label: t("tree.copyPath"),
+        label: t("files.copyPath"),
         icon: <Icons.copy size={14} />,
         onClick: () => {
           void platform.clipboard.writeText(root, { reportFailure: true })

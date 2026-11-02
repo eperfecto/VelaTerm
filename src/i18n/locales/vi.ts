@@ -1090,7 +1090,6 @@ const vi: typeof en = {
   "tree.sessionInfo": "Thông tin phiên",
   "tree.groupInfo": "Thông tin nhóm",
   "tree.collectionInfo": "Thông tin bộ sưu tập",
-  "tree.copyPath": "Sao chép đường dẫn",
   "tree.openRepository": "Mở kho mã",
   "tree.openInVSCode": "Mở trong VS Code", // Open in VS Code
   "tree.openRepositoryNoRemote": "Kho Git của dự án này không có địa chỉ web: hãy thêm remote origin trỏ tới một máy chủ.",

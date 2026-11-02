@@ -1112,7 +1112,6 @@ const ru: typeof en = {
   "tree.sessionInfo": "Сведения о сессии", // Session Info
   "tree.groupInfo": "Сведения о группе", // Group Info
   "tree.collectionInfo": "Сведения о коллекции", // Collection Info
-  "tree.copyPath": "Копировать путь", // Copy Path
   "tree.openRepository": "Открыть репозиторий", // Open Repository
   "tree.openInVSCode": "Открыть в VS Code", // Open in VS Code
   "tree.openRepositoryNoRemote": "У Git-репозитория этого проекта нет веб-адреса: добавьте удалённый репозиторий origin, указывающий на сервер.", // No web address for origin
@@ -1604,7 +1603,7 @@ const ru: typeof en = {
   "files.newTooltip": "Новый файл или папка", // New file or folder
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
-  "files.copyPath": "Copy Path",
+  "files.copyPath": "Копировать путь", // Copy Path
   "files.copyRelPath": "Copy Relative Path",
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Двойной клик, чтобы открыть",

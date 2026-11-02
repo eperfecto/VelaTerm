@@ -266,7 +266,7 @@ describe("LeftSidebar Copy Path", () => {
   it("copies the project's folder path to the clipboard", async () => {
     openProjectMenu();
 
-    fireEvent.click(screen.getByRole("button", { name: "tree.copyPath" }));
+    fireEvent.click(screen.getByRole("button", { name: "files.copyPath" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("/tmp/project", { reportFailure: true }));
     expect(storeState.treeMutationError).toBeNull();
@@ -276,7 +276,7 @@ describe("LeftSidebar Copy Path", () => {
     writeText.mockRejectedValue(new Error("denied"));
     openProjectMenu();
 
-    fireEvent.click(screen.getByRole("button", { name: "tree.copyPath" }));
+    fireEvent.click(screen.getByRole("button", { name: "files.copyPath" }));
 
     await waitFor(() => expect(storeState.treeMutationError).toBe("common.copyFailed"));
   });
@@ -284,6 +284,6 @@ describe("LeftSidebar Copy Path", () => {
   it("is hidden for a collection, which has no folder", () => {
     storeState.projects = [{ id: "project-1", rootPath: "" }];
     openProjectMenu();
-    expect(screen.queryByRole("button", { name: "tree.copyPath" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "files.copyPath" })).toBeNull();
   });
 });

@@ -1103,7 +1103,6 @@ const es: typeof en = {
   "tree.sessionInfo": "Información de sesión", // Session Info
   "tree.groupInfo": "Información del grupo", // Group Info
   "tree.collectionInfo": "Información de la colección", // Collection Info
-  "tree.copyPath": "Copiar ruta de acceso", // Copy Path
   "tree.openRepository": "Abrir repositorio", // Open Repository
   "tree.openInVSCode": "Abrir en VS Code", // Open in VS Code
   "tree.openRepositoryNoRemote": "El repositorio Git de este proyecto no tiene dirección web: agrega un remoto origin que apunte a un servidor.", // No web address for origin
@@ -1599,7 +1598,7 @@ const es: typeof en = {
   "files.newTooltip": "Nuevo archivo o carpeta", // New file or folder
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
-  "files.copyPath": "Copy Path",
+  "files.copyPath": "Copiar ruta de acceso", // Copy Path
   "files.copyRelPath": "Copy Relative Path",
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Doble clic para abrir",
