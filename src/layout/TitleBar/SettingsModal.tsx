@@ -334,7 +334,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const setDynamicStatusFilter = useTermStore((s) => s.setDynamicStatusFilter);
   const sortByActivity = useTermStore((s) => s.sortByActivity);
   const setSortByActivity = useTermStore((s) => s.setSortByActivity);
-  const groupByWorktree = useTermStore((s) => s.groupByWorktree);
+  const groupByWorktree = useTermStore((s) => s.groupByWorktree !== false);
   const setGroupByWorktree = useTermStore((s) => s.setGroupByWorktree);
   const recordSessions = useTermStore((s) => s.recordSessions);
   const setRecordSessions = useTermStore((s) => s.setRecordSessions);

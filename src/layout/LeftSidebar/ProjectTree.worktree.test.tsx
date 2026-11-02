@@ -190,6 +190,20 @@ describe("worktree rows", () => {
     expect(rowOf("wt-a-1").style.paddingLeft).toBe(rowOf("plain-1").style.paddingLeft);
   });
 
+  it("reveals a session with grouping off without touching a saved collapsed worktree row", () => {
+    mocks.state.sessions = [session("wt-a-1", 1, { worktreePath: WT_A })];
+    const first = render(<ProjectTree {...handlers()} />);
+    fireEvent.click(rowOf("app-aaa"));
+    const saved = localStorage.getItem("vlx-sidebar-worktree-collapsed");
+    expect(saved).toContain("true");
+    first.unmount();
+    mocks.state.groupByWorktree = false;
+    mocks.state.activeSessionId = "wt-a-1";
+    const { container } = render(<ProjectTree {...handlers()} />);
+    expect(names(container)).toEqual(["app", "Feature", "wt-a-1"]);
+    expect(localStorage.getItem("vlx-sidebar-worktree-collapsed")).toBe(saved);
+  });
+
   it("keeps the worktree rows when grouping by worktree is on", () => {
     mocks.state.groupByWorktree = true;
     mocks.state.sessions = [session("wt-a-1", 1, { worktreePath: WT_A })];
