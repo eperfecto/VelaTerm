@@ -1100,6 +1100,7 @@ const de: typeof en = {
   "tree.sessionInfo": "Sitzungsinfo", // Session Info
   "tree.groupInfo": "Gruppeninfo", // Group Info
   "tree.collectionInfo": "Sammlungsinfo", // Collection Info
+  "tree.copyPath": "Pfad kopieren", // Copy Path
   "tree.openRepository": "Repository öffnen", // Open Repository
   "tree.openInVSCode": "In VS Code öffnen", // Open in VS Code
   "tree.openRepositoryNoRemote": "Das Git-Repository dieses Projekts hat keine Webadresse: Fügen Sie einen origin-Remote hinzu, der auf einen Server zeigt.", // No web address for origin

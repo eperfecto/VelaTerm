@@ -1100,6 +1100,7 @@ const ja: typeof en = {
   "tree.sessionInfo": "セッション情報", // Session Info
   "tree.groupInfo": "グループ情報", // Group Info
   "tree.collectionInfo": "コレクション情報", // Collection Info
+  "tree.copyPath": "パスをコピー", // Copy Path
   "tree.openRepository": "リポジトリを開く", // Open Repository
   "tree.openInVSCode": "VS Code で開く", // Open in VS Code
   "tree.openRepositoryNoRemote": "このプロジェクトの Git リポジトリには Web アドレスがありません。サーバーを指す origin リモートを追加してください。", // No web address for origin

@@ -42,7 +42,7 @@ Most operations are in the context menus:
 - "New Worktree Session…" and "New Plan/Execute Session…"; see [Session Spawning & Git Collaboration](session-spawning-and-git_20260709_2041.md) and [Planning and Execution](planning-and-execution_20260925_1012.md).
 - "Import Sessions…" (projects only) and "Resume Session…"; see [AI Agent Sessions](ai-agent-sessions_20260709_2041.md) §4.
 
-A project menu then offers "New Group", "Mark", "Experimental" (Code Graph and Code audit), "Open Repository" (Git projects only: opens the web page of the `origin` remote, for example to check pull requests or workflows; the desktop app uses a browser tab and remote connection windows use the system browser), "Project Info" (or "Collection Info"), "Rename", and "Remove Project" (or "Delete Collection"). A group menu offers the "Git" submenu, "New Subgroup", "Move to Worktree…", "Mark", "Rename", "Archive Group" and "Delete Group".
+A project menu then offers "New Group", "Mark", "Experimental" (Code Graph and Code audit), "Copy Path" (copies the project folder path; not shown for collections), "Open Repository" (Git projects only: opens the web page of the `origin` remote, for example to check pull requests or workflows; the desktop app uses a browser tab and remote connection windows use the system browser), "Project Info" (or "Collection Info"), "Rename", and "Remove Project" (or "Delete Collection"). A group menu offers the "Git" submenu, "New Subgroup", "Move to Worktree…", "Mark", "Rename", "Archive Group" and "Delete Group".
 
 **Session menus** show items that fit the session's type and state:
 

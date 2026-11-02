@@ -1100,6 +1100,7 @@ const en = {
   "tree.sessionInfo": "Session Info",
   "tree.groupInfo": "Group Info",
   "tree.collectionInfo": "Collection Info",
+  "tree.copyPath": "Copy Path",
   "tree.openRepository": "Open Repository",
   "tree.openInVSCode": "Open in VS Code",
   "tree.openRepositoryNoRemote": "This project's Git repository has no web address: add an origin remote that points to a server.",

@@ -1112,6 +1112,7 @@ const ru: typeof en = {
   "tree.sessionInfo": "Сведения о сессии", // Session Info
   "tree.groupInfo": "Сведения о группе", // Group Info
   "tree.collectionInfo": "Сведения о коллекции", // Collection Info
+  "tree.copyPath": "Копировать путь", // Copy Path
   "tree.openRepository": "Открыть репозиторий", // Open Repository
   "tree.openInVSCode": "Открыть в VS Code", // Open in VS Code
   "tree.openRepositoryNoRemote": "У Git-репозитория этого проекта нет веб-адреса: добавьте удалённый репозиторий origin, указывающий на сервер.", // No web address for origin
