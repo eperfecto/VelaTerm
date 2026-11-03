@@ -2183,6 +2183,7 @@ const vi: typeof en = {
   "chat.turnFold.show": (n: number) => `Hiện ${n} bước`,
   "chat.turnFold.hideAll": "Ẩn tất cả các bước",
   "chat.turnFold.showAll": "Hiện tất cả các bước",
+  "chat.message.showAll": "Hiện tất cả",
   "chat.elicitation.heading": (server: string) => `${server} yêu cầu nhập dữ liệu`,
   "chat.elicitation.cancel": "Hủy",
   "chat.elicitation.decline": "Từ chối",

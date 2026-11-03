@@ -315,6 +315,8 @@ export function MessageBubble({
   rewindScopes,
   openRewindToken,
   onRewindMenuOpened,
+  collapsible,
+  searchOpened,
 }: {
   rowId?: string;
   who: string;
@@ -345,11 +347,22 @@ export function MessageBubble({
   openRewindToken?: number;
   /** Acknowledge the one-shot request after the target message has opened its menu. */
   onRewindMenuOpened?: (token: number) => void;
+  /** Start a long message collapsed behind "Show all". Used for messages another session sent here, which
+   *  are often whole reports and would otherwise push the conversation out of view. */
+  collapsible?: boolean;
+  /** In-conversation search is on this message: show it whole so the match is visible, and keep it open. */
+  searchOpened?: boolean;
 }) {
   text = useOriginalMessage(rowId, text);
   const t = useT();
   const [rewindMenu, setRewindMenu] = useState(false);
   const [editing, setEditing] = useState(false);
+  const foldable = !!collapsible && isLongMessage(text);
+  const [folded, setFolded] = useState(true);
+  // Derived in the same render, so search scrolls to a message that is already open; the effect keeps it
+  // open after search moves on.
+  const clipped = foldable && folded && !searchOpened;
+  useEffect(() => { if (searchOpened) setFolded(false); }, [searchOpened]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const { onContextMenu: onBodyContextMenu, copyMenu } = useMessageCopyMenu();
   useEffect(() => {
@@ -419,7 +432,20 @@ export function MessageBubble({
             </div> : null}
             <div className="sv-message-content">
             {editing ? <MessageEditor text={text} images={images} disabled={!!editDisabledReason}
-              onCancel={() => setEditing(false)} onSend={onEditSend} /> : <>{pictures}{rowId ? <SentTranslation rowId={rowId} original={body} /> : body}{footnote}</>}
+              onCancel={() => setEditing(false)} onSend={onEditSend} /> : <>
+              {/* Collapsing clips the text instead of removing it, so search and copy still see all of it. */}
+              {pictures}
+              <div className={clipped ? "sv-message-clip sv-message-collapsed" : "sv-message-clip"}>
+                {rowId ? <SentTranslation rowId={rowId} original={body} /> : body}
+              </div>
+              {foldable ? (
+                <button className="sv-turn-fold sv-message-fold" aria-expanded={!clipped} onClick={() => setFolded(!clipped)}>
+                  <Icons.chevR size={11} className={clipped ? "sv-caret" : "sv-caret sv-caret-open"} />
+                  {clipped ? t("chat.message.showAll") : t("session.showLess")}
+                </button>
+              ) : null}
+              {footnote}
+            </>}
             </div>
             {copyMenu}
           </div>
@@ -440,6 +466,13 @@ export function MessageBubble({
       ) : null}
     </div>
   );
+}
+
+/** Lines or characters past which a collapsible message starts folded: about a screenful of prose. */
+const FOLD_LINES = 12;
+const FOLD_CHARS = 1200;
+function isLongMessage(text: string): boolean {
+  return text.length > FOLD_CHARS || text.split("\n").length > FOLD_LINES;
 }
 
 /** Keep an edit's attachments local until the user reviews and confirms the replacement. */

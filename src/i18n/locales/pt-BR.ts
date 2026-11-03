@@ -2234,6 +2234,7 @@ const ptBR: typeof en = {
   "chat.turnFold.show": (n: number) => (n === 1 ? "Mostrar 1 passo" : `Mostrar ${n} passos`),
   "chat.turnFold.hideAll": "Ocultar todos os passos",
   "chat.turnFold.showAll": "Mostrar todos os passos",
+  "chat.message.showAll": "Mostrar tudo",
   "chat.elicitation.heading": (server: string) => `${server} solicita informações`,
   "chat.elicitation.cancel": "Cancelar",
   "chat.elicitation.decline": "Recusar",

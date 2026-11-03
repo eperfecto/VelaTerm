@@ -144,6 +144,7 @@ With the setting on, the conversation shows when it will continue, for example "
 - The latest part of the conversation loads first. Scroll up, or choose "Load earlier messages", to read further back.
 - Consecutive tool calls fold into one line ("N tool calls"); click it to see each call.
 - Each answer can hide its intermediate steps ("Hide steps" / "Show N steps"). The pane header has "Hide all steps" / "Show all steps".
+- A long message sent by another session (more than 12 lines or 1,200 characters) starts collapsed to about a screenful; "Show all" opens it and "Show less" folds it again. Search and copy still cover the whole text. Your own messages are never collapsed.
 - The "Search…" button in the pane header, or the Find in terminal shortcut (⌘F / Ctrl+Alt+F), searches the conversation.
 - After scrolling up, "Back to the latest message" returns to the end.
 - Your own messages have a copy button. Text in any message can be selected and copied.

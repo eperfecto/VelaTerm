@@ -2173,6 +2173,7 @@ const zhCN: typeof en = {
   "chat.turnFold.show": (n: number) => `显示过程（${n} 步）`,
   "chat.turnFold.hideAll": "隐藏全部过程",
   "chat.turnFold.showAll": "显示全部过程",
+  "chat.message.showAll": "显示全部",
   "chat.elicitation.heading": (server: string) => `${server} 请求输入`,
   "chat.elicitation.cancel": "取消",
   "chat.elicitation.decline": "拒绝",

@@ -2240,6 +2240,7 @@ const fr: typeof en = {
   "chat.turnFold.show": (n: number) => (n === 1 ? "Afficher 1 étape" : `Afficher ${n} étapes`),
   "chat.turnFold.hideAll": "Masquer toutes les étapes",
   "chat.turnFold.showAll": "Afficher toutes les étapes",
+  "chat.message.showAll": "Tout afficher",
   "chat.elicitation.heading": (server: string) => `${server} demande des informations`,
   "chat.elicitation.cancel": "Annuler",
   "chat.elicitation.decline": "Refuser",
