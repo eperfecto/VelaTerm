@@ -2342,16 +2342,28 @@ impl ChatManager {
     }
 
     /// Commit launch-only settings while no submission can race the process release.
-    pub fn update_launch_settings<T>(&self, app: &AppCtx, session_id: &str,
+    ///
+    /// `apply` runs while no turn can start, then an idle process is let go. Like a detached conversation,
+    /// the session keeps its timeline and the next message starts the agent again with the new settings,
+    /// resuming the same conversation. With no running process `apply` alone runs. A busy agent (a turn,
+    /// queued prompt, shell command, task or open permission prompt) returns `busy` and nothing is applied,
+    /// so no work in flight is cut off.
+    pub fn update_launch_settings<T>(&self, app: &AppCtx, session_id: &str, busy: &str,
         apply: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        self.check_permission_restart(session_id)?;
         let proc = self.sessions.lock().unwrap().get(session_id).cloned();
         let Some(proc) = proc else { return apply(); };
+        // Same order as rewind and stop: the process action first, then the turn.
         let _action = proc.action.lock().unwrap();
         if !proc.alive.load(Ordering::Relaxed) { return apply(); }
-        let turn = proc.turn.lock().unwrap();
-        if turn.running || !turn.waiting.is_empty() || proc.shell_running.load(Ordering::Relaxed)
-            || crate::security::session_active(session_id) || crate::agent::plan_execute::active(app, session_id) {
-            return Err("Wait for Antigravity to finish before changing its launch settings".into());
+        if crate::security::session_active(session_id) || crate::agent::plan_execute::active(app, session_id) {
+            return Err(busy.into());
+        }
+        let mut turn = proc.turn.lock().unwrap();
+        let now = std::time::Instant::now();
+        turn.settling.retain(|_, deadline| *deadline > now);
+        if !idle_for_release(&proc, &turn) {
+            return Err(busy.into());
         }
         let value = apply()?;
         release_process(app, session_id, &proc);
@@ -3181,8 +3193,16 @@ fn release_if_idle(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>) {
     let mut turn = proc.turn.lock().unwrap();
     let now = std::time::Instant::now();
     turn.settling.retain(|_, deadline| *deadline > now);
-    if proc.release_when_idle.load(Ordering::Relaxed)
-        && proc.alive.load(Ordering::Relaxed)
+    if proc.release_when_idle.load(Ordering::Relaxed) && idle_for_release(proc, &turn) {
+        release_process(app, session_id, proc);
+    }
+}
+
+/// Whether a live process has nothing in flight that a release would cut off: no turn, queued prompt,
+/// shell command, sign-in, task, settling task notification, or open permission prompt. Prune `settling`
+/// first; the caller holds the turn lock so a send cannot slip in between this check and the release.
+fn idle_for_release(proc: &ChatProcess, turn: &TurnQueue) -> bool {
+    proc.alive.load(Ordering::Relaxed)
         && !turn.running
         && !proc.shell_running.load(Ordering::Relaxed)
         && !auth::active(proc)
@@ -3191,9 +3211,6 @@ fn release_if_idle(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>) {
         && turn.background_tasks.is_empty()
         && turn.settling.is_empty()
         && proc.permissions.lock().unwrap().is_empty()
-    {
-        release_process(app, session_id, proc);
-    }
 }
 
 /// Whether Claude still has background work that will report back, as opposed to being idle.
@@ -11061,6 +11078,54 @@ mod tests {
         let proc = m.get("s").unwrap();
         assert!(proc.released.load(Ordering::Relaxed));
         assert!(proc.stdin.lock().unwrap().is_none());
+    }
+
+    /// A launch setting saved while idle releases the process and keeps the conversation, so the next
+    /// message starts the agent again with the new arguments.
+    #[test]
+    fn a_launch_setting_saved_while_idle_releases_the_process_and_keeps_the_timeline() {
+        let app = ctx("launch-idle");
+        let m = manager_with_session("s");
+        m.send(&app, "s", "hello", Vec::new(), "queue").unwrap();
+        finish_turn(&m, &app, "s", "success");
+
+        let applied = m.update_launch_settings(&app, "s", "BUSY", || Ok(7)).unwrap();
+
+        assert_eq!(applied, 7);
+        assert!(!running(&m, "s"));
+        assert_eq!(said(&m, "s"), vec!["hello"]);
+        assert!(m.get("s").unwrap().released.load(Ordering::Relaxed));
+    }
+
+    /// A busy agent refuses the change without running it, and its turn keeps going.
+    #[test]
+    fn a_launch_setting_is_refused_while_a_turn_runs() {
+        let app = ctx("launch-busy");
+        let m = manager_with_session("s");
+        m.send(&app, "s", "work", Vec::new(), "queue").unwrap();
+        let mut ran = false;
+
+        let result = m.update_launch_settings(&app, "s", "BUSY", || { ran = true; Ok(()) });
+
+        assert_eq!(result, Err("BUSY".to_string()));
+        assert!(!ran);
+        assert!(running(&m, "s"));
+        assert!(!m.get("s").unwrap().released.load(Ordering::Relaxed));
+    }
+
+    /// An open background task counts as busy too, so a release never drops work that will report back.
+    #[test]
+    fn a_launch_setting_is_refused_while_a_background_task_is_open() {
+        let app = ctx("launch-task");
+        let m = manager_with_session("s");
+        m.send(&app, "s", "work", Vec::new(), "queue").unwrap();
+        finish_turn(&m, &app, "s", "success");
+        m.get("s").unwrap().turn.lock().unwrap().background_tasks.insert("t1".into());
+
+        let result = m.update_launch_settings(&app, "s", "BUSY", || Ok(()));
+
+        assert_eq!(result, Err("BUSY".to_string()));
+        assert!(running(&m, "s"));
     }
 
     /// Closing the view mid-answer must not cut the answer off: the process stays until the turn ends.

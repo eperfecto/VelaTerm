@@ -52,6 +52,7 @@ import {
   chatSetFastMode,
   chatSetChrome,
   chatSetPersonality,
+  chatAttachProject,
   chatSetServiceTier,
   chatCompact,
   chatReview,
@@ -96,6 +97,7 @@ import { imageFromNativeClipboard, imagesFromClipboard, imagesFromDrop } from ".
 import { IS_MAC, IS_PLAIN_BROWSER, labelWithCombo } from "../../../hooks/shortcutRegistry";
 import { useMentionFiles } from "./fileMentions";
 import { ControlChip, LevelBar, type ChipOption } from "./controls";
+import { attachProjectError, attachProjectOptions } from "./attachProject";
 import { AutoContinueBar, FastModeChip, McpChip, NotificationBar, RetryLine, TasksChip, UsageMeter } from "./extras";
 import { AgentAccountMenu, AgentAuth } from "./AgentAuth";
 import { CodexResetCredits } from "./CodexResetCredits";
@@ -288,6 +290,7 @@ export function ChatPane({
   const paneStyle = useTermStore((s) => s.paneStyle);
   const shortcutOverrides = useTermStore((s) => s.shortcutOverrides);
   const composerInlineChips = useTermStore((s) => s.composerInlineChips);
+  const projects = useTermStore((s) => s.projects);
   const inputLatencyLog = useTermStore((s) => s.inputLatencyLog);
   const composerHeight = useComposerHeight();
   const status = useTermStore((s) => effectiveStatus(s.runtimes[session.id]));
@@ -1993,6 +1996,17 @@ export function ChatPane({
       .then(() => setServiceTier(value))
       .catch((err) => setError(String(err)));
   };
+  // Another project's folder for this Claude chat. Applied on the next message, which relaunches the agent
+  // with the folder and resumes this conversation; a busy agent refuses, so nothing in flight is cut off.
+  const attachOptions = session.kind === "claude" ? attachProjectOptions(projects, session, t("chat.attachProject.attached")) : [];
+  const attachedCount = attachOptions.filter((option) => option.tag).length;
+  const pickAttachProject = (projectId: string) => {
+    void chatAttachProject(session.id, projectId)
+      // The backend already let the idle process go; mark it here too so a message sent before its
+      // exit event arrives starts the agent again instead of reaching the old process.
+      .then((attached) => { if (attached) setEngineRunning(false); })
+      .catch((err) => setError(attachProjectError(err, t)));
+  };
   const pickPersonality = (value: string) => {
     void chatSetPersonality(session.id, value || undefined)
       .then(() => setPersonality(value))
@@ -2392,6 +2406,17 @@ export function ChatPane({
   // the process cannot be found by someone who just switched it on.
   if (session.kind === "claude" || session.kind === "codex") composerChips.push({ id: "mcp", node: (
     <McpChip sessionId={session.id} codex={session.kind === "codex"} disabled={!engineRunning} />
+  ) });
+  if (attachOptions.length > 0) composerChips.push({ id: "attachProject", node: (
+    <ControlChip
+      glyph={<Icons.folderPlus size={14} style={attachedCount ? { color: "var(--accent)" } : undefined} />}
+      label={attachedCount ? `${t("chat.attachProject.label")} · ${attachedCount}` : t("chat.attachProject.label")}
+      title={t("chat.attachProject.tooltip")}
+      value=""
+      options={attachOptions}
+      onPick={pickAttachProject}
+      menuWidth={300}
+    />
   ) });
   if (session.kind === "claude") composerChips.push({ id: "chrome", node: (
     <ControlChip

@@ -1480,7 +1480,7 @@ pub fn chat_set_mode(ctx: &AppCtx, session_id: &str, mode: &str) -> Result<(), S
     let session = session_settings::session(ctx, session_id)?;
     let mode = crate::agent::permission_catalog::normalize(session.kind, Some(mode))?;
     if session.kind == SessionKind::Antigravity {
-        return ctx.chat().update_launch_settings(ctx, session_id, || {
+        return ctx.chat().update_launch_settings(ctx, session_id, ANTIGRAVITY_BUSY, || {
             let stored = if mode == "bypassPermissions" { "skip" } else { mode };
             repo::set_permission_mode(&ctx.db().conn.lock().unwrap(), session_id, stored)?;
             ctx.emit(TREE_CHANGED, ());
@@ -1544,13 +1544,87 @@ pub fn chat_set_collaboration_mode(
     Ok(())
 }
 
+/// Antigravity refuses a launch-setting change while it is busy.
+const ANTIGRAVITY_BUSY: &str = "Wait for Antigravity to finish before changing its launch settings";
+/// A Claude chat refuses to attach a project while it is busy; the UI words this code.
+const ATTACH_BUSY: &str = "CHAT_ATTACH_BUSY";
+
+/// Quote one argument for `split_extra_args`: single quotes keep spaces and `$`, and an embedded quote
+/// closes the string, adds an escaped quote, and opens a new one, as a POSIX shell reads it.
+fn quote_agent_arg(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// The agent arguments with `--add-dir <dir>` appended, or None when `dir` is already added (as
+/// `--add-dir <dir>` or `--add-dir=<dir>`, ignoring a trailing separator). Existing arguments are kept as
+/// written, so a hand-edited value in Edit Session is never reformatted.
+fn agent_args_with_add_dir(existing: Option<&str>, dir: &str) -> Option<String> {
+    let trim = |path: &str| path.trim_end_matches(['/', '\\']).to_string();
+    let wanted = trim(dir);
+    let args = crate::agent::inject::split_extra_args(existing);
+    let present = args.iter().enumerate().any(|(i, arg)| {
+        arg.strip_prefix("--add-dir=").is_some_and(|value| trim(value) == wanted)
+            || (arg == "--add-dir" && args.get(i + 1).is_some_and(|value| trim(value) == wanted))
+    });
+    if present {
+        return None;
+    }
+    let flag = format!("--add-dir {}", quote_agent_arg(dir));
+    Some(match existing.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(text) => format!("{text} {flag}"),
+        None => flag,
+    })
+}
+
+/// Give a Claude chat session access to another project's folder.
+///
+/// The folder is added to the session's own launch arguments as `--add-dir`, so it stays attached across
+/// restarts and is visible and removable in Edit Session. Claude reads it only at launch, so an idle
+/// process is let go and the next message starts the agent again, resuming the same conversation. A busy
+/// agent returns `CHAT_ATTACH_BUSY` and nothing changes. Returns whether the folder was newly attached.
+pub fn chat_attach_project(ctx: &AppCtx, session_id: &str, project_id: &str) -> Result<bool, String> {
+    let (session, own_root, dir) = {
+        let conn = ctx.db().conn.lock().unwrap();
+        let session = repo::get_session(&conn, session_id)?.ok_or("Session not found")?;
+        let own_root = repo::get_project_root(&conn, &session.project_id)?;
+        let dir = repo::get_project_root(&conn, project_id)?;
+        (session, own_root, dir)
+    };
+    if session.kind != SessionKind::Claude || session.engine != "chat" {
+        return Err("CHAT_ATTACH_UNSUPPORTED".into());
+    }
+    let dir = dir.ok_or("CHAT_ATTACH_NO_FOLDER")?;
+    let same = |path: Option<&str>| {
+        path.is_some_and(|path| path.trim_end_matches(['/', '\\']) == dir.trim_end_matches(['/', '\\']))
+    };
+    if project_id == session.project_id || same(own_root.as_deref()) || same(session.cwd.as_deref()) {
+        return Err("CHAT_ATTACH_OWN_PROJECT".into());
+    }
+    // Already attached: nothing to save, so the running agent is left alone.
+    if agent_args_with_add_dir(session.agent_args.as_deref(), &dir).is_none() {
+        return Ok(false);
+    }
+    ctx.chat().update_launch_settings(ctx, session_id, ATTACH_BUSY, || {
+        // Read again under the process lock: an Edit Session save may have changed the arguments.
+        let conn = ctx.db().conn.lock().unwrap();
+        let current = repo::get_session(&conn, session_id)?.ok_or("Session not found")?;
+        let Some(next) = agent_args_with_add_dir(current.agent_args.as_deref(), &dir) else {
+            return Ok(false);
+        };
+        repo::set_agent_args(&conn, session_id, Some(&next))?;
+        drop(conn);
+        ctx.emit(TREE_CHANGED, ());
+        Ok(true)
+    })
+}
+
 /// Change the model of the running conversation; an empty value restores the default.
 pub fn chat_set_model(ctx: &AppCtx, session_id: &str, model: Option<&str>) -> Result<(), String> {
     let session = session_settings::session(ctx, session_id)?;
     let mut selection = session_settings::resolve(ctx, &session)?;
     selection.model = session_settings::clean(model);
     if session.kind == SessionKind::Antigravity {
-        return ctx.chat().update_launch_settings(ctx, session_id, || {
+        return ctx.chat().update_launch_settings(ctx, session_id, ANTIGRAVITY_BUSY, || {
             session_settings::persist(ctx, &session, &selection)?;
             ctx.emit(&crate::agent::chat::engine::event_name(session_id), serde_json::json!({"type":"settingsChanged","model":selection.model}));
             Ok(())
@@ -1578,7 +1652,7 @@ pub fn chat_set_effort(ctx: &AppCtx, session_id: &str, effort: Option<&str>) -> 
         if selection.effort.as_deref().is_some_and(|value| !crate::agent::chat::antigravity_protocol::EFFORTS.contains(&value)) {
             return Err("Antigravity effort must be low, medium, high, max, or automatic".into());
         }
-        return ctx.chat().update_launch_settings(ctx, session_id, || {
+        return ctx.chat().update_launch_settings(ctx, session_id, ANTIGRAVITY_BUSY, || {
             session_settings::persist(ctx, &session, &selection)?;
             ctx.emit(&crate::agent::chat::engine::event_name(session_id), serde_json::json!({"type":"settingsChanged","effort":selection.effort}));
             Ok(())
@@ -2467,12 +2541,71 @@ fn cloudflare_start_from_settings(
 #[cfg(test)]
 mod tests {
     use super::{
-        autostart_config, check_images, cloudflare_access_autostart, cloudflare_access_start,
+        agent_args_with_add_dir, chat_attach_project, autostart_config, check_images, cloudflare_access_autostart, cloudflare_access_start,
         cloudflare_access_status, cloudflare_access_stop, get_app_settings, install_id,
         set_app_settings, touch_session_activity_at, web_server_autostart,
         web_server_status, web_server_stop, ChatImage, MAX_IMAGES_PER_MESSAGE, MAX_IMAGE_BYTES,
     };
     use std::collections::HashMap;
+
+    /// The added folder survives the launch splitter as one argument, spaces and quotes included, and
+    /// the arguments already there are kept exactly as written.
+    #[test]
+    fn add_dir_is_appended_quoted_and_only_once() {
+        let next = agent_args_with_add_dir(Some("--model opus "), "/a b/it's").unwrap();
+        assert_eq!(next, "--model opus --add-dir '/a b/it'\\''s'");
+        assert_eq!(
+            crate::agent::inject::split_extra_args(Some(&next)),
+            vec!["--model", "opus", "--add-dir", "/a b/it's"]
+        );
+        assert_eq!(agent_args_with_add_dir(None, "/x").as_deref(), Some("--add-dir '/x'"));
+        assert_eq!(agent_args_with_add_dir(Some("  "), "/x").as_deref(), Some("--add-dir '/x'"));
+        assert_eq!(agent_args_with_add_dir(Some(&next), "/a b/it's/"), None);
+        assert_eq!(agent_args_with_add_dir(Some("--add-dir=/x/"), "/x"), None);
+        assert_eq!(agent_args_with_add_dir(Some("--add-dir /y"), "/x").as_deref(), Some("--add-dir /y --add-dir '/x'"));
+    }
+
+    /// Attaching saves the folder on the session once, announces the tree change, and refuses the
+    /// session's own project, a collection without a folder, and sessions that are not Claude chats.
+    #[test]
+    fn attaching_a_project_adds_its_folder_to_a_claude_chat_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = std::env::temp_dir().join(format!("vlx-attach-project-{}", std::process::id()));
+        let ctx = headless_ctx(&dir);
+        {
+            let conn = ctx.db().conn.lock().unwrap();
+            conn.execute_batch(
+                "INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','own','/tmp/own',0),('q','other','/tmp/other x',0),('c','set','',0);
+                 INSERT INTO sessions(id,project_id,name,kind,engine,agent_args,created_at) VALUES ('s','p','A','claude','chat','--model opus',0);
+                 INSERT INTO sessions(id,project_id,name,kind,engine,created_at) VALUES ('t','p','B','claude','tui',0);",
+            )
+            .unwrap();
+        }
+        let seen = std::sync::Arc::new(AtomicUsize::new(0));
+        let sink = seen.clone();
+        ctx.listen(crate::host::TREE_CHANGED, move |_| {
+            sink.fetch_add(1, Ordering::SeqCst);
+        });
+        let args = |ctx: &crate::host::AppCtx| -> Option<String> {
+            ctx.db().conn.lock().unwrap()
+                .query_row("SELECT agent_args FROM sessions WHERE id = 's'", [], |r| r.get(0))
+                .unwrap()
+        };
+
+        assert_eq!(chat_attach_project(&ctx, "s", "q"), Ok(true));
+        assert_eq!(args(&ctx).as_deref(), Some("--model opus --add-dir '/tmp/other x'"));
+        assert_eq!(seen.load(Ordering::SeqCst), 1);
+
+        assert_eq!(chat_attach_project(&ctx, "s", "q"), Ok(false));
+        assert_eq!(args(&ctx).as_deref(), Some("--model opus --add-dir '/tmp/other x'"));
+        assert_eq!(seen.load(Ordering::SeqCst), 1);
+
+        assert_eq!(chat_attach_project(&ctx, "s", "p"), Err("CHAT_ATTACH_OWN_PROJECT".to_string()));
+        assert_eq!(chat_attach_project(&ctx, "s", "c"), Err("CHAT_ATTACH_NO_FOLDER".to_string()));
+        assert_eq!(chat_attach_project(&ctx, "t", "q"), Err("CHAT_ATTACH_UNSUPPORTED".to_string()));
+        assert_eq!(args(&ctx).as_deref(), Some("--model opus --add-dir '/tmp/other x'"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn image(bytes: usize) -> ChatImage {
         // Four base64 characters per three bytes, which is what the check reads back.
