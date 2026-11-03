@@ -740,6 +740,19 @@ export function LeftSidebar() {
       }];
     };
 
+    // Copy Path puts the project's folder on the clipboard. A collection has no folder, so the item is left out.
+    const copyPathItems = (root: string | null): MenuItem[] => {
+      if (!root) return [];
+      return [{
+        label: t("files.copyPath"),
+        icon: <Icons.copy size={14} />,
+        onClick: () => {
+          void platform.clipboard.writeText(root, { reportFailure: true })
+            .catch(() => useTermStore.setState({ treeMutationError: t("common.copyFailed") }));
+        },
+      }];
+    };
+
     if (node.kind === "project") {
       const st = useTermStore.getState();
       const project = st.projects.find((p) => p.id === node.projectId);
@@ -778,6 +791,7 @@ export function LeftSidebar() {
             },
           ],
         },
+        ...copyPathItems(projectRoot(project)),
         ...openRepositoryItems(projectRoot(project)),
         ...openInVSCodeItems(projectRoot(project)),
         {

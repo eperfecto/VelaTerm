@@ -1604,8 +1604,8 @@ const ru: typeof en = {
   "files.newTooltip": "Новый файл или папка", // New file or folder
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
-  "files.copyPath": "Copy Path",
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyPath": "Копировать путь", // Copy Path
+  "files.copyRelPath": "Копировать относительный путь", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Двойной клик, чтобы открыть",
   "files.deleteConfirm": (name) =>

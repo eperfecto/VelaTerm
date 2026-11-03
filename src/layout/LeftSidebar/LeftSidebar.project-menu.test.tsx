@@ -63,6 +63,7 @@ const gitMocks = vi.hoisted(() => ({
 }));
 const envState = vi.hoisted(() => ({ isTauri: true, isElectron: false, hasNativeHost: true }));
 const openExternal = vi.hoisted(() => vi.fn<(url: string) => Promise<void>>());
+const writeText = vi.hoisted(() => vi.fn<(text: string, opts?: { reportFailure?: boolean }) => Promise<void>>());
 
 vi.mock("../../i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../i18n")>()),
@@ -80,7 +81,7 @@ vi.mock("../../store/termStore", () => {
 });
 vi.mock("../../platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../platform")>();
-  return { ...actual, platform: { ...actual.platform, opener: { ...actual.platform.opener, openExternal } }, env: new Proxy(actual.env, { get: (target, key) => key in envState ? envState[key as keyof typeof envState] : Reflect.get(target, key) }) };
+  return { ...actual, platform: { ...actual.platform, opener: { ...actual.platform.opener, openExternal }, clipboard: { ...actual.platform.clipboard, writeText } }, env: new Proxy(actual.env, { get: (target, key) => key in envState ? envState[key as keyof typeof envState] : Reflect.get(target, key) }) };
 });
 vi.mock("../../ipc/commands", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../ipc/commands")>()),
@@ -249,5 +250,40 @@ describe("LeftSidebar Open in VS Code", () => {
     w.__VLX_REMOTE__ = { address: "Ubuntu", session: "s1", transport: "wsl" };
     openProjectMenu();
     expect(screen.queryByRole("button", { name: "tree.openInVSCode" })).toBeNull();
+  });
+});
+
+describe("LeftSidebar Copy Path", () => {
+  beforeEach(() => {
+    gitMocks.isRepo = false;
+    envState.isTauri = true;
+    envState.hasNativeHost = true;
+    storeState.treeMutationError = null;
+    storeState.projects = [{ id: "project-1", rootPath: "/tmp/project" }];
+    writeText.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("copies the project's folder path to the clipboard", async () => {
+    openProjectMenu();
+
+    fireEvent.click(screen.getByRole("button", { name: "files.copyPath" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("/tmp/project", { reportFailure: true }));
+    expect(storeState.treeMutationError).toBeNull();
+  });
+
+  it("reports a clipboard failure", async () => {
+    writeText.mockRejectedValue(new Error("denied"));
+    openProjectMenu();
+
+    fireEvent.click(screen.getByRole("button", { name: "files.copyPath" }));
+
+    await waitFor(() => expect(storeState.treeMutationError).toBe("common.copyFailed"));
+  });
+
+  it("is hidden for a collection, which has no folder", () => {
+    storeState.projects = [{ id: "project-1", rootPath: "" }];
+    openProjectMenu();
+    expect(screen.queryByRole("button", { name: "files.copyPath" })).toBeNull();
   });
 });

@@ -1599,8 +1599,8 @@ const es: typeof en = {
   "files.newTooltip": "Nuevo archivo o carpeta", // New file or folder
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
-  "files.copyPath": "Copy Path",
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyPath": "Copiar ruta de acceso", // Copy Path
+  "files.copyRelPath": "Copiar ruta relativa", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Doble clic para abrir",
   "files.deleteConfirm": (name) =>

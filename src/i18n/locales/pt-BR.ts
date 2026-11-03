@@ -1597,8 +1597,8 @@ const ptBR: typeof en = {
   "files.newTooltip": "Novo arquivo ou pasta", // New file or folder
   "files.openInTerminal": "Open in Terminal",
   "files.revealInFinder": "Show in File Manager",
-  "files.copyPath": "Copy Path",
-  "files.copyRelPath": "Copy Relative Path",
+  "files.copyPath": "Copiar caminho", // Copy Path
+  "files.copyRelPath": "Copiar caminho relativo", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
   "files.dblClickOpen": "Clique duas vezes para abrir",
   "files.deleteConfirm": (name) =>
