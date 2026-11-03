@@ -1,6 +1,6 @@
 [package]
 name = "velaterm"
-version = "0.2.21"
+version = "0.2.22"
 description = "VelaTerm multi-session terminal manager"
 authors = ["vlinx"]
 edition = "2021"
