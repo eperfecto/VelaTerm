@@ -1180,6 +1180,7 @@ const en = {
   "tree.sortSection": "Order",
   "tree.sortByActivity": "Sort by activity",
   "tree.sortByActivityHint": "Keeps the most recently active projects and sessions at the top; off restores the manual order.",
+  "tree.groupByWorktree": "Group by worktree",
   "tree.viewMainName": "Main",
   "tree.viewUntitled": "Untitled view",
   "tree.viewDefaultName": (n: number) => `View ${n}`,

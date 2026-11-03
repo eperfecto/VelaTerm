@@ -345,6 +345,8 @@ export function ProjectTree(h: TreeHandlers) {
   const rawGroups = useTermStore((s) => s.groups);
   const rawSessions = useTermStore((s) => s.sessions);
   const sortByActivity = useTermStore((s) => s.sortByActivity);
+  // Only an explicit false hides the worktree level; an unset value keeps it, like the default setting.
+  const groupByWorktree = useTermStore((s) => s.groupByWorktree !== false);
   // Subscribe to the live activity map only while the mode is on, so recording activity costs no rerender
   // in the manual order.
   const sessionActivity = useTermStore((s) => (s.sortByActivity ? s.sessionActivity : null));
@@ -476,8 +478,8 @@ export function ProjectTree(h: TreeHandlers) {
   // Container a top-level or child session is gathered in, matching the walks below.
   const worktreeNodeOf = (s: Session): string | null => {
     const parent = s.parentSessionId ? sessionsById.get(s.parentSessionId) : undefined;
-    if (parent) return worktreeNodeIdFor(s, parent.id, sessionWorktree(parent));
-    return worktreeNodeIdFor(s, s.groupId || s.projectId, groupWorktree(s.projectId, s.groupId ?? null));
+    if (parent) return worktreeNodeIdFor(s, parent.id, sessionWorktree(parent), groupByWorktree);
+    return worktreeNodeIdFor(s, s.groupId || s.projectId, groupWorktree(s.projectId, s.groupId ?? null), groupByWorktree);
   };
 
   // During filtering, keep matching sessions and their ancestor groups/projects. Under a status filter, ancestor
@@ -610,7 +612,7 @@ export function ProjectTree(h: TreeHandlers) {
       containerWt: string,
       ancestorMatched: boolean,
     ) => {
-      for (const item of gatherByWorktree(siblings, containerId, containerWt)) {
+      for (const item of gatherByWorktree(siblings, containerId, containerWt, groupByWorktree)) {
         if (item.kind === "session") sessionWalk(item.session, ancestorMatched);
         else if (filtering || !wtNodeCollapsed(item.id)) {
           for (const s of item.sessions) sessionWalk(s, ancestorMatched);
@@ -668,7 +670,7 @@ export function ProjectTree(h: TreeHandlers) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     projects, groups, sessions, filter, statusFiltering, statusFilterIds, markFilter,
-    visGroups, visProjects, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed,
+    visGroups, visProjects, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed, groupByWorktree,
   ]);
 
   // Flatten the visible tree, including pinned temporary draft types, into virtualized render rows matching the old
@@ -684,7 +686,7 @@ export function ProjectTree(h: TreeHandlers) {
       ancestorMatched: boolean,
     ) => {
       const containerId = container.parentSessionId || container.groupId || container.projectId;
-      for (const item of gatherByWorktree(siblings, containerId, containerWt)) {
+      for (const item of gatherByWorktree(siblings, containerId, containerWt, groupByWorktree)) {
         if (item.kind === "session") {
           sessionWalk(item.session, depth, ancestorMatched);
           continue;
@@ -766,7 +768,7 @@ export function ProjectTree(h: TreeHandlers) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     projects, groups, sessions, filter, statusFiltering, statusFilterIds, markFilter,
-    visGroups, visProjects, filtering, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed,
+    visGroups, visProjects, filtering, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed, groupByWorktree,
   ]);
 
   // Exact row heights are compact 24, regular 28, or comfy 32, reduced by 3 in compact navigation. Supplying this

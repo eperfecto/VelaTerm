@@ -1182,6 +1182,7 @@ const ja: typeof en = {
   "tree.sortSection": "並び順", // Order
   "tree.sortByActivity": "アクティビティ順に並べ替え", // Sort by activity
   "tree.sortByActivityHint": "最近アクティブなプロジェクトとセッションを上に保ちます。オフにすると手動の並び順に戻ります。", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "ワークツリーでグループ化", // Group by worktree
   "tree.viewMainName": "メイン",
   "tree.viewUntitled": "名称未設定ビュー",
   "tree.viewDefaultName": (n) => `ビュー ${n}`,

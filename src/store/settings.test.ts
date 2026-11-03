@@ -293,3 +293,28 @@ describe("sortByActivity", () => {
     expect(loadSettings().sortByActivity).toBe(false);
   });
 });
+
+describe("groupByWorktree", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("is on by default and only an explicit boolean false switches it off", () => {
+    expect(loadSettings().groupByWorktree).toBe(true);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ groupByWorktree: "false" }));
+    expect(loadSettings().groupByWorktree).toBe(true);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ groupByWorktree: 0 }));
+    expect(loadSettings().groupByWorktree).toBe(true);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ groupByWorktree: false }));
+    expect(loadSettings().groupByWorktree).toBe(false);
+  });
+
+  it("round-trips through the store setter and the cache hydration", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    useTermStore.getState().setGroupByWorktree(false);
+    expect(loadSettings().groupByWorktree).toBe(false);
+    useTermStore.setState({ groupByWorktree: true });
+    useTermStore.getState().hydrateSettingsFromCache();
+    expect(useTermStore.getState().groupByWorktree).toBe(false);
+    useTermStore.getState().setGroupByWorktree(true);
+    expect(loadSettings().groupByWorktree).toBe(true);
+  });
+});

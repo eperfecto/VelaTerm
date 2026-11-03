@@ -35,12 +35,15 @@ export function worktreeNodeId(containerId: string, path: string): string {
 
 /** Gather siblings by worktree. `containerWorktree` is the worktree the container itself stands for (a bound
  *  group, or a parent session already in that worktree); its sessions stay direct children because a second
- *  level for the same worktree would add nothing. */
+ *  level for the same worktree would add nothing. With `enabled` off (the "Group by worktree" setting), every
+ *  sibling stays a plain session and no worktree node is built. */
 export function gatherByWorktree(
   siblings: Session[],
   containerId: string,
   containerWorktree?: string | null,
+  enabled = true,
 ): WorktreeItem[] {
+  if (!enabled) return siblings.map((session) => ({ kind: "session", session }));
   const own = normalizeWorktreePath(containerWorktree);
   const out: WorktreeItem[] = [];
   const nodes = new Map<string, Extract<WorktreeItem, { kind: "worktree" }>>();
@@ -61,12 +64,15 @@ export function gatherByWorktree(
   return out;
 }
 
-/** ID of the worktree node a session is gathered under, or null when it is a direct child of its container. */
+/** ID of the worktree node a session is gathered under, or null when it is a direct child of its container
+ *  (including when grouping by worktree is off). */
 export function worktreeNodeIdFor(
   session: Session,
   containerId: string,
   containerWorktree?: string | null,
+  enabled = true,
 ): string | null {
+  if (!enabled) return null;
   const path = normalizeWorktreePath(session.worktreePath);
   if (!path || path === normalizeWorktreePath(containerWorktree)) return null;
   return worktreeNodeId(containerId, path);

@@ -176,6 +176,41 @@ describe("worktree rows", () => {
     ]);
   });
 
+  it("lists worktree sessions as plain siblings when grouping by worktree is off", () => {
+    mocks.state.groupByWorktree = false;
+    mocks.state.sessions = [
+      session("plain-1", 1),
+      session("wt-a-1", 2, { worktreePath: WT_A }),
+      session("parent", 3),
+      session("child-1", 4, { parentSessionId: "parent", worktreePath: WT_B }),
+    ];
+    const { container } = render(<ProjectTree {...handlers()} />);
+    expect(names(container)).toEqual(["app", "Feature", "plain-1", "wt-a-1", "parent", "child-1"]);
+    expect(container.querySelectorAll(".row.worktree")).toHaveLength(0);
+    expect(rowOf("wt-a-1").style.paddingLeft).toBe(rowOf("plain-1").style.paddingLeft);
+  });
+
+  it("reveals a session with grouping off without touching a saved collapsed worktree row", () => {
+    mocks.state.sessions = [session("wt-a-1", 1, { worktreePath: WT_A })];
+    const first = render(<ProjectTree {...handlers()} />);
+    fireEvent.click(rowOf("app-aaa"));
+    const saved = localStorage.getItem("vlx-sidebar-worktree-collapsed");
+    expect(saved).toContain("true");
+    first.unmount();
+    mocks.state.groupByWorktree = false;
+    mocks.state.activeSessionId = "wt-a-1";
+    const { container } = render(<ProjectTree {...handlers()} />);
+    expect(names(container)).toEqual(["app", "Feature", "wt-a-1"]);
+    expect(localStorage.getItem("vlx-sidebar-worktree-collapsed")).toBe(saved);
+  });
+
+  it("keeps the worktree rows when grouping by worktree is on", () => {
+    mocks.state.groupByWorktree = true;
+    mocks.state.sessions = [session("wt-a-1", 1, { worktreePath: WT_A })];
+    const { container } = render(<ProjectTree {...handlers()} />);
+    expect(names(container)).toEqual(["app", "Feature", "app-aaa", "wt-a-1"]);
+  });
+
   it("collapses a worktree row and remembers it", () => {
     mocks.state.sessions = [session("wt-a-1", 1, { worktreePath: WT_A })];
     const { container, unmount } = render(<ProjectTree {...handlers()} />);

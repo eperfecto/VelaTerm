@@ -1177,6 +1177,7 @@ const ko: typeof en = {
   "tree.sortSection": "정렬", // Order
   "tree.sortByActivity": "활동순으로 정렬", // Sort by activity
   "tree.sortByActivityHint": "최근에 활동한 프로젝트와 세션을 위에 유지합니다. 끄면 수동 순서로 돌아갑니다.", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "워크트리별 그룹화", // Group by worktree
   "tree.viewMainName": "기본",
   "tree.viewUntitled": "이름 없는 보기",
   "tree.viewDefaultName": (n) => `보기 ${n}`,

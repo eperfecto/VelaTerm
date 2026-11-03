@@ -334,6 +334,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const setDynamicStatusFilter = useTermStore((s) => s.setDynamicStatusFilter);
   const sortByActivity = useTermStore((s) => s.sortByActivity);
   const setSortByActivity = useTermStore((s) => s.setSortByActivity);
+  const groupByWorktree = useTermStore((s) => s.groupByWorktree !== false);
+  const setGroupByWorktree = useTermStore((s) => s.setGroupByWorktree);
   const recordSessions = useTermStore((s) => s.recordSessions);
   const setRecordSessions = useTermStore((s) => s.setRecordSessions);
   const maxLiveTabs = useTermStore((s) => s.maxLiveTabs);
@@ -755,6 +757,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                         ["off", t("common.off")],
                       ]}
                       onChange={(v) => setSortByActivity(v === "on")}
+                    />
+                  </Field>
+                  <Field label={t("tree.groupByWorktree")}>
+                    <Seg<"on" | "off">
+                      value={groupByWorktree ? "on" : "off"}
+                      options={[
+                        ["on", t("common.on")],
+                        ["off", t("common.off")],
+                      ]}
+                      onChange={(v) => setGroupByWorktree(v === "on")}
                     />
                   </Field>
                   {singleTabMode && (

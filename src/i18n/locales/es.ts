@@ -1185,6 +1185,7 @@ const es: typeof en = {
   "tree.sortSection": "Orden", // Order
   "tree.sortByActivity": "Ordenar por actividad", // Sort by activity
   "tree.sortByActivityHint": "Mantiene arriba los proyectos y sesiones con actividad más reciente; desactivado restaura el orden manual.", // Keeps the most recently active projects and sessions at the top; off restores the manual order.
+  "tree.groupByWorktree": "Agrupar por worktree", // Group by worktree
   "tree.viewMainName": "Principal",
   "tree.viewUntitled": "Vista sin nombre",
   "tree.viewDefaultName": (n) => `Vista ${n}`,
