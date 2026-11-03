@@ -2560,6 +2560,16 @@ select.sv-pill {
   flex: 1;
   min-width: 0;
 }
+/* A long message from another session starts clipped to about a screenful, fading out at the bottom. */
+.sv-message-collapsed {
+  max-height: 14em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.sv-message-fold {
+  margin: 4px 0 0 -4px;
+}
 .sv-message-tools {
   order: 1;
   display: flex;

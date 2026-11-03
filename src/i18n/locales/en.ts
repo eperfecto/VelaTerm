@@ -2230,6 +2230,8 @@ const en = {
   "chat.turnFold.show": (n: number) => (n === 1 ? "Show 1 step" : `Show ${n} steps`),
   "chat.turnFold.hideAll": "Hide all steps",
   "chat.turnFold.showAll": "Show all steps",
+  "chat.message.showAll": "Show all",
+  "chat.message.showLess": "Show less",
   // ── An MCP server asking the person something, through the agent ──
   "chat.elicitation.heading": (server: string) => `${server} is asking for input`,
   "chat.elicitation.cancel": "Cancel",

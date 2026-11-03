@@ -2174,6 +2174,8 @@ const zhTW: typeof en = {
   "chat.turnFold.show": (n: number) => `顯示過程（${n} 步）`,
   "chat.turnFold.hideAll": "隱藏全部過程",
   "chat.turnFold.showAll": "顯示全部過程",
+  "chat.message.showAll": "顯示全部",
+  "chat.message.showLess": "收合",
   "chat.elicitation.heading": (server: string) => `${server} 要求輸入`,
   "chat.elicitation.cancel": "取消",
   "chat.elicitation.decline": "拒絕",

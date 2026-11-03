@@ -194,6 +194,7 @@ export function Row({
           who={row.origin ? messageSenderName(row.origin, t) : t("archive.you")}
           icon={row.origin ? kindIconEl(row.origin.agent, 14) : undefined}
           isUser
+          collapsible={!!row.origin}
           rowId={row.id}
           text={row.text}
           copyAvailable={!row.bodyAvailable}
