@@ -316,6 +316,7 @@ export function MessageBubble({
   openRewindToken,
   onRewindMenuOpened,
   collapsible,
+  searchOpened,
 }: {
   rowId?: string;
   who: string;
@@ -349,6 +350,8 @@ export function MessageBubble({
   /** Start a long message collapsed behind "Show all". Used for messages another session sent here, which
    *  are often whole reports and would otherwise push the conversation out of view. */
   collapsible?: boolean;
+  /** In-conversation search is on this message: show it whole so the match is visible, and keep it open. */
+  searchOpened?: boolean;
 }) {
   text = useOriginalMessage(rowId, text);
   const t = useT();
@@ -356,6 +359,10 @@ export function MessageBubble({
   const [editing, setEditing] = useState(false);
   const foldable = !!collapsible && isLongMessage(text);
   const [folded, setFolded] = useState(true);
+  // Derived in the same render, so search scrolls to a message that is already open; the effect keeps it
+  // open after search moves on.
+  const clipped = foldable && folded && !searchOpened;
+  useEffect(() => { if (searchOpened) setFolded(false); }, [searchOpened]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const { onContextMenu: onBodyContextMenu, copyMenu } = useMessageCopyMenu();
   useEffect(() => {
@@ -427,13 +434,14 @@ export function MessageBubble({
             {editing ? <MessageEditor text={text} images={images} disabled={!!editDisabledReason}
               onCancel={() => setEditing(false)} onSend={onEditSend} /> : <>
               {/* Collapsing clips the text instead of removing it, so search and copy still see all of it. */}
-              <div className={foldable && folded ? "sv-message-clip sv-message-collapsed" : "sv-message-clip"}>
-                {pictures}{rowId ? <SentTranslation rowId={rowId} original={body} /> : body}
+              {pictures}
+              <div className={clipped ? "sv-message-clip sv-message-collapsed" : "sv-message-clip"}>
+                {rowId ? <SentTranslation rowId={rowId} original={body} /> : body}
               </div>
               {foldable ? (
-                <button className="sv-turn-fold sv-message-fold" aria-expanded={!folded} onClick={() => setFolded((value) => !value)}>
-                  <Icons.chevR size={11} className={folded ? "sv-caret" : "sv-caret sv-caret-open"} />
-                  {folded ? t("chat.message.showAll") : t("chat.message.showLess")}
+                <button className="sv-turn-fold sv-message-fold" aria-expanded={!clipped} onClick={() => setFolded(!clipped)}>
+                  <Icons.chevR size={11} className={clipped ? "sv-caret" : "sv-caret sv-caret-open"} />
+                  {clipped ? t("chat.message.showAll") : t("session.showLess")}
                 </button>
               ) : null}
               {footnote}

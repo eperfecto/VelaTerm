@@ -2224,7 +2224,6 @@ const ja: typeof en = {
   "chat.turnFold.hideAll": "すべての途中経過を隠す",
   "chat.turnFold.showAll": "すべての途中経過を表示",
   "chat.message.showAll": "すべて表示",
-  "chat.message.showLess": "折りたたむ",
   "chat.elicitation.heading": (server: string) => `${server} が入力を求めています`,
   "chat.elicitation.cancel": "キャンセル",
   "chat.elicitation.decline": "拒否",

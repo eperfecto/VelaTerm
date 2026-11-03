@@ -37,3 +37,15 @@ it("keeps the user's own long messages open", () => {
   expect(content(container).classList.contains("sv-message-collapsed")).toBe(false);
   expect(screen.queryByRole("button", { name: "Show all" })).toBeNull();
 });
+
+it("opens a collapsed message while search is on it and keeps it open afterwards", () => {
+  const { container, rerender } = render(<MessageBubble who="Worker" isUser collapsible text={LONG} />);
+  expect(content(container).classList.contains("sv-message-collapsed")).toBe(true);
+
+  rerender(<MessageBubble who="Worker" isUser collapsible searchOpened text={LONG} />);
+  expect(content(container).classList.contains("sv-message-collapsed")).toBe(false);
+
+  rerender(<MessageBubble who="Worker" isUser collapsible text={LONG} />);
+  expect(content(container).classList.contains("sv-message-collapsed")).toBe(false);
+  expect(screen.getByRole("button", { name: "Show less" })).toBeTruthy();
+});

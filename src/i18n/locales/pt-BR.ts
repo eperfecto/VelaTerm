@@ -2235,7 +2235,6 @@ const ptBR: typeof en = {
   "chat.turnFold.hideAll": "Ocultar todos os passos",
   "chat.turnFold.showAll": "Mostrar todos os passos",
   "chat.message.showAll": "Mostrar tudo",
-  "chat.message.showLess": "Mostrar menos",
   "chat.elicitation.heading": (server: string) => `${server} solicita informações`,
   "chat.elicitation.cancel": "Cancelar",
   "chat.elicitation.decline": "Recusar",

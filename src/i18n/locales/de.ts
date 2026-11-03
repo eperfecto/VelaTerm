@@ -2230,7 +2230,6 @@ const de: typeof en = {
   "chat.turnFold.hideAll": "Alle Zwischenschritte ausblenden",
   "chat.turnFold.showAll": "Alle Zwischenschritte einblenden",
   "chat.message.showAll": "Alles anzeigen",
-  "chat.message.showLess": "Weniger anzeigen",
   "chat.elicitation.heading": (server: string) => `${server} bittet um Eingaben`,
   "chat.elicitation.cancel": "Abbrechen",
   "chat.elicitation.decline": "Ablehnen",

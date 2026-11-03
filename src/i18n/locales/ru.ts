@@ -2247,7 +2247,6 @@ const ru: typeof en = {
   "chat.turnFold.hideAll": "Скрыть все шаги",
   "chat.turnFold.showAll": "Показать все шаги",
   "chat.message.showAll": "Показать всё",
-  "chat.message.showLess": "Свернуть",
   "chat.elicitation.heading": (server: string) => `${server} запрашивает данные`,
   "chat.elicitation.cancel": "Отмена",
   "chat.elicitation.decline": "Отклонить",
