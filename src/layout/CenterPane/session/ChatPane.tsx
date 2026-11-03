@@ -2638,7 +2638,7 @@ export function ChatPane({
                           rewindScopes={rewindScopes}
                           rewindRequest={rewindRequest}
                           onRewindRequestHandled={finishRewindRequest}
-                          searchOpened={searchOpen && searchTarget === entry.id}
+                          searchOpened={searchTarget === entry.id}
                           onCancelShell={readOnly ? undefined : cancelShell}
                           feedback={submissionFeedback(entry.id)}
                         />
@@ -2662,7 +2662,7 @@ export function ChatPane({
                     rewindScopes={rewindScopes}
                     rewindRequest={rewindRequest}
                     onRewindRequestHandled={finishRewindRequest}
-                    searchOpened={searchOpen && searchTarget === entry.id}
+                    searchOpened={searchTarget === entry.id}
                     onCancelShell={readOnly ? undefined : cancelShell}
                     feedback={submissionFeedback(entry.id)}
                   />
