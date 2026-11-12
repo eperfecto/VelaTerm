@@ -46,6 +46,7 @@ export const Entry = memo(function Entry({
   onRewindRequestHandled,
   onCancelShell,
   feedback,
+  searchOpened,
 }: {
   entry: DisplayRow;
   label: string;
@@ -61,6 +62,8 @@ export const Entry = memo(function Entry({
   onRewindRequestHandled: (token: number) => void;
   onCancelShell?: (rowId: string) => void;
   feedback?: ReactNode;
+  /** In-conversation search is on this row, so a collapsed message opens to show the match. */
+  searchOpened?: boolean;
 }) {
   // The author line the pass in `toolRuns` placed on the first entry of an agent turn. Everything the
   // agent did in that turn sits under it, so reasoning and tool calls read as the agent's.
@@ -106,6 +109,7 @@ export const Entry = memo(function Entry({
         onRewindRequestHandled={onRewindRequestHandled}
         onCancelShell={onCancelShell}
         feedback={feedback}
+        searchOpened={searchOpened}
       />
     </>
   );
@@ -125,6 +129,7 @@ export function Row({
   onRewindRequestHandled,
   onCancelShell,
   feedback,
+  searchOpened,
 }: {
   row: ChatRow;
   label: string;
@@ -140,6 +145,7 @@ export function Row({
   /** Stop a running shell command; the row knows only its own id. */
   onCancelShell?: (rowId: string) => void;
   feedback?: ReactNode;
+  searchOpened?: boolean;
 }) {
   const t = useT();
   switch (row.kind) {
@@ -196,6 +202,8 @@ export function Row({
           who={row.origin ? messageSenderName(row.origin, t) : t("archive.you")}
           icon={row.origin ? kindIconEl(row.origin.agent, 14) : undefined}
           isUser
+          collapsible={!!row.origin}
+          searchOpened={searchOpened}
           rowId={row.id}
           text={row.text}
           copyAvailable={!row.bodyAvailable}

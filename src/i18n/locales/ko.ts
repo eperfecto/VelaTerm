@@ -2237,6 +2237,7 @@ const ko: typeof en = {
   "chat.turnFold.show": (n: number) => `진행 과정 보기(${n}단계)`,
   "chat.turnFold.hideAll": "모든 진행 과정 숨기기",
   "chat.turnFold.showAll": "모든 진행 과정 보기",
+  "chat.message.showAll": "모두 보기",
   "chat.elicitation.heading": (server: string) => `${server}에서 입력을 요청합니다`,
   "chat.elicitation.cancel": "취소",
   "chat.elicitation.decline": "거절",
