@@ -248,9 +248,6 @@ function collaborationLabel(
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-/** How recent a click inside a pane must be for its activation to count as made by that click. */
-const CLICK_ACTIVATION_MS = 1000;
-
 export function ChatPane({
   session,
   cwd,
@@ -510,15 +507,18 @@ export function ChatPane({
   // wanted it — a search box, a permission card, a text selection — so it is left alone too. Phones are
   // left alone so switching does not pop the on-screen keyboard.
   const isActiveSession = useTermStore((s) => s.activeSessionId === session.id);
-  const pointerDownAt = useRef(Number.NEGATIVE_INFINITY);
+  // Set by a click that is about to activate this pane, read and cleared by the effect below.
+  const activatedByClick = useRef(false);
   useEffect(() => {
+    const byClick = activatedByClick.current;
+    activatedByClick.current = false;
     if (hidden || !isActiveSession) return;
     if (useTermStore.getState().mirrorFocusSessionId === session.id) {
       useTermStore.setState({ mirrorFocusSessionId: null });
       return;
     }
     if (readOnly || mobile) return;
-    if (performance.now() - pointerDownAt.current < CLICK_ACTIVATION_MS) return;
+    if (byClick) return;
     const raf = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(raf);
   }, [hidden, isActiveSession, readOnly, mobile, session.id]);
@@ -2507,8 +2507,11 @@ export function ChatPane({
       className="term-mount"
       ref={attachChatInputGuard}
       onMouseDown={() => {
-        pointerDownAt.current = performance.now();
-        if (paneId) onActivate(paneId, session.id);
+        if (paneId) {
+          // Only a click that changes the active session runs the focus effect, so only that one is marked.
+          activatedByClick.current = useTermStore.getState().activeSessionId !== session.id;
+          onActivate(paneId, session.id);
+        }
       }}
       // Escape stops the running turn, the way it does in the agent's own terminal interface. The two
       // places that give Escape a local meaning — the completion list and a queued message being

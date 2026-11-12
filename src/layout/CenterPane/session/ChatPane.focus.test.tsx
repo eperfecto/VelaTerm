@@ -99,11 +99,11 @@ describe("composer focus on tab switch", () => {
     }
   });
 
-  it("does not focus a read-only conversation but still consumes a mirror marker", async () => {
+  // A read-only conversation renders no composer, so only the marker is observable here.
+  it("consumes a mirror marker in a read-only conversation", async () => {
     useTermStore.setState({ mirrorFocusSessionId: "s" });
     const view = await mountHidden({ readOnly: true });
     await show(view, { readOnly: true });
-    expect(document.activeElement).toBe(document.body);
     expect(useTermStore.getState().mirrorFocusSessionId).toBeNull();
   });
 
@@ -111,5 +111,19 @@ describe("composer focus on tab switch", () => {
     const view = await mountHidden({ mobile: true });
     await show(view, { mobile: true });
     expect(document.activeElement).not.toBe(screen.queryByRole("textbox"));
+  });
+
+  it("focuses the composer when switching back soon after clicking in the already active conversation", async () => {
+    const view = await mountHidden();
+    await show(view);
+    const composer = screen.getByRole("textbox");
+    fireEvent.mouseDown(view.container.querySelector(".term-mount")!);
+    composer.blur();
+    useTermStore.setState({ activeSessionId: "other" });
+    view.rerender(pane(true));
+    await act(async () => {});
+    useTermStore.setState({ activeSessionId: "s" });
+    await show(view);
+    expect(document.activeElement).toBe(composer);
   });
 });
