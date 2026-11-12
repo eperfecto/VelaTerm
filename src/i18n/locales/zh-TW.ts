@@ -3,8 +3,6 @@
 import type en from "./en";
 
 const zhTW: typeof en = {
-  "panel.averageOutput": "平均輸出速度",
-  "panel.averageOutputHint": "依測得的回應時間估算每秒輸出的 token 數，包含智慧體回報的推理 token，不計工具執行和等待使用者的時間。用量與計時無法可靠對應時，不顯示數值。此指標並非模型的純解碼速度。",
   "panel.turnStats": "本輪統計",
   "panel.fileCount": (n: number) => `${n} 個檔案`,
   "panel.showChangedFiles": "檢視本輪修改的檔案",
@@ -223,6 +221,9 @@ const zhTW: typeof en = {
   "nb.generatedHint": "儲存由工作階段整理出的知識，並保留來源與修訂歷程。",
   "nb.homeHint": "瀏覽工作階段知識庫與本機知識庫。",
   "nb.homeSearch": "搜尋工作階段知識與本機筆記…",
+  "nb.layout": "版面",
+  "nb.layoutCards": "卡片",
+  "nb.layoutList": "清單",
   "nb.loadMore": "載入更多",
   "nb.import": "匯入",
   "nb.importFiles": "選擇檔案",
@@ -310,7 +311,6 @@ const zhTW: typeof en = {
   "memory.entries": "知識條目",
   "memory.emptyJobs": "尚無整理紀錄。",
   "memory.jobs": "整理紀錄",
-  "memory.search": "搜尋條目標題與內文…",
   "memory.empty": "沒有符合條件的條目。可從工作階段產生知識條目，或手動新增條目。",
   "memory.emptyDetail": "選擇一個條目，查閱知識內容、關聯與來源。",
   "memory.new": "新增條目",
@@ -319,7 +319,6 @@ const zhTW: typeof en = {
   "memory.content": "內文（Markdown）",
   "memory.tags": "標籤（以逗號分隔）",
   "memory.related": "相關條目",
-  "memory.backlinks": "反向連結",
   "memory.sources": "來源",
   "memory.history": "修訂紀錄",
   "memory.restore": "還原此版本",
@@ -378,6 +377,8 @@ const zhTW: typeof en = {
   "chat.imageCopy": "複製圖片",
   "chat.imageSave": "儲存圖片",
   "chat.imageActionFailed": "圖片操作失敗，請重試。",
+  "clipboard.unresponsive":
+    "剪貼簿內容的來源應用程式沒有回應，本次未貼上。請稍後再試。",
   "common.copy": "複製", // Copy
   "common.cut": "剪下", // Cut
   "common.paste": "貼上", // Paste
@@ -501,6 +502,8 @@ const zhTW: typeof en = {
     `啟動時附加 ${flag}，跳過全部權限確認，請謹慎使用。`,
   "settings.permViaEnvHint":
     "透過設定檔注入跳過全部權限確認（無命令列旗標）。僅影響該會話啟動時的行為。", // YOLO flag hint
+  "settings.permViaAnswerHint":
+    "在會話檢視中自動同意所有權限請求，包括超出工作區範圍的指令，請謹慎使用。",
   "settings.catGeneral": "一般", // General
   "settings.cliLabel": "Shell 指令",
   "settings.cliInstall": "安裝 ‘vela’ 指令",
@@ -634,6 +637,7 @@ const zhTW: typeof en = {
   "changes.noChanges": "沒有變更",
   "changes.unchangedLines": "展開 $ 行未修改內容",
   "changes.refresh": "重新整理",
+  "changes.openFile": "開啟檔案",
   "changes.notRepo": "不是 git 儲存庫",
   "changes.selectFile": "選擇檔案查看",
   "changes.binary": "二進位檔案，無法逐行 diff",
@@ -815,7 +819,6 @@ const zhTW: typeof en = {
   "settings.recordSessionsHint":
     "預設關。開啟後會把會話的終端輸出存成日誌檔，供歸檔回放與搜尋。普通終端會話一律不錄；agent 會話歸檔讀自己的對話記錄。", // Record session logs hint
   "settings.fonts": "字型", // Fonts
-  "settings.uiFont": "介面字型", // Interface font
   "settings.uiFontSize": "介面字級", // Interface size
   "settings.termFont": "終端機字型", // Terminal font
   "settings.termFontSize": "終端機字級", // Terminal size
@@ -1089,6 +1092,7 @@ const zhTW: typeof en = {
   "tree.openInVSCode": "在 VS Code 中開啟", // Open in VS Code
   "tree.openRepositoryNoRemote": "此專案的 Git 儲存庫沒有網頁位址：請新增指向伺服器的 origin 遠端。", // No web address for origin
   "tree.projectInfo": "專案資訊", // Project Info
+  "tree.codeAudit": "程式碼稽核", // Code audit
   "info.branch": "分支", // Branch
   "info.path": "路徑", // Path
   "info.recentCommits": "最近提交", // Recent Commits
@@ -1097,6 +1101,7 @@ const zhTW: typeof en = {
   "tree.killProcessConfirm": (name: string) => `結束「${name}」的處理程序？目前的工作將中斷，已儲存的對話紀錄和檔案會保留。`,
   "tree.archiveSession": "封存會話", // Archive Session
   "tree.archiveGroup": "封存分組", // Archive Group
+  "tree.archiveCollection": "封存集合", // Archive Collection
   // Temporary (draft) sessions
   "tree.scratchTag": "臨時", // scratch
   "tree.persistSession": "轉為永久會話…", // Make Permanent Session…
@@ -1291,10 +1296,12 @@ const zhTW: typeof en = {
   "importSessions.results": ({ count }: { count: number }) => `${count} 筆結果`,
   "importSessions.selected": ({ count }: { count: number }) => `已選取 ${count} 筆`,
   "importSessions.clearSelection": "清除選取",
-  "importSessions.clearSearch": "清除搜尋",
+  "importSessions.clearFilters": "清除篩選",
+  "importSessions.agentFilter": "依智慧體篩選",
+  "importSessions.allAgents": "全部智慧體",
   "importSessions.noHistory": "此專案目錄下沒有可匯入的歷史會話。",
   "importSessions.title": "匯入會話",
-  "importSessions.description": "尋找工作目錄與本專案一致的 Codex、Claude、OpenCode 和 Kiro 歷史會話。選取會話並加入專案後，即可開啟並繼續對話。目前僅支援檢視純文字的 Kiro 歷史記錄。",
+  "importSessions.description": "尋找工作目錄與本專案一致的 Codex、Claude、OpenCode、Pi、OMP、ZCode、DeepSeek 和 Kiro 歷史會話。選取會話並加入專案後，即可開啟並繼續對話。目前僅支援檢視純文字的 Kiro 歷史記錄。",
   "importSessions.search": "搜尋標題、Agent 名稱或會話 ID",
   "importSessions.empty": "找不到符合條件的會話。",
   "importSessions.imported": "已匯入",
@@ -1404,6 +1411,7 @@ const zhTW: typeof en = {
   "browser.loading": "載入中…", // Loading…
   // Application-exit confirmation and dormant restored sessions.
   "quit.title": "結束 VelaTerm？", // Quit VelaTerm?
+  "quit.closeWindowTitle": "關閉主視窗？", // Close the main window?
   "quit.body": "正在執行的終端機會話與智慧體會話都會被停止。", // Any running terminal and agent sessions will be stopped.
   "quit.remoteWindows": "已開啟的遠端視窗也會一併關閉。", // Open remote windows will also be closed.
   "quit.saveWorkspace": "儲存工作區", // Save workspace
@@ -1452,6 +1460,23 @@ const zhTW: typeof en = {
   "agentVersion.update": (version) => `可升級至 v${version}`,
   "agentVersion.upgrade": (version) => `版本 ${version} 已發布。查看官方升級說明。`,
   "agentVersion.checkFailed": "無法檢查更新。",
+  "agentVersion.upgradeAction": (version) => `版本 ${version} 已發布，按一下即可更新。`,
+  "agentUpdate.title": (label) => `更新 ${label}`,
+  "agentUpdate.commandHint": "VelaTerm 將執行此智慧體內建的更新指令：",
+  "agentUpdate.confirm": "更新",
+  "agentUpdate.docs": "官方說明",
+  "agentUpdate.running": "正在更新…",
+  "agentUpdate.background": "您可以關閉此視窗，更新會繼續進行。",
+  "agentUpdate.waiting": "正在等待輸出…",
+  "agentUpdate.succeeded": (label, version) => `${label} 已更新至 v${version}。`,
+  "agentUpdate.unchanged": (version) => `指令已執行完畢，但已安裝的版本仍是 v${version}。請查看上方輸出。`,
+  "agentUpdate.finished": "更新指令已執行完畢，請查看上方輸出。",
+  "agentUpdate.failed": "更新未能完成。請查看上方輸出，或複製指令到終端機中執行。",
+  "agentUpdate.broken": (label) => `更新後 ${label} 無法啟動，更新未能完成。請查看上方輸出，或重新安裝 ${label}。`,
+  "agentUpdate.timedOut": "更新超過 15 分鐘，已停止。請複製指令到終端機中執行。",
+  "agentUpdate.restartHint": "本會話仍在使用舊版本。重新啟動智慧體後即可切換：會話內容會保留，新版本將在您傳送下一則訊息時啟動。",
+  "agentUpdate.restart": "重新啟動智慧體",
+  "agentUpdate.startFailed": "無法開始更新，請再試一次。",
   "agentInstall.title": (label) => `${label} 尚未安裝`, // {label} is not installed
   "agentInstall.desc": (label) =>
     `VelaTerm 沒有在 PATH 上找到 ${label}。安裝後即可啟動此會話。`, // couldn't find {label} on PATH
@@ -1460,6 +1485,10 @@ const zhTW: typeof en = {
   "agentInstall.dismiss": "我自己裝", // I'll do it myself
   "agentInstall.docs": "安裝文件", // Install docs
   "agentInstall.needsNode": "需先安裝 Node.js / npm", // Requires Node.js / npm
+  "agentInstall.runInTerminal": "請在終端機中執行以下指令完成安裝，然後重新送出訊息。",
+  "agentInstall.installing": "正在安裝…", // Installing…
+  "agentInstall.installingDesc": "正在下載並安裝，可能需要幾分鐘。", // Downloading and installing. This can take a few minutes.
+  "agentInstall.installFailed": "安裝未完成。請在終端機中執行以下指令查看原因，然後重新送出訊息。", // Installation didn't finish. Run this command in a terminal to see what went wrong, then send your message again.
   "agentInstall.afterInstall": "安裝後：", // After install:
   "agentInstall.pathSaved": (label: string) =>
     `已把 ${label} 的可執行檔路徑填入設定：`, // executable path saved to Settings
@@ -2100,6 +2129,8 @@ const zhTW: typeof en = {
   "chat.attach.tooLarge": (name: string, mb: number) => `${name} 超過 ${mb} MB，未加入附件`,
   "chat.attach.unreadable": (name: string) => `無法讀取 ${name}`,
   // ── Shell mode: `!` runs a command in the session's shell ──
+  "chat.findings.count": (n: number) => `發現 ${n} 個問題`,
+  "chat.findings.none": "未發現問題",
   "chat.shell.title": "Shell 指令",
   "chat.shell.running": "執行中…",
   "chat.shell.cancel": "取消",
@@ -2223,6 +2254,15 @@ const zhTW: typeof en = {
   "chat.auth.claude.invalidCode": "請貼上本次授權頁面提供的完整授權碼，包括 # 後面的內容。",
   "chat.auth.claude.externalAuth": "API 金鑰及其他已設定的驗證方式不會變更。",
   "chat.auth.open": "開啟授權頁面",
+  "chat.auth.zcode.required": "登入 ZCode 後才能使用目前的對話，請使用你的 Z.ai 或智譜 BigModel 帳號。",
+  "chat.auth.zcode.pending": "請開啟授權頁面並同意授權。登入完成後，此處會自動更新。",
+  "chat.auth.zcode.failed": "無法完成登入，請重試。",
+  "chat.auth.zcode.zai": "使用 Z.ai 登入",
+  "chat.auth.zcode.bigmodel": "使用智譜 BigModel 登入",
+  "chat.auth.zcode.noPlan.zai": "ZCode 目前登入的是 Z.ai 帳號，但此帳號沒有可用的 GLM Coding Plan，或方案額度已用完。如果方案是在智譜 BigModel 購買的，請開啟「ZCode 帳號」選單，選擇「使用智譜 BigModel 登入」。",
+  "chat.auth.zcode.noPlan.bigmodel": "ZCode 目前登入的是智譜 BigModel 帳號，但此帳號沒有可用的 GLM Coding Plan，或方案額度已用完。如果方案是在 Z.ai 購買的，請開啟「ZCode 帳號」選單，選擇「使用 Z.ai 登入」。",
+  "chat.auth.zcode.noModels.zai": "ZCode 未能從目前的 Z.ai 登入中找到 GLM Coding Plan，因此沒有可用的模型。請開啟「ZCode 帳號」選單，選擇「使用 Z.ai 登入」重新登入；如果方案是在智譜 BigModel 購買的，請改選「使用智譜 BigModel 登入」。",
+  "chat.auth.zcode.noModels.bigmodel": "ZCode 未能從目前的智譜 BigModel 登入中找到 GLM Coding Plan，因此沒有可用的模型。請開啟「ZCode 帳號」選單，選擇「使用智譜 BigModel 登入」重新登入；如果方案是在 Z.ai 購買的，請改選「使用 Z.ai 登入」。",
   "chat.resetCredits.label": (n: string) => `重設券：${n} 張`,
   "chat.resetCredits.title": "Codex 額度重設券",
   "chat.resetCredits.unknown": "暫時無法取得重設券數量。",
@@ -2303,11 +2343,20 @@ const zhTW: typeof en = {
     `${seconds} 秒後重試（${attempt}/${max}）：${message}`,
   "chat.notify.dismiss": "關閉",
   "settings.completionMode": "命令補全提示",
-  "settings.completionAuto": "自動提示",
-  "settings.completionTab": "按 Tab 提示",
+  "settings.completionAuto": "行內提示 + Tab",
+  "settings.completionTab": "僅 Tab",
   "settings.completionOff": "完全關閉",
   "settings.completionUnavailable": "無法讀取或儲存設定。",
-  "settings.completionHint": "適用於新建的 Zsh、Bash 4+、Fish 和 PowerShell 終端。CMD 保留原生 Tab 行為。Tab 填入選取的候選項目；Enter 直接執行目前的命令，不套用候選項目。",
+  "settings.completionHint": "在 Zsh 中輸入時，游標後方會以灰色顯示歷史記錄中最近一筆相符的命令，按 → 或 End 即可採用。Tab 與 shell 原生行為一致：只有一個候選項目時直接填入，候選項目有共同開頭時先補全這部分，仍有多個候選項目時再列出。適用於新建的 Zsh、Bash 4+、Fish 和 PowerShell 終端。",
+  "settings.completionTabOnlyHint": "輸入時不顯示任何提示。按 Tab 補全，與 shell 原生行為一致：只有一個候選項目時直接填入，候選項目有共同開頭時先補全這部分，仍有多個候選項目時再列出。適用於新建的 Zsh、Bash 4+、Fish 和 PowerShell 終端。",
+  "settings.completionTabKey": "Tab 鍵",
+  "settings.completionTabAccept": "採用行內提示",
+  "settings.completionTabComplete": "補全命令",
+  "settings.completionTabAcceptHint": "游標後方顯示灰色提示時，按 Tab 即可採用；緊接著再按一次 Tab 可復原，並列出所有候選項目。按 → 或 End 同樣可以採用提示。",
+  "settings.completionTabCompleteHint": "即使游標後方顯示灰色提示，Tab 也只補全命令；按 → 或 End 採用提示。",
+  "term.completionTipAccept": "採用提示",
+  "term.completionTipComplete": "補全命令",
+  "term.completionTipUndo": "復原並列出候選項目",
 
   // Native texts of the mobile remote plugin (iOS, Android, download bridge). They reach the apps through native-text.json; {name} placeholders are replaced natively.
   "mobile.native.trustTitle": "確認遠端指紋",
@@ -2414,6 +2463,9 @@ const zhTW: typeof en = {
   "term.runs.logEmpty": "尚無輸出",
   "chat.antigravity.placeholder": "傳送訊息給 Antigravity，可用 @檔案 引用檔案",
   "chat.antigravity.textOnly": "Antigravity 會話檢視目前僅支援文字訊息。",
+  "chat.textOnly": (agent: string) => `${agent} 會話檢視僅支援文字訊息。`,
+  "chat.signInRequired": (agent: string) => `使用會話檢視前需要先登入 ${agent}。請切換到終端機檢視完成登入，然後重新送出訊息。`,
+  "chat.apiKeyRequired": "DeepSeek Harness 需要 API 金鑰。請設定環境變數 DEEPSEEK_API_KEY，或執行 `dsh web` 在「Models」頁面儲存金鑰，然後重新送出訊息。",
   "chat.antigravity.permissionsHint": "需要核准的工具必須先在 Antigravity 設定中獲准使用，或在終端機檢視中使用。",
   "chat.antigravity.settingsHint": "請在回合之間變更模型、思考程度或權限。",
   "ports.title": "連接埠", // Ports
@@ -2505,6 +2557,111 @@ const zhTW: typeof en = {
   "artifact.cardOpenTitle": "在此會話旁開啟", // Open beside this session
   "artifact.cardKind": "HTML 頁面", // HTML page
   "artifact.frameTitle": (name: string) => `${name} 的預覽`, // Preview of ${name}
+  "newSession.menu": "新增會話…", // New Session…
+  "newSession.heading": "這次要做什麼？", // What should we work on?
+  "newSession.terminalOnly": "僅終端機檢視", // Terminal view only
+  "newSession.conversationOnly": "僅會話檢視", // Conversation view only
+  "newSession.noConversationView": "此智慧體沒有會話檢視，會話將以終端機檢視開啟。", // This agent has no conversation view, so the session opens in the terminal view.
+  "newSession.noTerminalView": "此智慧體沒有終端機檢視，會話將以會話檢視開啟。", // This agent has no terminal view, so the session opens in the conversation view.
+  "newSession.taskLabel": "第一個任務", // First task
+  "newSession.placeholder": "描述任務或提出問題", // Describe a task or ask a question
+  "newSession.enterHint": "Enter 啟動 · Shift+Enter 換行", // Enter to start · Shift+Enter for a new line
+  "newSession.start": "啟動", // Start
+  "newSession.starting": "正在啟動…", // Starting…
+  "newSession.viewLabel": "檢視", // View
+  "newSession.worktreeHint": "在獨立的分支和資料夾中執行此會話。", // Runs this session on its own branch in a separate folder.
+  "newSession.worktreeNotRepo": "只有 Git 儲存庫才能建立獨立工作樹。", // A separate worktree needs a Git repository.
+  "newSession.worktreeName": "工作樹名稱（選填）", // Worktree name (optional)
+  "newSession.worktreeNameHint": "用於命名新的資料夾與分支。留空則使用會話名稱。", // Names the new folder and branch. Leave empty to use the session name.
+  "newSession.typeLabel": "會話類型",
+  "newSession.typeTask": "任務",
+  "newSession.typeProject": "專案",
+  "newSession.typeChat": "聊天",
+  "newSession.typeTaskHint": "無須選擇專案即可執行任務，例如匯入專案。",
+  "newSession.typeProjectHint": "在專案目錄中工作。",
+  "newSession.typeChatHint": "純聊天，不涉及專案與檔案。",
+  "newSession.location": "專案或集合",
+  "newSession.locationSearch": "篩選專案和集合",
+  "newSession.collectionOption": "集合",
+  "newSession.newTask": "新增任務會話",
+  "newSession.newChat": "新增聊天會話",
+  "systemCollection.projects": "專案",
+  "systemCollection.agents": "智慧體",
+  "systemCollection.terminals": "終端機",
+  "systemCollection.tasks": "任務",
+  "systemCollection.chat": "聊天",
+  "systemCollection.projectsHint": "所有專案。內建集合，無法刪除。",
+  "systemCollection.agentsHint": "在終端機中執行的智慧體。智慧體結束後會從清單中移除。",
+  "systemCollection.terminalsHint": "目前正在執行的終端機。",
+  "systemCollection.tasksHint": "任務會話，不屬於任何專案。",
+  "systemCollection.chatHint": "聊天會話。",
+  "sidebarSection.nav": "側邊欄分區",
+  "sidebarSection.noTasks": "目前還沒有任務會話。",
+  "sidebarSection.noChats": "目前還沒有聊天會話。",
+  "artifact.comment": "評論", // Comment
+  "artifact.commentTitle": "點選頁面元素，給智慧體留下評論", // Click elements in the page to leave comments for the agent
+  "artifact.pickHint": "點選頁面中的元素來評論，按 Esc 結束。", // Click an element in the page to comment on it. Press Esc to stop.
+  "artifact.commentOn": (target: string) => `評論 ${target}`, // Comment on ${target}
+  "artifact.commentPlaceholder": "這裡需要怎麼改？", // What should change here?
+  "artifact.commentAdd": "新增評論", // Add comment
+  "artifact.commentMore": "再評論一個元素", // Comment on another element
+  "artifact.commentRemove": "移除評論", // Remove comment
+  "artifact.showInPage": "在頁面中顯示", // Show in page
+  "artifact.sendCommentsTitle": "將這些評論填入寫出此頁面的會話輸入框", // Put these comments in the message box of the session that wrote this page
+  "artifact.copyCommentsTitle": "複製這些評論，傳給智慧體", // Copy these comments to send to an agent
+  "artifact.options": "方案", // Options
+  "artifact.useOption": (id: string) => `採用 ${id}`, // Use ${id}
+  "artifact.useOptionTitle": "在寫出此頁面的會話輸入框中填入一則訊息，要求保留這個方案", // Put a message asking to keep this option in the message box of the session that wrote this page
+  "artifact.useOptionCopyTitle": "複製一則要求保留這個方案的訊息", // Copy a message asking to keep this option
+  // Knowledge base and archived sessions pages.
+  "kb.overview": "總覽",
+  "kb.sources": "來源",
+  "kb.searchAll": "搜尋知識與筆記…",
+  "kb.localHint": "這台電腦上的 Markdown 資料夾，可以在這裡或任何其他編輯器中編輯。",
+  "kb.archiveHint": "已結束的對話。值得保留的，可以整理至知識庫。",
+  "kb.recent": "最近更新",
+  "kb.openArchived": "開啟已封存會話",
+  "kb.editDetails": "編輯詳細資料",
+  "kb.moreActions": "更多操作",
+  "archive.allSessions": "所有會話",
+  "archive.projects": "專案",
+  "archive.allProjects": "所有專案",
+  "archive.allAgents": "所有智慧體",
+  "archive.anyKnowledge": "不限知識",
+  "archive.withKnowledge": "已整理至知識庫",
+  "archive.withoutKnowledge": "尚未整理",
+  "archive.view": "檢視",
+  "archive.viewTree": "樹狀",
+  "archive.viewTime": "依時間",
+  "archive.newest": "最新在前",
+  "archive.oldest": "最舊在前",
+  "archive.colSession": "會話",
+  "archive.colProject": "專案",
+  "archive.colAgent": "智慧體",
+  "archive.colKnowledge": "知識",
+  "archive.colArchived": "封存時間",
+  "archive.restoreShort": "恢復",
+  "kb.needsAttention": (count: string) => `${count} 個待處理`,
+  "kb.statusAttention": "待處理",
+  "kb.statusOrganized": "已整理",
+  "kb.organizedCount": (count: string) => `${count} 個已整理`,
+  "kb.failedTimes": (count: string) => `已失敗 ${count} 次`,
+  "kb.succeededAfter": (count: string) => `失敗 ${count} 次後成功`,
+  "kb.fromSession": "來源會話",
+  "kb.showAllTags": "顯示全部標籤",
+  "kb.inKnowledgeBase": (count: string) => `${count} 個已加入知識庫`,
+  "kb.entriesCount": (count: string) => `${count} 個條目`,
+  "kb.entriesFrom": (_count: string, sessions: string) => `個條目，來自 ${sessions} 個工作階段`,
+  "kb.notesIn": (_count: string, folders: string) => `篇筆記，分布於 ${folders} 個資料夾`,
+  "kb.sessionsIn": (_count: string, projects: string) => `個工作階段，分屬 ${projects} 個專案`,
+  "kb.lastArchived": "最近封存",
+  "nb.notesWord": (_count: string) => "篇筆記",
+  "archive.sessionsInProjects": (sessions: string, projects: string) => `${sessions} 個工作階段，分屬 ${projects} 個專案`,
+  "archive.collapseAll": "全部摺疊",
+  "kb.andMore": (count: string) => `還有 ${count} 個`,
+  "kb.searchEntries": "搜尋條目…",
+  "kb.updatedOn": (date: string) => `更新於 ${date}`,
+  "archive.sessionsCount": (count: string) => `${count} 個會話`,
 };
 
 export default zhTW;

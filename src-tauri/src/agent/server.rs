@@ -69,6 +69,10 @@ pub struct ViewRequest {
     /// Whether path is a URL, in which case the frontend opens a browser rather than document tab.
     #[serde(default)]
     pub is_url: bool,
+    /// Sent by `vartifact`: open the file in the panel beside the calling conversation. `vopen` leaves it
+    /// false and always opens a tab; URLs ignore it.
+    #[serde(default)]
+    pub beside: bool,
 }
 
 /// Request from `vrefer` to read another session's conversation transcript.
@@ -215,6 +219,8 @@ struct ViewBody {
     session_id: String,
     path: String,
     cwd: String,
+    #[serde(default)]
+    beside: bool,
 }
 
 /// Server endpoint (port and token) required during spawn injection.
@@ -844,6 +850,8 @@ pub(crate) fn is_auto_name(name: &str) -> bool {
         "Kiro",
         "Grok",
         "Grok Build",
+        "ZCode",
+        "DeepSeek",
         // Localized common.session values used as default terminal-session name prefixes.
         "Session",    // en
         "会话",       // zh-CN, retained for compatibility with existing data
@@ -1933,6 +1941,7 @@ fn parse_view(url: &str, body: &str, expected_token: &str) -> Result<ViewRequest
             session_id: parsed.session_id,
             path: trimmed.to_string(),
             is_url: true,
+            beside: false,
         });
     }
 
@@ -1959,6 +1968,7 @@ fn parse_view(url: &str, body: &str, expected_token: &str) -> Result<ViewRequest
         session_id: parsed.session_id,
         path: abs.to_string_lossy().to_string(),
         is_url: false,
+        beside: parsed.beside,
     })
 }
 

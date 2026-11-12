@@ -30,7 +30,7 @@ pub use fonts::print_font_catalog;
 mod git;
 mod gitea;
 mod host;
-mod models;
+use vlx_core::models;
 mod memory;
 mod kb;
 mod knowledge;
@@ -47,13 +47,13 @@ mod search;
 mod session_state;
 mod mobile_push;
 mod split_trace;
-pub mod diagnostics;
-#[cfg(feature = "gui")]
-mod main_window;
+pub use vlx_core::{diagnostic_warn, diagnostics};
 #[cfg(feature = "gui")]
 mod native_menu;
 #[cfg(feature = "gui")]
 mod native_drop;
+#[cfg(feature = "gui")]
+mod clipboard_gate;
 // GUI-only watchdog reporting stalls of the platform event loop, which are what a frozen window actually is.
 #[cfg(feature = "gui")]
 mod stall;
@@ -83,6 +83,9 @@ mod notify_native;
 // GUI-only Windows WinRT toasts with foreground session-aware click navigation.
 #[cfg(all(feature = "gui", target_os = "windows"))]
 mod notify_win;
+// GUI-only Linux freedesktop notifications with session-aware click navigation.
+#[cfg(all(feature = "gui", target_os = "linux"))]
+mod notify_linux;
 // Windows self-update installed from VelaTerm's own data folder instead of the updater plugin's Temp folder.
 #[cfg(feature = "gui")]
 mod updater_win;
@@ -119,6 +122,9 @@ pub(crate) struct QuitState {
     /// Incremented by every quit request. A watchdog fires only while its own epoch is still current, so a
     /// request that was cancelled and re-issued within the grace period cannot stack a second dialog.
     pub epoch: std::sync::atomic::AtomicU64,
+    /// The pending request closes only the main window, leaving the application running; see
+    /// `main_close_keeps_app`.
+    pub close_window: std::sync::atomic::AtomicBool,
 }
 
 /// Light/dark preference for native window chrome, mirroring the frontend's theme mode. Windows only.
@@ -197,11 +203,10 @@ pub(crate) fn apply_window_frame(win: &tauri::WebviewWindow, dark: bool) {
 }
 
 /// Resolve the frame color for the first painted frame: the persisted mode, or, while the interface
-/// follows the OS, the scheme the window already renders with. Read before the window is shown so the
-/// strip never opens in the wrong color; the resolution matches the frontend's `resolveTheme`.
+/// follows the OS, the OS preference. Read before the window is shown so the strip never opens in the wrong
+/// color; the resolution matches the frontend's `resolveTheme`.
 #[cfg(all(feature = "gui", target_os = "macos"))]
-fn startup_frame_is_dark(db: &Db, app: &tauri::AppHandle) -> bool {
-    use tauri::Manager;
+fn startup_frame_is_dark(db: &Db) -> bool {
     let mode = db
         .conn
         .lock()
@@ -211,11 +216,29 @@ fn startup_frame_is_dark(db: &Db, app: &tauri::AppHandle) -> bool {
     match mode.as_deref() {
         Some("dark") => true,
         Some("light") => false,
-        _ => app
-            .get_webview_window("main")
-            .and_then(|win| win.theme().ok())
-            .map(|theme| theme == tauri::Theme::Dark)
-            .unwrap_or(false),
+        _ => os_prefers_dark(),
+    }
+}
+
+/// Whether macOS is set to dark mode, read from the user's global `AppleInterfaceStyle` preference (also kept
+/// current by the Auto appearance). Neither `WebviewWindow::theme()` nor `NSApp.effectiveAppearance` can be
+/// trusted here: windows are built before the application finishes launching, when the appearance is still
+/// the default Aqua, and tao caches that value, so a dark system reported Light and the strip stayed white.
+#[cfg(all(feature = "gui", target_os = "macos"))]
+pub(crate) fn os_prefers_dark() -> bool {
+    use objc2::msg_send;
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::NSString;
+    unsafe {
+        let defaults: Option<Retained<AnyObject>> =
+            msg_send![objc2::class!(NSUserDefaults), standardUserDefaults];
+        let Some(defaults) = defaults else {
+            return false;
+        };
+        let key = NSString::from_str("AppleInterfaceStyle");
+        let style: Option<Retained<NSString>> = msg_send![&*defaults, stringForKey: &*key];
+        style.is_some_and(|style| style.to_string() == "Dark")
     }
 }
 
@@ -349,7 +372,7 @@ pub fn run_cursor_hook(args: &[String]) -> ! {
     agent::cursor::run(args)
 }
 
-/// Hidden `--agent-hook <agent> <event>` status bridge for Crush, Kiro, Antigravity, Copilot, and Kimi. Their hook
+/// Hidden `--agent-hook <agent> <event>` status bridge for Crush, Kiro, Antigravity, Copilot, Kimi, and ZCode. Their hook
 /// configurations call this executable directly instead of a shell or PowerShell script.
 pub fn run_agent_hook(args: &[String]) -> ! {
     agent::hook_bridge::run_agent(args)
@@ -457,6 +480,12 @@ pub const GIT_COMMIT: &str = match option_env!("VLX_GIT_COMMIT") {
 /// Binary semver from Cargo.toml.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Hidden helper process for the paste gate: reads the clipboard and exits. See `clipboard_gate`.
+#[cfg(all(feature = "gui", target_os = "macos"))]
+pub fn run_clipboard_probe() {
+    clipboard_gate::run_probe();
+}
+
 /// Print stable version/commit output for --version/-V and exit without windows or services.
 ///
 /// SSH provisioning parses line one as `velaterm <semver>` and line two as `commit: <hash>` to decide
@@ -467,8 +496,8 @@ pub fn print_version() {
 }
 
 /// Send a session-aware native notification and return whether the platform handled it. macOS uses
-/// UNUserNotificationCenter, Windows uses WinRT toast, and other/unsupported builds return false for
-/// frontend plugin fallback.
+/// UNUserNotificationCenter, Windows uses WinRT toast, Linux uses the freedesktop service, and
+/// other/unsupported builds return false for frontend plugin fallback.
 #[cfg(feature = "gui")]
 #[tauri::command]
 fn native_notify(
@@ -501,7 +530,18 @@ fn native_notify(
             sound,
         )
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        notify_linux::send(
+            window.app_handle(),
+            window.label().to_string(),
+            session_id,
+            title,
+            body,
+            sound,
+        )
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = (window, session_id, title, body, sound);
         false
@@ -609,11 +649,8 @@ pub fn run(initial_open_project: Option<PathBuf>) {
     let builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             queue_open_project(app, &args, &cwd);
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.unminimize();
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
+            // Launching again brings up the main window, opening a new one after the user closed it.
+            open_main_window(app);
         }));
     // Release builds use one GUI instance; development permits parallel worktree instances. Register
     // the single-instance plugin first so argv/cwd forwarding is reliable.
@@ -721,6 +758,10 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                 )
                 .enabled(!cfg!(debug_assertions))
                 .build(app)?;
+                // VS Code's New Window: the way back to the main window while remote windows hold the screen,
+                // when a Dock click only activates them.
+                let main_window_item =
+                    MenuItemBuilder::with_id("open-main-window", "Open Main Window").build(app)?;
                 let quit_item = MenuItemBuilder::with_id("quit", format!("Quit {app_name}"))
                     .accelerator("CmdOrCtrl+Q")
                     .build(app)?;
@@ -728,6 +769,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                     .about(Some(about_meta))
                     .item(&check_update_item)
                     .separator()
+                    .item(&main_window_item)
                     .item(&settings_item)
                     .item(&clear_badges_item)
                     .separator()
@@ -746,10 +788,15 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                 // Omit native undo/redo so Cmd+Z/Cmd+Shift+Z reach CodeMirror/ProseMirror's JS histories;
                 // NSApplication would otherwise consume them while native WebView undo cannot control those
                 // editors. Keep cut/copy/paste/select-all because WebKit translates them into DOM events.
+                // Paste is a custom item so a stalled clipboard source cannot freeze the main thread; see
+                // clipboard_gate.
+                let paste_item = MenuItemBuilder::with_id("paste", "Paste")
+                    .accelerator("CmdOrCtrl+V")
+                    .build(app)?;
                 let edit_menu = SubmenuBuilder::new(app, "Edit")
                     .cut()
                     .copy()
-                    .paste()
+                    .item(&paste_item)
                     .select_all()
                     .build()?;
                 // Register terminal split accelerators with AppKit as well as the frontend keydown
@@ -788,6 +835,12 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                     use tauri_plugin_opener::OpenerExt;
                     let id = event.id().0.as_str();
                     match id {
+                        "paste" => {
+                            let window = app_handle
+                                .get_focused_window()
+                                .map(|window| window.label().to_string());
+                            clipboard_gate::request_paste(app_handle, window);
+                        }
                         // Forward custom application and terminal commands to the frontend.
                         "settings"
                         | "check-update"
@@ -862,6 +915,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         "quit" => {
                             request_quit_confirmation(app_handle);
                         }
+                        "open-main-window" => open_main_window(app_handle),
                         // Open help URLs directly through the Rust-side opener.
                         "visit-website" => {
                             let _ = app_handle
@@ -893,8 +947,9 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                 .map_err(|e| format!("failed to create data dir: {e}"))?;
             // Record data_dir so Windows SSH connections prefer bundled tools over a broken/missing PATH install.
             ssh_remote::set_data_dir(data_dir.clone());
-            diagnostics::init(&data_dir);
+            diagnostics::init(&data_dir, VERSION);
             let db = Db::open(&data_dir.join("vlx-term.db"))?;
+            db::system_collections::ensure(&db.conn.lock().unwrap())?;
 
             // When cleanup is enabled, remove pasted images older than 24h left by crashes. Normal exit
             // removes this process's files precisely; disabling the setting skips both paths.
@@ -909,7 +964,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             // the persisted scheme before its first painted frame. Showing it here also covers the other
             // platforms, which previously appeared before setup ran.
             #[cfg(target_os = "macos")]
-            let frame_is_dark = startup_frame_is_dark(&db, app.handle());
+            let frame_is_dark = startup_frame_is_dark(&db);
             app.manage(db);
             screenshot::init(app.handle());
 
@@ -1048,8 +1103,8 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             notify_native::install(app.handle().clone());
 
             // Remote contexts cannot call native_notify directly, so relay vlx://remote-notify through
-            // the backend with its window/session identity. Native macOS/Windows channels target that
-            // window on click; unsupported/failed delivery falls back to the official plugin.
+            // the backend with its window/session identity. Native channels target that window on click;
+            // unsupported/failed delivery falls back to the official plugin.
             {
                 let handle = app.handle().clone();
                 app.listen_any("vlx://remote-notify", move |event| {
@@ -1069,7 +1124,16 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         p.body.clone(),
                         p.sound,
                     );
-                    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                    #[cfg(target_os = "linux")]
+                    let shown = notify_linux::send(
+                        &handle,
+                        p.window_label.clone(),
+                        p.session_id.clone(),
+                        p.title.clone(),
+                        p.body.clone(),
+                        p.sound,
+                    );
+                    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
                     let shown = false;
                     if !shown {
                         use tauri_plugin_notification::NotificationExt;
@@ -1083,8 +1147,9 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                 });
             }
 
-            // Relay remote-window reconnect requests into a manual tunnel-monitor kick. It retries after
-            // automatic recovery gives up and ignores kicks while the tunnel is healthy.
+            // Relay remote-window reconnect requests into a manual tunnel-monitor kick. It cuts the
+            // automatic backoff short, retries after automatic recovery gives up, and ignores kicks while
+            // the tunnel is healthy.
             app.listen_any("vlx://ssh-reconnect", move |event| {
                 let Ok(v) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
                     return;
@@ -1133,85 +1198,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
 
             // DevTools are opened on demand rather than automatically in development.
 
-            // Capture the paths of folders dropped from the OS file manager onto the main window.
-            if let Some(win) = app.get_webview_window("main") {
-                native_drop::install(&win);
-            }
-
-            // Track the main view's focus so window reactivation can hand the keyboard back to it.
-            #[cfg(target_os = "windows")]
-            if let Some(webview) = app.get_webview("main") {
-                focus_win::track(&webview);
-            }
-
-            // Disable WebView2 browser accelerator handling in the main view so Ctrl-based app shortcuts
-            // reach frontend keydown. Built-in browser child views retain normal browser accelerators.
-            #[cfg(target_os = "windows")]
-            if let Some(win) = app.get_webview_window("main") {
-                let _ = win.with_webview(|webview| {
-                    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
-                    use windows::core::Interface;
-                    // SAFETY: setup runs on the main thread and wry owns the live WebView2 COM pointer.
-                    unsafe {
-                        if let Ok(core) = webview.controller().CoreWebView2() {
-                            if let Ok(settings) = core.Settings() {
-                                if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
-                                    let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-
-            // Set Windows ICON_BIG explicitly. Tauri reliably set only ICON_SMALL, leaving the taskbar
-            // with a generic icon. Extract embedded executable icons and apply both through WM_SETICON.
-            #[cfg(target_os = "windows")]
-            if let Some(win) = app.get_webview_window("main") {
-                if let Ok(hwnd) = win.hwnd() {
-                    use std::os::windows::ffi::OsStrExt;
-                    use windows::Win32::Foundation::{LPARAM, WPARAM};
-                    use windows::Win32::UI::Shell::ExtractIconExW;
-                    use windows::Win32::UI::WindowsAndMessaging::{
-                        SendMessageW, HICON, ICON_BIG, ICON_SMALL, WM_SETICON,
-                    };
-                    use windows::core::PCWSTR;
-                    if let Ok(exe) = std::env::current_exe() {
-                        let mut wide: Vec<u16> = exe.as_os_str().encode_wide().collect();
-                        wide.push(0);
-                        let mut large = HICON::default();
-                        let mut small = HICON::default();
-                        // SAFETY: main-thread setup, NUL-terminated path, valid output pointers/live hwnd.
-                        unsafe {
-                            let n = ExtractIconExW(
-                                PCWSTR(wide.as_ptr()),
-                                0,
-                                Some(&mut large),
-                                Some(&mut small),
-                                1,
-                            );
-                            if n > 0 {
-                                if !large.is_invalid() {
-                                    SendMessageW(
-                                        hwnd,
-                                        WM_SETICON,
-                                        Some(WPARAM(ICON_BIG as usize)),
-                                        Some(LPARAM(large.0 as isize)),
-                                    );
-                                }
-                                if !small.is_invalid() {
-                                    SendMessageW(
-                                        hwnd,
-                                        WM_SETICON,
-                                        Some(WPARAM(ICON_SMALL as usize)),
-                                        Some(LPARAM(small.0 as isize)),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            install_main_window_hooks(app.handle());
 
             // Neutralize the single-instance plugin's hidden message window. tauri-plugin-single-instance
             // 2.4.3 creates it 0x0 with WS_EX_LAYERED, then switches the style to WS_VISIBLE | WS_POPUP,
@@ -1317,11 +1304,13 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             browser::browser_close,
             // 6) Paths of files dropped from the OS file manager, read from the platform drag channel.
             native_drop::take_dropped_paths,
+            clipboard_gate::clipboard_wait_ready,
             // Desktop-only screenshots: global hotkey settings and the annotation overlay window.
             screenshot::screenshot_shortcut_get,
             screenshot::screenshot_shortcut_set,
             screenshot::screenshot_start,
             screenshot::screenshot_frame,
+            screenshot::screenshot_pending,
             screenshot::screenshot_ready,
             screenshot::screenshot_close,
             screenshot::screenshot_copy,
@@ -1340,8 +1329,13 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                     tauri::RunEvent::ExitRequested { code: None, api, .. }
                         if !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) =>
                     {
-                        api.prevent_exit();
-                        request_quit_confirmation(app);
+                        if app.get_webview_window("main").is_some() {
+                            api.prevent_exit();
+                            request_quit_confirmation(app);
+                        } else if cfg!(target_os = "macos") {
+                            // The last window closed: macOS keeps the application in the Dock, as VS Code does.
+                            api.prevent_exit();
+                        }
                     }
                     // Intercept main-window closure before destruction on every platform. Letting the window die
                     // first would tear down the webview that owns the confirmation dialog, so the prompt would
@@ -1352,29 +1346,31 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         label,
                         event: tauri::WindowEvent::CloseRequested { api, .. },
                         ..
-                    } if label == main_window::MAIN_LABEL
+                    } if label == "main"
                         && !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) =>
                     {
                         api.prevent_close();
-                        // While a remote window is open, closing main only hides it so remote-only work
-                        // continues; local sessions keep running in the background.
-                        if !main_window::hide_main_for_remote(app) {
-                            request_quit_confirmation(app);
-                        }
+                        request_confirmation(app, main_close_keeps_app(app));
                     }
-                    // The last remote window closing brings a hidden main window back.
+                    // VS Code-style lifetime on Windows and Linux: the application quits once its last window
+                    // is gone. The hidden screenshot overlay keeps Tauri from noticing, so check here. Local
+                    // sessions stopped when the main window closed, so there is nothing left to confirm.
+                    #[cfg(not(target_os = "macos"))]
                     tauri::RunEvent::WindowEvent {
                         label,
                         event: tauri::WindowEvent::Destroyed,
                         ..
-                    } if !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) => {
-                        main_window::on_window_destroyed(app, label);
+                    } if (label == "main" || commands::is_remote_window_label(label))
+                        && app.get_webview_window("main").is_none()
+                        && commands::remote_window_count(app) == 0
+                        && !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) =>
+                    {
+                        app.state::<QuitState>().confirmed.store(true, Ordering::SeqCst);
+                        app.exit(0);
                     }
-                    // A Dock click brings a hidden main window back.
+                    // Dock icon click with no window on screen opens a main window, as in VS Code.
                     #[cfg(target_os = "macos")]
-                    tauri::RunEvent::Reopen { .. } => {
-                        main_window::reveal_hidden_main(app);
-                    }
+                    tauri::RunEvent::Reopen { has_visible_windows: false, .. } => open_main_window(app),
                     // Window activation leaves keyboard focus on the top-level HWND under the `unstable`
                     // child-webview path; hand it back to the webview the user was typing in.
                     #[cfg(target_os = "windows")]
@@ -1418,13 +1414,38 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
 /// again. Shared by the run-loop (window close, dock quit) and the macOS Quit menu item.
 #[cfg(feature = "gui")]
 fn request_quit_confirmation(app: &tauri::AppHandle) {
+    request_confirmation(app, false);
+}
+
+/// Closing the main window closes only that window, as in VS Code, when the application has a reason to stay:
+/// macOS keeps applications in the Dock, and elsewhere remote windows are still open. Otherwise it quits.
+#[cfg(feature = "gui")]
+fn main_close_keeps_app(app: &tauri::AppHandle) -> bool {
+    cfg!(target_os = "macos") || commands::remote_window_count(app) > 0
+}
+
+/// Ask before quitting, or before closing just the main window when `close_window` is set. Both stop the
+/// local sessions, so both use the frontend dialog.
+#[cfg(feature = "gui")]
+fn request_confirmation(app: &tauri::AppHandle, close_window: bool) {
     use std::sync::atomic::Ordering;
     let st = app.state::<QuitState>();
     if st.confirmed.load(Ordering::SeqCst) {
         return;
     }
-    // The frontend dialog lives in the main webview, which may be hidden behind remote-only work.
-    main_window::reveal_hidden_main(app);
+    // Without a main window there are no local sessions left, and no dialog to show the question in.
+    if app.get_webview_window("main").is_none() {
+        if commands::remote_window_count(app) > 0 {
+            st.close_window.store(false, Ordering::SeqCst);
+            st.pending.store(true, Ordering::SeqCst);
+            native_quit_confirmation(app);
+        } else {
+            st.confirmed.store(true, Ordering::SeqCst);
+            app.exit(0);
+        }
+        return;
+    }
+    st.close_window.store(close_window, Ordering::SeqCst);
     // A request arriving while one is already pending is not a duplicate to drop: the frontend that
     // acknowledged the first one may since have reloaded or crashed, taking its dialog with it. Dropping
     // it would latch `pending` forever and leave the application unquittable, because only the frontend
@@ -1433,8 +1454,11 @@ fn request_quit_confirmation(app: &tauri::AppHandle) {
     let epoch = st.epoch.fetch_add(1, Ordering::SeqCst) + 1;
     st.acked.store(false, Ordering::SeqCst);
     use tauri::Emitter;
-    let payload = serde_json::json!({"remoteWindows": commands::remote_window_count(app)});
-    if app.emit("app://quit-requested", payload).is_err() {
+    let payload = serde_json::json!({
+        "remoteWindows": commands::remote_window_count(app),
+        "closeWindow": close_window,
+    });
+    if app.emit_to("main", "app://quit-requested", payload).is_err() {
         native_quit_confirmation(app);
         return;
     }
@@ -1460,6 +1484,91 @@ fn request_quit_confirmation(app: &tauri::AppHandle) {
     });
 }
 
+/// Per-window native wiring for the main window, run at startup and again for every main window opened
+/// after the user closed the previous one.
+#[cfg(feature = "gui")]
+fn install_main_window_hooks(app: &tauri::AppHandle) {
+    // Capture the paths of folders dropped from the OS file manager onto the main window.
+    if let Some(win) = app.get_webview_window("main") {
+        native_drop::install(&win);
+    }
+
+    // Track the main view's focus so window reactivation can hand the keyboard back to it.
+    #[cfg(target_os = "windows")]
+    if let Some(webview) = app.get_webview("main") {
+        focus_win::track(&webview);
+    }
+
+    // Disable WebView2 browser accelerator handling in the main view so Ctrl-based app shortcuts
+    // reach frontend keydown. Built-in browser child views retain normal browser accelerators.
+    #[cfg(target_os = "windows")]
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.with_webview(|webview| {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+            use windows::core::Interface;
+            // SAFETY: with_webview runs the closure on the main thread, and wry owns the live COM pointer.
+            unsafe {
+                if let Ok(core) = webview.controller().CoreWebView2() {
+                    if let Ok(settings) = core.Settings() {
+                        if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+                            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Set Windows ICON_BIG explicitly. Tauri reliably set only ICON_SMALL, leaving the taskbar
+    // with a generic icon. Extract embedded executable icons and apply both through WM_SETICON.
+    #[cfg(target_os = "windows")]
+    if let Some(win) = app.get_webview_window("main") {
+        if let Ok(hwnd) = win.hwnd() {
+            use std::os::windows::ffi::OsStrExt;
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            use windows::Win32::UI::Shell::ExtractIconExW;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SendMessageW, HICON, ICON_BIG, ICON_SMALL, WM_SETICON,
+            };
+            use windows::core::PCWSTR;
+            if let Ok(exe) = std::env::current_exe() {
+                let mut wide: Vec<u16> = exe.as_os_str().encode_wide().collect();
+                wide.push(0);
+                let mut large = HICON::default();
+                let mut small = HICON::default();
+                // SAFETY: NUL-terminated path, valid output pointers, and a live hwnd.
+                unsafe {
+                    let n = ExtractIconExW(
+                        PCWSTR(wide.as_ptr()),
+                        0,
+                        Some(&mut large),
+                        Some(&mut small),
+                        1,
+                    );
+                    if n > 0 {
+                        if !large.is_invalid() {
+                            SendMessageW(
+                                hwnd,
+                                WM_SETICON,
+                                Some(WPARAM(ICON_BIG as usize)),
+                                Some(LPARAM(large.0 as isize)),
+                            );
+                        }
+                        if !small.is_invalid() {
+                            SendMessageW(
+                                hwnd,
+                                WM_SETICON,
+                                Some(WPARAM(ICON_SMALL as usize)),
+                                Some(LPARAM(small.0 as isize)),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Degraded quit confirmation used when the webview cannot present the frontend dialog. A native message dialog
 /// supports neither a checkbox nor translated copy, so it only offers plain quit/cancel and never saves the
 /// workspace. Copy stays English to match the other native dialogs.
@@ -1467,28 +1576,125 @@ fn request_quit_confirmation(app: &tauri::AppHandle) {
 fn native_quit_confirmation(app: &tauri::AppHandle) {
     use std::sync::atomic::Ordering;
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-    let mut message = String::from("Any running terminal and agent sessions will be stopped.");
-    if commands::remote_window_count(app) > 0 {
-        message.push_str("\nOpen remote windows will also be closed.");
+    let close_window = app.state::<QuitState>().close_window.load(Ordering::SeqCst);
+    let has_main = app.get_webview_window("main").is_some();
+    let remote = commands::remote_window_count(app) > 0;
+    let (title, button) = if close_window {
+        ("Close the main window?", "Close")
+    } else {
+        ("Quit VelaTerm?", "Quit")
+    };
+    let mut lines = Vec::new();
+    if has_main {
+        lines.push("Any running terminal and agent sessions will be stopped.");
+    }
+    if remote && !close_window {
+        lines.push(if has_main { "Open remote windows will also be closed." } else { "Open remote windows will be closed." });
     }
     let app = app.clone();
     app.clone()
         .dialog()
-        .message(message)
-        .title("Quit VelaTerm?")
+        .message(lines.join("\n"))
+        .title(title)
         .kind(MessageDialogKind::Info)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "Quit".to_string(),
+            button.to_string(),
             "Cancel".to_string(),
         ))
-        .show(move |should_quit| {
+        .show(move |approved| {
             let st = app.state::<QuitState>();
             st.pending.store(false, Ordering::SeqCst);
-            if should_quit {
+            if !approved {
+                return;
+            }
+            if close_window {
+                close_main_window(&app);
+            } else {
                 st.confirmed.store(true, Ordering::SeqCst);
                 app.exit(0);
             }
         });
+}
+
+/// Close only the main window, the VS Code way: its local terminal and agent sessions stop as they do on quit,
+/// while the process carries on for the remote windows (and, on macOS, the Dock). A main window opened later
+/// starts from the saved workspace, like a fresh launch.
+#[cfg(feature = "gui")]
+pub(crate) fn close_main_window(app: &tauri::AppHandle) {
+    let app = app.clone();
+    // Stopping agents waits for their processes to exit; keep that off the main thread.
+    std::thread::spawn(move || {
+        let ctx = host::AppCtx::Tauri(app.clone());
+        ctx.chat().stop_all(&ctx);
+        ctx.pty().kill_all();
+        // Browser tabs are child views of the main window and go with it.
+        app.state::<browser::BrowserManager>().clear();
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.destroy();
+        }
+    });
+}
+
+/// Show and focus the main window.
+#[cfg(feature = "gui")]
+#[cfg_attr(all(debug_assertions, not(target_os = "macos")), allow(dead_code))]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
+/// Bring up the main window, creating a new one from the configured definition when the user closed it.
+/// Windows and Linux reach it only through the single-instance relaunch, which development builds leave out
+/// so that worktree instances can run side by side.
+#[cfg(feature = "gui")]
+#[cfg_attr(all(debug_assertions, not(target_os = "macos")), allow(dead_code))]
+pub(crate) fn open_main_window(app: &tauri::AppHandle) {
+    if app.get_webview_window("main").is_some() {
+        show_main_window(app);
+        return;
+    }
+    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let app = app.clone();
+    // Building a window from a main-thread callback deadlocks on Windows.
+    std::thread::spawn(move || {
+        let _building = BUILDING.lock().unwrap();
+        if app.get_webview_window("main").is_some() {
+            show_main_window(&app);
+            return;
+        }
+        let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else {
+            return;
+        };
+        let built = tauri::WebviewWindowBuilder::from_config(&app, &config)
+            .map(|builder| builder.theme(native_theme(&app)))
+            .and_then(|builder| builder.build());
+        let win = match built {
+            Ok(win) => win,
+            Err(e) => {
+                crate::diagnostic_warn!("failed to open the main window: {e}");
+                return;
+            }
+        };
+        // Created hidden, like the startup window, so it is sized and given its frame color first.
+        window_layout::apply(&win);
+        install_main_window_hooks(&app);
+        #[cfg(target_os = "macos")]
+        {
+            let dark = startup_frame_is_dark(app.state::<Db>().inner());
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(win) = handle.get_webview_window("main") {
+                    apply_window_frame(&win, dark);
+                }
+                show_main_window(&handle);
+            });
+        }
+        #[cfg(not(target_os = "macos"))]
+        show_main_window(&app);
+    });
 }
 
 /// Return the build-time Tauri context from one macro expansion shared by GUI/headless, avoiding
@@ -1693,8 +1899,9 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
     let identifier = serve_identifier();
     let data_dir = serve_data_dir(args, &identifier)?;
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("failed to create data dir: {e}"))?;
-    diagnostics::init(&data_dir);
+    diagnostics::init(&data_dir, VERSION);
     let db = Db::open(&data_dir.join("vlx-term.db"))?;
+    db::system_collections::ensure(&db.conn.lock().unwrap())?;
 
     // Match GUI cleanup of stale pasted images from abnormal exits when enabled.
     if pasted_image_cleanup_enabled(&db) {

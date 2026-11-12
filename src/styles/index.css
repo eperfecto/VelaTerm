@@ -1,4 +1,7 @@
-@import "tailwindcss";
+/* Scan only src/ for utility classes. Both entries (index.html, screenshot.html) render from src/; the default
+   scan of the whole repository also read third_party/dbx, docs and plans, generating unused rules that every
+   window had to load before its first paint. */
+@import "tailwindcss" source("..");
 @import "./vlinx.css";
 
 /* ============================================================================
@@ -142,7 +145,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 13px;
   padding: 7px 9px;
   outline: none;
@@ -155,7 +158,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 12px;
   padding: 6px 14px;
   cursor: pointer;

@@ -1,11 +1,82 @@
 # Changelog
 
-> Created: 2026-07-09 16:10 · Updated: 2026-10-23
+> Created: 2026-07-09 16:10 · Updated: 2026-11-08
 
 All notable changes to VelaTerm are documented here, newest first.
 v0.1.91 is the first public release; earlier version numbers were internal iterations and are not covered.
 
 ---
+
+## v0.3.0 — 2026-11-08
+
+- 🔏 macOS builds are now signed with the Vlinx Software, Inc. certificate instead of the previous one, so after updating you may need to grant some macOS permissions again, and items saved in the keychain, such as remote connection passwords, need your approval once more: enter your login password when asked and choose Always Allow.
+- 🗂️ Sessions now come in three types, Task, Project and Chat, chosen at the top of the New Session page, and the left sidebar is organized into fixed Projects, Terminals, Tasks and Chats collections, with Terminals listing every running terminal and the agents detected in them.
+- 🧭 A new activity bar along the left edge switches between Projects, Terminals, Tasks, Chats, Archived Sessions and Knowledge Base, and holds Settings, Account, Feedback, Share and Game Center at the bottom.
+- 📦 Collections can be archived as a whole with Archive Collection in their context menu, and restoring any of their sessions brings the collection back.
+- 🆕 The New Session page picks the project, agent, model, reasoning effort and permissions in a settings card above the input box, and the project list can create, import or clone a project without leaving the page.
+- 🩺 Opening a conversation checks whether its agent is installed and signed in: if not, an install prompt or a sign-in panel appears and Send stays disabled until the agent is ready.
+- 🔧 An agent counts as installed only when it actually runs, so a half-finished install or a broken upgrade shows the install guide, one-click installs finish only once the agent starts, and an update that leaves the agent unable to start is reported as incomplete.
+- 🪟 The new `vartifact <file|URL>` command opens a file in a panel beside the conversation, with live preview for HTML and editable views for Markdown, images and code that ⌘S saves, while `vopen` now always opens a tab.
+- 💤 Dimmed inline suggestions in the terminal are now off by default, so completion is back to Tab only, and this update switches an existing Inline + Tab setting to Tab only once; you can turn suggestions back on in Settings.
+- ⌨️ In Inline + Tab completion mode, a new Tab key setting lets Tab accept the dimmed suggestion, with a second Tab undoing it and listing the matches, and the terminal title bar shows which keys are available while a suggestion is visible.
+- 🎨 Editing a Zsh command line no longer turns already typed text gray, and the completion mode description in Settings matches the selected mode.
+- 📡 Tab completion over remote connections responds in a single round trip.
+- 💬 ZCode sessions support interjecting with Option/Alt+Enter, so the message joins the running turn after its next tool call.
+- 🔑 ZCode 3.15 and later can sign in with OAuth, and a purchased GLM Coding Plan is no longer reported as missing or used up.
+- 📥 Sessions from Pi, OMP, ZCode and DeepSeek Harness can be imported, and the Import Sessions dialog can filter by agent.
+- 🔤 The interface uses Inter throughout, while code, tool output, paths and terminals stay in JetBrains Mono, and the interface font setting has been removed.
+- 📚 The knowledge base reads entries in a centered column, lists archived sessions as a tree of projects, groups and parent sessions with a by-date view, and lets the local knowledge base switch between cards and a list.
+- 🔔 On macOS and Windows, clicking a notification brings its own window to the front, so a notification from a remote window no longer raises the main window over it.
+- 📋 On macOS, pasting no longer freezes the app when the clipboard's source app stops responding: VelaTerm gives up after 5 seconds and tells you.
+- 📝 Select All from the macOS menu or the context menu in the source editor selects the whole file, so copying no longer drops lines that were off screen.
+- 📏 The input box no longer grows and then shrinks again after you send a message.
+- 📂 Terminals, Tasks and Chats show their contents expanded, regardless of what is folded in Projects.
+- 🔄 New sessions no longer fail to synchronize with `cursor_expired` after you have opened a subtask's conversation.
+- 🧯 Reconnecting after a long disconnection with a large backlog no longer leaves the conversation stuck with Send disabled.
+- 🪞 Remote connections to Windows hosts with a Cygwin or Git Bash shell use the VelaTerm desktop app already running there, so sending a message no longer fails while that app is running the session.
+- ⚡ Indexing long Codex conversations takes about half as much CPU time.
+- 🔗 Links to Claude artifacts open in your default browser.
+- 🗄️ The Archived Sessions button has moved from the tab bar to the activity bar.
+
+## v0.2.15 — 2026-11-03
+
+- 🆕 A New Session tab lets you pick the project, agent, model, reasoning effort, permissions, view and an isolated worktree around a centered input box, then starts the session with your first task; open it from New Session… in the new-session menus, the star button in the tab bar, or the empty center pane.
+- 🐋 DeepSeek Harness (`dsh`) joins as a conversation-view agent, with tool cards, reasoning, permission prompts, model and effort switching, context usage, and history that resumes after reopening.
+- 🧩 Copilot, Cursor, Kimi and Grok can now run in conversation view.
+- 🤖 Zhipu ZCode joins as a conversation-view agent: it uses the ZCode desktop app's built-in agent when that app is installed, and you can sign in with Z.ai or Zhipu BigModel, or switch between them, without leaving the conversation.
+- 📊 ZCode sessions show this turn's tokens, cache hit rate and generation speed, context usage, and GLM Coding Plan 5-hour and weekly usage in the Info panel.
+- 📦 ZCode (on macOS and Windows) and DeepSeek Harness can be installed from the conversation with Install now, and the message that failed is sent again once installation finishes.
+- ⬆️ Clicking Update on an agent's version badge opens a dialog that runs the agent's own update command with live output, and offers Restart agent so the conversation continues on the new version.
+- 🔌 Remote connections with many busy terminals no longer disconnect over and over after reconnecting.
+- 🔄 After a remote server restarts, sessions no longer stay stuck synchronizing while their terminals start.
+- 🔁 When a conversation fails to synchronize, it retries automatically, and the area below the input box shows the status with a Retry button.
+- 🐢 SSH connections to a heavily loaded remote host no longer time out while waiting for the server to respond.
+- 🔗 Reconnect now in a remote window rebuilds the SSH tunnel immediately instead of waiting for the next automatic retry.
+- 🪟 On macOS and Windows, closing the main window asks for confirmation and leaves remote windows open; on macOS the app stays in the Dock, and reopening the main window restores your saved workspace.
+- 🧾 Changed files in the This turn list and the Git panel open their diffs in a tab instead of a dialog.
+- ⌨️ Terminal command suggestions no longer pop up while you type: Zsh shows the latest matching command from history as gray inline text that → or End accepts, and the list appears only when you press Tab; choose Inline + Tab, Tab only or Off in Settings.
+- 💬 In Artifact previews, you can click page elements to leave comments for the session, and options marked on the page are listed above the preview so you can jump between them and choose one.
+- 🔍 Find in a conversation uses full-text search, matching all of your words in any order, and shows No results instead of Loading conversation… when nothing matches.
+- 🧰 Bundled skills such as vspawn and vrefer now install to the shared `~/.agents/skills` folder, so Pi, ZCode and DeepSeek Harness can use them, and Codex no longer lists each skill twice.
+- 📋 `/code-review` results in conversation view appear as a list of findings with clickable file locations.
+- 🌐 When reply translation is off for a session, question cards offer a Translation button that translates just that card.
+- ✂️ Questions and options on question cards can be selected and copied.
+- 🌳 The session tree places groups and parent sessions that belong to a worktree, including sessions started directly in a worktree folder, under that worktree's row.
+- 🌲 Nested groups use the worktree of their nearest parent group that has one, for new sessions, Git actions and merges.
+- 🔎 Renaming an item while the session tree is filtered no longer makes it disappear from the results.
+- ⏳ When OpenCode reaches a usage limit, a single error line names the limit, and the conversation continues automatically after the reset when OpenCode reports the reset time.
+- 📸 The screenshot overlay appears faster after you press the shortcut.
+- 🚀 Windows show an outline of the layout as soon as they open and load less than half as much code at startup.
+- ⚡ `vspawn --yes` creates the child session directly, without showing the launch card.
+- 🛡️ Code audits use Codex Security 0.8.2 and can run with DeepSeek, and the audit and Add to Knowledge Base forms use the same agent, model and effort fields as new sessions, accepting models that are not in the list.
+- 🌗 On macOS, when the theme follows the system, the title bar turns dark together with the rest of the window.
+- 📥 One-click installs report completion only after the install command has finished, and an incomplete Zoo Code installation is treated as not installed instead of crashing at startup.
+- 🖥️ Switching a session to terminal view no longer fails with The initial task was already claimed.
+- 🧟 Sessions no longer report The previous agent is still running after the old agent's process ID has been reused by another program.
+- 🧯 After the browser reconnects, conversations no longer keep a TransportError line from the disconnection.
+- 🪞 With mirroring on, opening and closing tabs no longer turns conversation sessions into Restored from your saved workspace placeholders.
+- 📜 Claude conversations that contain a discarded reply load their history normally again.
+- 🧠 Built-in Claude models that are missing from the website's model catalog still appear in new-session and launch forms.
 
 ## v0.2.14 — 2026-10-23
 

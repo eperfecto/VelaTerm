@@ -40,11 +40,16 @@ pub fn quit_prompt_ack(state: State<crate::QuitState>) {
         .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// The user approved the exit. Any workspace snapshot has already been written by the frontend.
+/// The user approved the exit, or closing just the main window. Any workspace snapshot has already been
+/// written by the frontend. Closing the window hands the blocking session teardown to a background thread.
 #[tauri::command]
 pub fn confirm_quit(app: AppHandle, state: State<crate::QuitState>) {
     use std::sync::atomic::Ordering;
     state.pending.store(false, Ordering::SeqCst);
+    if state.close_window.load(Ordering::SeqCst) {
+        crate::close_main_window(&app);
+        return;
+    }
     state.confirmed.store(true, Ordering::SeqCst);
     app.exit(0);
 }
@@ -681,7 +686,7 @@ pub async fn open_remote_window(
         .parse()
         .map_err(|e| format!("Failed to build tunnel address: {e}"))?;
 
-    let label = format!("{}{}", crate::main_window::URL_REMOTE_PREFIX, &uuid::Uuid::new_v4().to_string()[..8]);
+    let label = format!("remote-{}", &uuid::Uuid::new_v4().to_string()[..8]);
 
     let addr_js = serde_json::to_string(&display_addr).unwrap_or_else(|_| "\"\"".into());
 
@@ -823,12 +828,17 @@ pub async fn open_account_remote_window(
 pub(crate) fn remote_window_count(app: &AppHandle) -> usize {
     app.webview_windows()
         .keys()
-        .filter(|label| crate::main_window::is_remote_window_label(label))
+        .filter(|label| is_remote_window_label(label))
         .count()
 }
 
+pub(crate) fn is_remote_window_label(label: &str) -> bool {
+    const PREFIXES: [&str; 4] = ["remote-", "ssh-", "wsl-", "account-remote-"];
+    PREFIXES.iter().any(|p| label.starts_with(p))
+}
+
 fn build_account_remote_window(app: &AppHandle, url: url::Url) -> Result<tauri::WebviewWindow, String> {
-    let label = format!("{}{}", crate::main_window::ACCOUNT_REMOTE_PREFIX, uuid::Uuid::new_v4().simple());
+    let label = format!("account-remote-{}", uuid::Uuid::new_v4().simple());
     // Force the browser transport: the external page has no Tauri IPC capability, and the app talks to the
     // host over the WebSocket tunnel instead. Keep __TAURI_INTERNALS__ for clipboard and notification APIs.
     let init_script = r#"(function(){
@@ -965,14 +975,15 @@ pub fn open_devtools(window: tauri::WebviewWindow) {
 /// macOS reserves a strip above the web content for the title bar and paints it with the window's web
 /// background, so the frame color carries the same choice: `apply_window_frame` rewrites that color together
 /// with the window background, which is also what lets a switch take effect without recreating the window.
-/// The resolved scheme is read from the window itself, which keeps `system` live without an app-wide
-/// appearance override.
+/// Under `system`, `dark` carries the scheme the frontend resolved, so the strip matches the page beneath it.
+/// `WebviewWindow::theme()` cannot stand in: tao caches it when the window is built, before the application
+/// has resolved its appearance, and on a dark system it can report Light for the whole session.
 ///
 /// Remembering the value matters as much as applying it: windows opened later (remote/SSH) read it at build
 /// time so they never flash the wrong chrome. `set_theme` only posts a message to the event loop and touches
 /// no I/O, so a synchronous command is correct here.
 #[tauri::command]
-pub fn set_native_theme(app: AppHandle, mode: String) {
+pub fn set_native_theme(app: AppHandle, mode: String, dark: Option<bool>) {
     let _slow = crate::diagnostics::Slow::new(
         "ui_thread_slow",
         UI_THREAD_REPORT_THRESHOLD,
@@ -980,6 +991,7 @@ pub fn set_native_theme(app: AppHandle, mode: String) {
     );
     #[cfg(windows)]
     {
+        let _ = dark;
         let theme = match mode.as_str() {
             "dark" => Some(tauri::Theme::Dark),
             "light" => Some(tauri::Theme::Light),
@@ -994,18 +1006,18 @@ pub fn set_native_theme(app: AppHandle, mode: String) {
     }
     #[cfg(target_os = "macos")]
     {
+        let dark = match mode.as_str() {
+            "dark" => true,
+            "light" => false,
+            // Following the OS: use the scheme the page resolved, falling back to the OS preference.
+            _ => dark.unwrap_or_else(crate::os_prefers_dark),
+        };
         for (_, win) in app.webview_windows() {
-            let dark = match mode.as_str() {
-                "dark" => true,
-                "light" => false,
-                // Following the OS: ask the window which scheme it already renders with.
-                _ => matches!(win.theme(), Ok(tauri::Theme::Dark)),
-            };
             crate::apply_window_frame(&win, dark);
         }
     }
     #[cfg(not(any(windows, target_os = "macos")))]
-    let _ = (app, mode);
+    let _ = (app, mode, dark);
 }
 
 // ─────────────────────────── SSH remote connections ───────────────────────────
@@ -1273,11 +1285,7 @@ fn open_login_window(
     let parsed: url::Url = format!("http://127.0.0.1:{local_port}/")
         .parse()
         .map_err(|e| format!("failed to build local forward address: {e}"))?;
-    let prefix = match kind {
-        RemoteWindowKind::Ssh => crate::main_window::SSH_REMOTE_PREFIX,
-        RemoteWindowKind::Wsl => crate::main_window::WSL_REMOTE_PREFIX,
-    };
-    let label = format!("{prefix}{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let label = format!("{}-{}", kind.name().to_lowercase(), &uuid::Uuid::new_v4().to_string()[..8]);
     let addr_js = serde_json::to_string(host).unwrap_or_else(|_| "\"\"".into());
     let pw_js = serde_json::to_string(password).unwrap_or_else(|_| "\"\"".into());
     let session_js = serde_json::to_string(session).unwrap_or_else(|_| "\"\"".into());

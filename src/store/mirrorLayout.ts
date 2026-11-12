@@ -20,13 +20,15 @@ import {
   collectSidebarViewIds,
   firstSidebarViewId,
   makeSidebarTreeTab,
+  assignSidebarTabSections,
   type SidebarTreeTab,
   type SidebarViewPaneNode,
 } from "../layout/LeftSidebar/sidebarTreeLayout";
+import { parseRailSection } from "../layout/LeftSidebar/systemCollections";
 import type { InspectorTab } from "../theme";
 import { AGENT_STATES, type AgentState, type Session } from "../types";
 import type { DocTab } from "./docTab";
-import type { BrowserTab, SelNode, SidebarTreeView, TaskTab } from "./termStore";
+import type { BrowserTab, NewSessionTab, SelNode, SidebarTreeView, TaskTab } from "./termStore";
 
 /** Current snapshot schema. A peer running an older or newer version is ignored rather than half-applied. */
 export const MIRROR_LAYOUT_VERSION = 2;
@@ -109,6 +111,8 @@ export interface MirrorLayoutSource {
    * could show nothing useful, so they are filtered out of `openTabs` and `activeTabId` below.
    */
   taskTabs: Record<string, TaskTab>;
+  /** New Session tabs are client-local too and filtered out the same way. */
+  newSessionTabs?: Record<string, NewSessionTab>;
   selection: SelNode[];
   inspectTarget: SelNode | null;
   leftCollapsed: boolean;
@@ -154,7 +158,7 @@ function sessionIdsOf(node: PaneNode, into: Set<string>): void {
  * arrangement serialize identically — that byte equality is what stops the sync loop from feeding itself.
  */
 export function buildMirrorLayout(s: MirrorLayoutSource): MirrorLayout {
-  const openTabs = s.openTabs.filter((id) => !s.taskTabs[id]);
+  const openTabs = s.openTabs.filter((id) => !s.taskTabs[id] && !s.newSessionTabs?.[id]);
   const tabIds = [...openTabs, ...s.liveTabs.filter((id) => !openTabs.includes(id))];
   const carried = tabIds.filter((id) => s.paneTrees[id]);
   const paneTrees = pick(s.paneTrees, carried);
@@ -210,8 +214,8 @@ type PublishedActive = Pick<MirrorCenter, "activeTabId" | "activeSessionId" | "f
  */
 function publishedActive(s: MirrorLayoutSource, openTabs: string[]): PublishedActive {
   const own = { activeTabId: s.activeTabId, activeSessionId: s.activeSessionId, focusedPaneId: s.focusedPaneId };
-  if (!s.activeTabId || !s.taskTabs[s.activeTabId]) return own;
-  const task = s.taskTabs[s.activeTabId];
+  const task = s.activeTabId ? s.taskTabs[s.activeTabId] ?? s.newSessionTabs?.[s.activeTabId] : undefined;
+  if (!task) return own;
   const activeTabId = task.returnTabId && openTabs.includes(task.returnTabId)
     ? task.returnTabId :
     s.lastActiveSessionTabId && openTabs.includes(s.lastActiveSessionTabId)
@@ -393,9 +397,10 @@ function sidebarPane(
 /**
  * Validate the published sidebar: its projections, the tabs arranging them, and which one is primary or active.
  *
- * A projection the peer's tabs never reference still gets a tab of its own here, because losing one would leave
- * the two sidebars showing different panes — the exact divergence mirroring is for. Returning empty views tells
- * the caller the payload was unusable and the local sidebar should stay as it is.
+ * Each tab is a section's pane group, given its section exactly as a local load does. A projection the peer's tabs
+ * never reference still gets a group of its own here, because losing one would leave the two sidebars showing
+ * different panes — the exact divergence mirroring is for. Returning empty views tells the caller the payload was
+ * unusable and the local sidebar should stay as it is.
  */
 function sidebarState(left: Record<string, unknown>): {
   views: SidebarTreeView[];
@@ -433,7 +438,7 @@ function sidebarState(left: Record<string, unknown>): {
       typeof candidate.activeViewId === "string" && memberIds.includes(candidate.activeViewId)
         ? candidate.activeViewId
         : firstSidebarViewId(root);
-    tabs.push({ id, root, activeViewId });
+    tabs.push({ id, root, activeViewId, section: parseRailSection(candidate.section) });
   }
   for (const view of views) {
     if (!usedViewIds.has(view.id)) tabs.push(makeSidebarTreeTab(view.id));
@@ -446,7 +451,7 @@ function sidebarState(left: Record<string, unknown>): {
     typeof left.activeViewId === "string" && validViewIds.has(left.activeViewId)
       ? left.activeViewId
       : primaryViewId;
-  return { views, tabs, primaryViewId, activeViewId };
+  return { views, tabs: assignSidebarTabSections(tabs, primaryViewId), primaryViewId, activeViewId };
 }
 
 /**
@@ -464,7 +469,7 @@ export function sanitizeMirrorLayout(raw: unknown): MirrorLayout | null {
   const openTabs = strArray(center.openTabs);
   const activeTabId = strOrNull(center.activeTabId);
   const inspectorTab =
-    right.inspectorTab === "files" || right.inspectorTab === "info" || right.inspectorTab === "git" || right.inspectorTab === "knowledge"
+    right.inspectorTab === "files" || right.inspectorTab === "info" || right.inspectorTab === "git"
       ? right.inspectorTab
       : "files";
   return {

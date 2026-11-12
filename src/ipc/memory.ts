@@ -1,5 +1,5 @@
 //! Knowledge base protocol. Business data and defaults are supplied by the backend.
-import type { Session } from "../types";
+import type { Session, SessionKind } from "../types";
 import { invoke } from "./transport";
 export interface MemoryEntry {
   id: string; title: string; summary: string; content: string; tags: string[]; related: string[];
@@ -12,6 +12,8 @@ export interface MemoryDetail {
   location?: { sessionId: string; sessionName: string; projectId: string; projectName: string; kind: string };
   entry: MemoryEntry; revision: MemoryEntry | null; catalog: { id: string; title: string }[]; backlinks: { id: string; title: string }[];
   sources: MemorySource[]; versions: { version: number; author: string; createdAt: number }[];
+  /** This entry's tags that other entries also carry. */
+  sharedTags?: string[];
 }
 export interface MemorySessionGroup { id: string; name: string; kind: "session" | "manual" | "legacy"; count: number }
 export interface MemoryProjectGroup { id: string; name: string; kind: "project" | "unknown" | "manual" | "legacy"; count: number; sessions: MemorySessionGroup[] }
@@ -28,11 +30,13 @@ export interface MemoryJob {
   progress: number; total: number; error: string; entries: string[]; createdAt: number; updatedAt: number;
   /** Entries this job produced that still exist, with their current titles. */
   entryLinks: { id: string; title: string }[];
+  /** Failures leading up to this run since the session's previous success; only in the per-session history. */
+  failedAttempts?: number;
 }
-export interface MemoryOptions { agents: { id: string; label: string; available: boolean }[]; defaultAgent: string; maxSourceChars: number; catalog: { id: string; title: string }[] }
+/** The processing history with one row per session, showing each session's current state. */
+export interface MemoryJobSessions { jobs: MemoryJob[]; total: number; pageSize: number; attention?: number; organized?: number }
+export interface MemoryOptions { agents: { id: SessionKind; label: string; available: boolean }[]; defaultAgent: string; maxSourceChars: number; catalog: { id: string; title: string }[] }
 export type MemoryEdit = Pick<MemoryEntry, "title" | "summary" | "content" | "tags" | "related" | "version"> & { id: string | null };
-export interface MemoryModel { id: string; label: string; effortLevels: string[] }
-export const memoryModels = (agent: string) => invoke<MemoryModel[]>("memory_models", { agent });
 export const memoryOptions = () => invoke<MemoryOptions>("memory_options");
 export const memoryList = (args: { query: string; tag: string; sort: string; page: number; sessionId?: string; projectId?: string; selectedId?: string }) => invoke<MemoryList>("memory_list", args);
 export const memoryCollections = () => invoke<MemoryCollections>("memory_collections");
@@ -52,3 +56,7 @@ export const memoryStart = (sessionId: string, agent: string, model: string, eff
 export const memoryRetry = (id: string) => invoke<{ id: string }>("memory_retry", { id });
 export const memoryCancel = (id: string) => invoke<void>("memory_cancel", { id });
 export const memoryJobs = (id = "", page = 0) => invoke<{ jobs: MemoryJob[]; total: number; pageSize: number }>("memory_jobs", { id, page });
+
+export const memoryJobSessions = (page = 0) => invoke<MemoryJobSessions>("memory_jobs", { page, bySession: true });
+/** Sessions whose latest organizing run failed and is still unresolved. */
+export const memoryAttention = () => memoryJobSessions().then((result) => result.attention ?? 0);

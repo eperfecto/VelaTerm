@@ -4,12 +4,7 @@ import { md } from "../../markdownEngine";
 import { dateLocale, t, type I18nKey } from "../../i18n";
 import { memoryNavigate } from "./navigation";
 
-export function MemoryIcon({ size = 16 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 5v15M3 4.5c3.5-1 6-.5 9 1.5 3-2 5.5-2.5 9-1.5v14c-3.5-1-6-.5-9 1.5-3-2-5.5-2.5-9-1.5z" />
-    <path d="M6 8h2m8 0h2M6 12h2m8 0h2" />
-  </svg>;
-}
+export { MemoryIcon } from "./MemoryIcon";
 
 const errors: Record<string, I18nKey> = {
   memory_models_unavailable: "memory.loadError", memory_conflict: "memory.conflict", memory_duplicate_title: "memory.duplicate",
@@ -28,6 +23,22 @@ export function memoryEffortLabel(effort: string) {
   return known.includes(effort) ? t(`chat.effort.${effort}` as I18nKey) : effort;
 }
 export function memoryTime(stamp: number) { return new Date(stamp).toLocaleString(dateLocale()); }
+/** Date for list rows: month and day, with the year only when it is not the current one. */
+export function shortDate(stamp: number) {
+  const date = new Date(stamp);
+  return date.toLocaleDateString(dateLocale(), { year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric", month: "short", day: "numeric" });
+}
+/** Date and minute for detail lines; seconds add nothing here. */
+export function fullDate(stamp: number) {
+  return new Date(stamp).toLocaleDateString(dateLocale(), { year: "numeric", month: "short", day: "numeric" });
+}
+export function runTime(stamp: number) {
+  const date = new Date(stamp);
+  return date.toLocaleString(dateLocale(), { year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+export function detailTime(stamp: number) {
+  return new Date(stamp).toLocaleString(dateLocale(), { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 export function StateLabel({ value }: { value: string }) {
   const key = `memory.${value}`;
   const allowed = ["queued", "cancelling", "running", "completed", "failed", "cancelled", "extract", "merge", "commit", "done"];

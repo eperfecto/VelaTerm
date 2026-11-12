@@ -1,21 +1,19 @@
 //! Vlinx application root: title bar, project/terminal/info columns, and status bar.
 
 import { lazy, Suspense, useEffect } from "react";
+import { ClipboardNotice } from "./components/ClipboardNotice";
 import { GitbashDownloadBanner } from "./components/GitbashDownloadBanner";
 import { ErrorLogModal } from "./components/ErrorLogModal";
 import { Splitter } from "./components/Splitter";
-import { MergeModal } from "./components/MergeModal";
-import { ChangesModal } from "./components/diff/ChangesModal";
+import { ChangesRoute } from "./components/diff/changesRoute";
 import { NotifyGuideModal } from "./components/NotifyGuideModal";
 import { QuitConfirmModal } from "./components/QuitConfirmModal";
-import { SplitTaskConfirmModal } from "./components/SplitTaskConfirmModal";
-import { SpawnConfirmModal } from "./components/SpawnConfirmModal";
-import { UpdateModal } from "./components/UpdateModal";
 import { VelaSkillsModal } from "./components/VelaSkillsModal";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useNotifications } from "./hooks/useNotifications";
 import { CenterPane } from "./layout/CenterPane/CenterPane";
 import { LeftSidebar } from "./layout/LeftSidebar/LeftSidebar";
+import { SidebarRail } from "./layout/LeftSidebar/SidebarRail";
 import { RightPanel } from "./layout/RightPanel/RightPanel";
 import { StatusBar } from "./layout/StatusBar/StatusBar";
 import { TitleBar } from "./layout/TitleBar/TitleBar";
@@ -33,7 +31,9 @@ import {
   startSettingsWatch,
 } from "./store/settingsWatch";
 import { startActivityWatch } from "./store/activityWatch";
-import { isTauri } from "./ipc/transport";
+import { isClaudeArtifactUrl } from "./ipc/browserUrl";
+import { safeError } from "./ipc/diagnosticSafety";
+import { diagnosticEvent, isTauri } from "./ipc/transport";
 import { startSpawnRecovery } from "./ipc/spawnRecovery";
 import { isShareSurface } from "./ipc/shareBase";
 import { isMobileView } from "./mobile/detect";
@@ -41,22 +41,34 @@ import { useSharedSessionNavigation } from "./sharing/useSharedSessionNavigation
 import { useHistorySessionNavigation } from "./layout/CenterPane/session/useHistorySessionNavigation";
 import { ExportProgressDialog } from "./ExportProgressDialog";
 import { wsClient } from "./ipc/wsClient";
-import { startUpdateSchedule } from "./ipc/updater";
+import { startUpdateSchedule, useUpdateState } from "./ipc/updater";
 import { env, platform } from "./platform";
 import { ConnectionBanner } from "./remote/ConnectionBanner";
-import { CloneProjectModal } from "./remote/CloneProjectModal";
-import { CreateProjectModal } from "./remote/CreateProjectModal";
-import { DirectoryPickerModal } from "./remote/DirectoryPickerModal";
-import { SaveAsModal } from "./remote/SaveAsModal";
 import { ProjectDialogRoutes } from "./remote/ProjectDialogRoutes";
 import { startMirrorSync } from "./store/mirrorSync";
 import { useTermStore } from "./store/termStore";
 import { isArtifactPath, noteArtifactWriter, openBesideSession } from "./layout/CenterPane/doc/artifact/artifactWriters";
 import { startUsageSync } from "./store/usageSync";
 import { watchSystemTheme } from "./theme";
+import { memoryRouteHidesRightPanel, useMemoryLocation } from "./layout/Memory/navigation";
 
 // Full-screen surfaces driven entirely by query parameters. Each renders null until its parameter is
 // present, so importing them on demand keeps their code and dependencies out of the entry chunk.
+// Dialogs that stay closed at startup. They read their open state from the store or URL, so mounting them
+// once their code arrives, just after the first paint, behaves as before without delaying it.
+const DirectoryPickerModal = lazy(() =>
+  import("./remote/DirectoryPickerModal").then((m) => ({ default: m.DirectoryPickerModal })),
+);
+const SaveAsModal = lazy(() => import("./remote/SaveAsModal").then((m) => ({ default: m.SaveAsModal })));
+const CreateProjectModal = lazy(() => import("./remote/CreateProjectModal").then((m) => ({ default: m.CreateProjectModal })));
+const CloneProjectModal = lazy(() => import("./remote/CloneProjectModal").then((m) => ({ default: m.CloneProjectModal })));
+const SpawnConfirmModal = lazy(() => import("./components/SpawnConfirmModal").then((m) => ({ default: m.SpawnConfirmModal })));
+const SplitTaskConfirmModal = lazy(() =>
+  import("./components/SplitTaskConfirmModal").then((m) => ({ default: m.SplitTaskConfirmModal })),
+);
+const MergeModal = lazy(() => import("./components/MergeModal").then((m) => ({ default: m.MergeModal })));
+// The update dialog renders release notes with the Markdown engine; load it only when it is shown.
+const UpdateModal = lazy(() => import("./components/UpdateModal").then((m) => ({ default: m.UpdateModal })));
 const KnowledgeRoute = lazy(() =>
   import("./layout/Knowledge/KnowledgeRoute").then((m) => ({ default: m.KnowledgeRoute })),
 );
@@ -90,6 +102,7 @@ function NotificationsManager() {
 function App() {
   const leftCollapsed = useTermStore((s) => s.leftCollapsed);
   const rightCollapsed = useTermStore((s) => s.rightCollapsed);
+  const noRightPanel = memoryRouteHidesRightPanel(useMemoryLocation());
   const resizeLeft = useTermStore((s) => s.resizeLeft);
   const resizeRight = useTermStore((s) => s.resizeRight);
   const loadTree = useTermStore((s) => s.loadTree);
@@ -102,6 +115,9 @@ function App() {
   // Apply appearance, load the SQLite tree, and register global child-task listeners at startup.
   // Reapply appearance on system theme changes while following the system.
   useEffect(() => {
+    // Startup milestones in milliseconds since the page began loading, paired with the backend's
+    // startup_timing event: the first React commit, then the first frame painted with the tree loaded.
+    reportStartupMilestone("first_render");
     applyAppearance();
     // Retry the idempotent initial tree read three times with backoff in case transport is not ready.
     // If all attempts fail, transport's centralized handling displays an error instead of leaving a
@@ -111,6 +127,7 @@ function App() {
       for (let attempt = 0; ; attempt++) {
         try {
           await loadTree();
+          requestAnimationFrame(() => setTimeout(() => reportStartupMilestone("tree_painted"), 0));
           // Presets only feed the new-session menu, so a failure here must not retry the tree load.
           void useTermStore.getState().loadAgentPresets();
           return;
@@ -168,15 +185,20 @@ function App() {
     const unlistenView = onViewRequest((req) => {
       if (req.isUrl) {
         // The built-in browser requires a Tauri child or Electron WebContentsView, so only desktop opens it.
-        if (isTauri || env.isElectron) useTermStore.getState().openBrowserTab(req.path);
+        if (!isTauri && !env.isElectron) return;
+        if (isClaudeArtifactUrl(req.path)) {
+          void platform.opener.openExternal(req.path).catch((error: unknown) => {
+            console.warn("[view] failed to open Claude artifact link", safeError(error));
+          });
+          return;
+        }
+        useTermStore.getState().openBrowserTab(req.path);
         return;
       }
-      // An HTML page opened from a conversation shows beside it, the way the agent's own reply presents it;
-      // anywhere else it opens as a tab.
-      if (isArtifactPath(req.path)) {
-        noteArtifactWriter(req.path, req.sessionId);
-        if (openBesideSession(req.sessionId, req.path)) return;
-      }
+      // `vopen` always opens a tab. `vartifact` opens the file beside the calling conversation, and falls
+      // back to a tab when that conversation is not on screen (terminal session, hidden pane, phone).
+      if (isArtifactPath(req.path)) noteArtifactWriter(req.path, req.sessionId);
+      if (req.beside && openBesideSession(req.sessionId, req.path)) return;
       useTermStore.getState().openDocTab(req.path);
     });
     // Synchronize the tree across clients by debouncing backend `tree://changed` broadcasts. Bursts
@@ -254,6 +276,7 @@ function App() {
     <div className="app">
       <TitleBar />
       <div className="body">
+        <SidebarRail />
         {!leftCollapsed && (
           <>
             <LeftSidebar />
@@ -263,7 +286,7 @@ function App() {
 
         <CenterPane />
 
-        {!rightCollapsed && !isShareSurface && (
+        {!rightCollapsed && !noRightPanel && !isShareSurface && (
           <>
             <Splitter onDrag={resizeRight} />
             <RightPanel />
@@ -286,26 +309,53 @@ function App() {
       <Suspense fallback={null}>
         <SharedProjectsRoute />
       </Suspense>
-      <DirectoryPickerModal />
+      <Suspense fallback={null}>
+        <DirectoryPickerModal />
+      </Suspense>
       <ProjectDialogRoutes />
-      <CreateProjectModal />
-      <CloneProjectModal />
-      <SaveAsModal />
-      <SpawnConfirmModal />
-      {!isShareSurface && <SplitTaskConfirmModal />}
+      <Suspense fallback={null}>
+        <CreateProjectModal />
+        <CloneProjectModal />
+      </Suspense>
+      <Suspense fallback={null}>
+        <SaveAsModal />
+      </Suspense>
+      <Suspense fallback={null}>
+        <SpawnConfirmModal />
+        {!isShareSurface && <SplitTaskConfirmModal />}
+      </Suspense>
       <QuitConfirmModal />
-      <MergeModal />
-      <ChangesModal />
+      <Suspense fallback={null}>
+        <MergeModal />
+      </Suspense>
+      <ChangesRoute />
       <NotifyGuideModal />
-      <UpdateModal />
+      <UpdateModalGate />
       {!isShareSurface && <VelaSkillsModal />}
       <ConnectionBanner />
       <ErrorLogModal />
       <NotificationsManager />
       {!isShareSurface && <ExportProgressDialog />}
       <GitbashDownloadBanner />
+      <ClipboardNotice />
     </div>
   );
+}
+
+/** Mount the update dialog only while it is open, so its code is fetched on first use. */
+function UpdateModalGate() {
+  const { prompt, modalOpen } = useUpdateState();
+  if (!prompt || !modalOpen) return null;
+  return (
+    <Suspense fallback={null}>
+      <UpdateModal />
+    </Suspense>
+  );
+}
+
+/** Log one startup milestone with the time since the page began loading. */
+function reportStartupMilestone(step: "first_render" | "tree_painted") {
+  diagnosticEvent("startup_ui", { status: "success", step, totalMs: Math.round(performance.now()) });
 }
 
 export default App;

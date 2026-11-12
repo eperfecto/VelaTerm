@@ -12,7 +12,7 @@
 import { useAgentPermissions, savePermissionDefault } from "../../../hooks/useAgentPermissions";
 import { useSessionPermissionState } from "../../../hooks/useSessionPermissionState";
 import { currentPermissionLabel, PermissionStateDetails } from "../../../components/PermissionStateDetails";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measureElement, observeElementOffset, useVirtualizer } from "@tanstack/react-virtual";
 
 import Icons from "../../../components/Icons";
@@ -21,7 +21,7 @@ import { userMessageItems, type UserMessageItem } from "./userMessageRailItems";
 import { useUserMessageJump } from "./useUserMessageJump";
 import { ComposerOptionsButton, useComposerOptions } from "./ComposerOptions";
 import { ComposerToolbar } from "./ComposerToolbar";
-import { setComposerHeight, startComposerResize, useComposerHeight } from "./composerHeight";
+import { COMPOSER_FEEDBACK_HEIGHT, COMPOSER_MIN_HEIGHT, composerHasFeedbackRoom, setComposerHeight, startComposerResize, useComposerHeight, useShortPane } from "./composerHeight";
 import type { ComposerChip } from "./composerLayout";
 import { navigateTranslation, settingsTranslationUrl, useTranslationRoute } from "../../../translation/navigation";
 import { TranslationProvider, useTranslationSession } from "../../../translation/state";
@@ -96,23 +96,25 @@ import { env } from "../../../platform/env";
 import { imageFromNativeClipboard, imagesFromClipboard, imagesFromDrop } from "../../../terminal/imageInput";
 import { IS_MAC, IS_PLAIN_BROWSER, labelWithCombo } from "../../../hooks/shortcutRegistry";
 import { useMentionFiles } from "./fileMentions";
-import { ControlChip, LevelBar, type ChipOption } from "./controls";
 import { attachProjectError, attachProjectOptions } from "./attachProject";
+import { ControlChip, type ChipOption } from "./controls";
+import { EFFORTS, THINKING_OFF, effortChipLabel, effortChipOptions, levelsOf, modelChipOptions } from "./modelChips";
 import { AutoContinueBar, FastModeChip, McpChip, NotificationBar, RetryLine, TasksChip, UsageMeter } from "./extras";
-import { AgentAccountMenu, AgentAuth } from "./AgentAuth";
+import { AgentAccountMenu, AgentAuth, needsAttention } from "./AgentAuth";
+import { useAgentReadiness } from "./useAgentReadiness";
 import { CodexResetCredits } from "./CodexResetCredits";
 import { useEngineSwitch } from "./engineSwitch";
 import { ConversationViewHint } from "./ConversationViewHint";
 import { AgentMissingNotice } from "./AgentMissingNotice";
 import { AgentVersionBadge } from "./AgentVersionBadge";
 import { isShareSurface } from "../../../ipc/shareBase";
-import { isAgentNotInstalledError } from "../../../ipc/backendError";
+import { isAgentNotInstalledError, mapBackendError } from "../../../ipc/backendError";
 import { usePermissionRestart } from "./permissionRestart";
 import { PermissionCard, type PermissionAnswer } from "./permissionCards";
 import { isMode, type Mode } from "./permissions";
 import { useTermStore } from "../../../store/termStore";
 import { effectivePermissionMode } from "../../../store/settings";
-import { effectiveStatus, supportsPermissionToggle, type Session } from "../../../types";
+import { acceptsChatImages, effectiveStatus, hasTerminalInterface, supportsPermissionToggle, supportsSteering, type Session } from "../../../types";
 import { kindIconEl } from "../../sessionViewers/sessionMeta";
 import { assistantLabel } from "../../sessionViewers/TranscriptViewer";
 import { ChatImageView, ErrorRow, WorkingRow } from "./rows";
@@ -132,7 +134,7 @@ import { cachedChat, cacheChat, mergeRows, reconcileChat, chatSyncMetrics, limit
 import { ChatSearch } from "./ChatSearch";
 import { HistorySearch } from "./HistorySearch";
 import { historyLocation, historyPageURL } from "./historyNavigation";
-import type { ChatSearchHit } from "../../../ipc/chat";
+import type { ChatAuthState, ChatSearchHit } from "../../../ipc/chat";
 import { QueuedMessageText } from "./QueuedMessageText";
 import { MessageSender } from "./MessageSender";
 import { parseShellSubmission, shellErrorKey, shellSubmissionFor, acknowledgeShellSubmission } from "./shellMode";
@@ -140,10 +142,12 @@ import { SessionLinkDirectory } from "./links";
 import { Entry, type MessageReplacement } from "./ConversationRows";
 import { Splitter } from "../../../components/Splitter";
 import { ArtifactDock } from "../doc/artifact/ArtifactDock";
+import { DockDocView } from "../doc/DockDocView";
 import { ArtifactHostContext, type ArtifactHost } from "../doc/artifact/ArtifactCard";
 import {
   ARTIFACT_OPEN_BESIDE_EVENT,
   COMPOSER_INSERT_EVENT,
+  isArtifactPath,
   type ArtifactOpenBesideDetail,
   type ComposerInsertDetail,
 } from "../doc/artifact/artifactWriters";
@@ -160,22 +164,12 @@ function readDockWidth(): number {
 
 /** Distance from the bottom still counted as "at the bottom", in pixels. */
 const PIN_SLACK = 40;
+// Delays between automatic retries of a failed synchronization; the last one repeats.
+const SYNC_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
 
 /** Rows kept beyond the viewport on each side of the virtualized part, so scrolling reveals drawn rows. */
 const OVERSCAN = 6;
 
-/** Reasoning-effort values understood by the supported chat engines. */
-const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
-/**
- * The level above the ladder: extra-high effort with the agent's dynamic workflow orchestration on top.
- * It runs at `xhigh`, so it is offered only by the models that reach that level.
- */
-const ULTRACODE = "ultracode" as const;
-/**
- * Below the ladder: no extended thinking at all. Claude only; it is applied as a thinking-token cap of
- * zero rather than as a level, which is why the backend handles it apart from the others.
- */
-const THINKING_OFF = "off" as const;
 /** A level, or the empty string standing for the level the model picks itself. */
 type EffortChoice = string;
 /** Native catalogues may advertise new effort or variant names without a frontend release. */
@@ -188,10 +182,6 @@ const AUTO_CONTINUE_REASONS: Record<ChatAutoContinueReason, I18nKey> = {
 
 function isEffort(value: string): boolean {
   return value.trim().length > 0;
-}
-/** What the menu offers for a model: the model's own ladder, plus ultracode wherever xhigh is reachable. */
-function levelsOf(ladder: readonly string[], kind: Session["kind"]): string[] {
-  return kind === "claude" && ladder.includes("xhigh") ? [...ladder, ULTRACODE] : [...ladder];
 }
 
 function storedMode(session: Pick<Session, "kind" | "permissionMode">): Mode {
@@ -293,6 +283,7 @@ export function ChatPane({
   const projects = useTermStore((s) => s.projects);
   const inputLatencyLog = useTermStore((s) => s.inputLatencyLog);
   const composerHeight = useComposerHeight();
+  const [paneRef, shortPane] = useShortPane();
   const status = useTermStore((s) => effectiveStatus(s.runtimes[session.id]));
   const searchOpen = useTermStore((s) => s.searchOpen);
   const closeSearch = useTermStore((s) => s.closeSearch);
@@ -314,6 +305,9 @@ export function ChatPane({
   const indexReader = useRef<string | undefined>(undefined);
   const liveVersions = useRef(new ChatVersions());
   const [syncState, setSyncState] = useState<"loading" | "ready" | "failed">("loading");
+  // A synchronization failed and has not yet been followed by a successful one. Sending waits for
+  // synchronization, so the composer says why and offers a retry instead of leaving the button disabled.
+  const [syncInterrupted, setSyncInterrupted] = useState(false);
   const [hasMore, setHasMore] = useState(cachedChat(cacheId)?.hasMore ?? false);
   const [hasNewer, setHasNewer] = useState(cachedChat(cacheId)?.hasNewer ?? false);
   const [historyCoverage, setHistoryCoverage] = useState(cachedChat(cacheId)?.coverage);
@@ -392,6 +386,10 @@ export function ChatPane({
   const [engineRunning, setEngineRunning] = useState(false);
   /** What the Claude process reports about itself: context, cost, rate limits, tasks, switches. */
   const [extras, setExtras] = useState<ChatExtras>({});
+  const { readiness, refresh: refreshReadiness } = useAgentReadiness(session.id, !readOnly && !hidden, extras.auth?.status);
+  const agentMissing = readiness?.installed === false;
+  const signInMissing = readiness?.signedIn === false && extras.auth?.status !== "success";
+  const agentUnavailable = agentMissing || signInMissing;
   // Codex only: how fast it answers and how it speaks. Empty means "as configured", which is also what
   // the chips read before a catalogue says the selected model offers anything else.
   const [serviceTier, setServiceTier] = useState("");
@@ -431,7 +429,14 @@ export function ChatPane({
     });
   };
   const [turnStartedAt, setTurnStartedAt] = useState<number | undefined>();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<string | null>(null);
+  // A request cut short by a dropped connection is not an error of this conversation: the connection
+  // banner and the sync notice already report the outage, and the snapshot taken after reconnecting
+  // shows what actually happened. Showing it here would leave a stale row after the connection recovers.
+  const setError = useCallback((next: SetStateAction<string | null>) => setErrorState((prev) => {
+    const value = typeof next === "function" ? next(prev) : next;
+    return value?.startsWith("TransportError: ") ? prev : value;
+  }), []);
   /** Which failed send's missing-agent notice the user closed, so it does not reappear until the next one. */
   const [agentNoticeDismissed, setAgentNoticeDismissed] = useState<string | null>(null);
   const keepRestartPermission = useRef(false);
@@ -499,9 +504,11 @@ export function ChatPane({
   const scrollGeometry = useRef({ height: 0, viewport: 0 });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // The artifact panel: an HTML page this conversation wrote, open beside it. Phones have no room for it,
-  // so cards there open the page as a tab instead.
+  // The panel beside this conversation: an HTML page it wrote, or any file `vartifact` opened. Phones have no
+  // room for it, so cards there open the page as a tab instead.
   const [dockPath, setDockPath] = useState<string | null>(null);
+  // Bumped by each `vartifact`, so opening the file already shown re-reads it, as `vopen` does for a tab.
+  const [dockOpenCount, setDockOpenCount] = useState(0);
   const [dockWidth, setDockWidth] = useState(readDockWidth);
   const artifactHost = useMemo<ArtifactHost>(
     () => ({ sessionId: session.id, openBeside: mobile || readOnly ? null : setDockPath, openPath: dockPath }),
@@ -518,7 +525,7 @@ export function ChatPane({
     window.addEventListener(COMPOSER_INSERT_EVENT, onInsert);
     return () => window.removeEventListener(COMPOSER_INSERT_EVENT, onInsert);
   }, [session.id]);
-  // `vopen page.html` run by this conversation's agent opens the page beside it, when this pane is on screen.
+  // `vartifact <file>` run by this conversation's agent opens the file beside it, when this pane is on screen.
   const canDock = !mobile && !readOnly && !hidden;
   useEffect(() => {
     if (!canDock) return;
@@ -527,6 +534,7 @@ export function ChatPane({
       if (e.defaultPrevented || !detail || detail.sessionId !== session.id) return;
       e.preventDefault();
       setDockPath(detail.path);
+      setDockOpenCount((n) => n + 1);
     };
     window.addEventListener(ARTIFACT_OPEN_BESIDE_EVENT, onOpen);
     return () => window.removeEventListener(ARTIFACT_OPEN_BESIDE_EVENT, onOpen);
@@ -581,6 +589,9 @@ export function ChatPane({
   useEffect(() => {
     let disposed = false;
     let progressTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let syncFailures = 0;
+    let syncError: string | null = null;
     let initialLocation = true;
     indexReader.current = undefined;
     setTurnStartedAt(undefined);
@@ -735,7 +746,14 @@ export function ChatPane({
           }
           // A late permission rejection arrives on this channel rather than as a command failure; it is
           // still a restart request, so it must open the confirmation instead of a bare error.
-          if (!permissionRestart.handleError(event.message)) setError(event.message);
+          if (!permissionRestart.handleError(event.message)) setError(mapBackendError(event.message));
+          // Messages the agent never received go back to an empty composer, so signing in and sending
+          // again does not mean typing them again.
+          if (event.unsent?.length && !latestDraft.current) updateDraft(event.unsent.join("\n\n"));
+          break;
+        case "unsent":
+          updateDraft(latestDraft.current ? `${event.text}\n\n${latestDraft.current}` : event.text);
+          if (event.images.length > 0) setAttachments(current => [...event.images.map(restoreAttachment), ...current]);
           break;
         case "storagePressure":
           setHistoryError(t("chat.history.storagePressure"));
@@ -776,6 +794,8 @@ export function ChatPane({
     const refresh = async () => {
       if (loading || disposed) return;
       if (historyBusy.current) {progressTimer = setTimeout(() => void refresh(), 1000);return;}
+      clearTimeout(retryTimer);
+      let failed = false;
       loading = true;
       refreshing.current = true;
       historyGeneration.current += 1;
@@ -790,6 +810,8 @@ export function ChatPane({
         const location = known?.pendingLocation ?? (initialLocation ? { ...historyLocation(session.id), ...(initialRowId ? {anchor:initialRowId} : {
           ...(initialMessageIndex!==undefined ? {messageIndex: initialMessageIndex} : {}), ...(initialRecordOffset!==undefined ? {recordOffset: initialRecordOffset} : {}) }) } : {});
         const hasLocation = Boolean(location.before || location.after || location.anchor || location.messageIndex!==undefined || location.recordOffset!==undefined);
+        // Cleared when the requested location no longer exists and the recent rows are shown instead.
+        let located = hasLocation;
         let response: ChatSnapshot;
         try {
           response = await chatSnapshot(session.id, { historyOnly,
@@ -799,10 +821,21 @@ export function ChatPane({
             ...location,
           });
         } catch (error) {
-          if (known?.protocolVersion !== 2 || !/^(source_changed|cursor_expired):/.test(String(error).replace(/^Error: /, ""))) throw error;
-          if (indexReader.current) void chatReadCancel(session.id, indexReader.current).catch(() => {});
-          indexReader.current = undefined;
-          response = await chatSnapshot(session.id, { historyOnly, protocolVersion: 2 });
+          const failure = String(error).replace(/^Error: /, "");
+          if (known && known.protocolVersion !== 2 && !hasLocation && failure.startsWith("detail_requires_paging:")) {
+            // Repeating this request would fail forever, and sending stays blocked until a sync succeeds.
+            // An older server rejects a backlog too large for one response, so start again from recent rows.
+            response = await chatSnapshot(session.id, { historyOnly });
+          } else {
+            // A location that no longer resolves would fail every retry, so it is dropped as well.
+            if ((known?.protocolVersion !== 2 && !hasLocation) || !/^(source_changed|cursor_expired):/.test(failure)) throw error;
+            if (indexReader.current) void chatReadCancel(session.id, indexReader.current).catch(() => {});
+            indexReader.current = undefined;
+            if (snapshotRef.current?.pendingLocation) snapshotRef.current = { ...snapshotRef.current, pendingLocation: undefined };
+            initialLocation = false;
+            located = false;
+            response = await chatSnapshot(session.id, { historyOnly, protocolVersion: 2 });
+          }
         }
         if (disposed) {
           if (response.readJobId) void chatReadCancel(session.id, response.readJobId).catch(() => {});
@@ -812,7 +845,7 @@ export function ChatPane({
         initialLocation = false;
         const pendingEvents = buffered ?? [];
         const snapshot = reconcileChat(response, rowsRef.current, pendingEvents);
-        if (hasLocation) {
+        if (located) {
           pinnedRef.current = false;setAway(true);
           if (location.anchor || snapshot.locatedRowId) {const anchor=snapshot.locatedRowId ?? location.anchor!;pendingHistoryHit.current = { rowId: anchor, snippet: "", offset: 0 };setSearchTarget(anchor);}
         }
@@ -832,6 +865,9 @@ export function ChatPane({
         }
         setSyncState("ready");
         synced = true;
+        syncFailures = 0;
+        setSyncInterrupted(false);
+        if (syncError) { const shown = syncError; setError(prev => (prev === shown ? null : prev)); syncError = null; }
         setHistoryError(snapshot.historyError ?? null);
         const metric = { requestMs: performance.now() - requestStarted, commitMs: 0, rows: snapshot.rows.length, mode: snapshot.pageKind ?? "full" };
         chatSyncMetrics.push(metric);
@@ -898,13 +934,27 @@ export function ChatPane({
         }
         pendingEvents.filter(event => !["rows", "replaceRows", "queued", "reset", "notification", "models"].includes(event.type)).forEach(handleEvent);
       } catch (err) {
-        if (!disposed) { setError(String(err)); setSyncState("failed"); synced = false; }
+        if (!disposed) {
+          syncError = String(err);
+          setError(syncError);
+          setSyncState("failed");
+          setSyncInterrupted(true);
+          synced = false;
+          failed = true;
+        }
       } finally {
         const events = buffered ?? [];
         buffered = null;
         loading = false;
         refreshing.current = false;
         clearTimeout(progressTimer);
+        // A failed synchronization retries by itself with a growing delay; otherwise sending stays blocked
+        // until the user finds the retry button or the transport happens to reconnect.
+        if (failed && !disposed) {
+          const delay = SYNC_RETRY_DELAYS_MS[Math.min(syncFailures, SYNC_RETRY_DELAYS_MS.length - 1)];
+          syncFailures += 1;
+          retryTimer = setTimeout(() => void refresh(), delay);
+        }
         if (!disposed && snapshotRef.current?.protocolVersion === 2 && (historyOnly || snapshotRef.current.coverage === "partial" || snapshotRef.current.indexing)) {
           progressTimer = setTimeout(() => void refresh(), snapshotRef.current.coverage === "complete" && !snapshotRef.current.indexing ? 5000 : 1000);
         }
@@ -917,6 +967,7 @@ export function ChatPane({
     const disconnect = onTransportDisconnect(() => {
       synced = false;
       setSyncState("failed");
+      setSyncInterrupted(true);
       setTurnStartedAt(undefined);
       setPermissions([]);
     });
@@ -930,6 +981,7 @@ export function ChatPane({
     return () => {
       disposed = true;
       clearTimeout(progressTimer);
+      clearTimeout(retryTimer);
       if (indexReader.current) void chatReadCancel(session.id, indexReader.current).catch(() => {});
       indexReader.current = undefined;
       historyGeneration.current += 1;
@@ -1329,7 +1381,7 @@ export function ChatPane({
     const url = new URL(window.location.href);
     url.searchParams.set("chatSession", session.id);
     url.searchParams.set("session", session.id);
-    url.searchParams.delete("chatBefore");url.searchParams.delete("chatAfter");
+    url.searchParams.delete("chatBefore");url.searchParams.delete("chatAfter");url.searchParams.delete("chatChild");
     url.searchParams.set("chatRow", hit.rowId);
     if (hit.detailRef) url.searchParams.set("chatField", hit.detailRef); else url.searchParams.delete("chatField");
     url.searchParams.set("chatPart", String(hit.chunkSequence ?? 0));
@@ -1494,6 +1546,13 @@ export function ChatPane({
   const heldForBackground =
     turnStartedAt === undefined && (extras.backgroundTasks ?? []).some((task) => !isTaskFinished(task));
   const busy = status === "working" && !heldForBackground;
+  // The feedback line must not resize the composer: it takes its height from the text box. Where the box has
+  // none to give, the running-turn hint is dropped (the buttons' tooltips say the same) and a short action
+  // message floats above the box instead.
+  const feedbackHasRoom = mobile || composerHasFeedbackRoom(composerHeight, shortPane);
+  const composerHint = busy && feedbackHasRoom;
+  const composerFeedback = composerHint || !!actionFeedback;
+  const composerInset = !mobile && feedbackHasRoom && composerFeedback ? COMPOSER_FEEDBACK_HEIGHT : 0;
   const canRewind =
     !readOnly &&
     engineRunning &&
@@ -1629,7 +1688,7 @@ export function ChatPane({
     && !!translation.value.preferences.outgoing && !!text.trim() && !text.trimStart().startsWith("/");
 
   const send = (behavior: SendBehavior = "queue") => {
-    if (sending || shellSubmission.current?.pending || syncState !== "ready") return;
+    if (agentUnavailable || sending || shellSubmission.current?.pending || syncState !== "ready") return;
     const text = draft.trim();
     // A picture on its own is a message: dropping a screenshot in and pressing send says enough.
     if (rewinding || pendingRewind) return;
@@ -1691,7 +1750,7 @@ export function ChatPane({
         : null;
     const commandSupported =
       chatCommand?.[1] === "compact"
-        ? session.kind === "codex" || session.kind === "pi" || session.kind === "omp"
+        ? session.kind === "codex" || session.kind === "pi" || session.kind === "omp" || session.kind === "zcode"
         : session.kind === "codex";
     if (chatCommand && commandSupported) {
       const [, name, args] = chatCommand;
@@ -1782,8 +1841,8 @@ export function ChatPane({
    * a screenshot silently disappearing is worse than one that says why it did.
    */
   const addFiles = async (files: File[]) => {
-    if (session.kind === "antigravity") {
-      setAttachNote(t("chat.antigravity.textOnly"));
+    if (!acceptsChatImages(session.kind)) {
+      setAttachNote(session.kind === "antigravity" ? t("chat.antigravity.textOnly") : t("chat.textOnly", assistantLabel(session.kind)));
       return;
     }
     const { attachments: next, rejected } = await attachImages(attachments, files);
@@ -2080,8 +2139,8 @@ export function ChatPane({
         },
       );
     }
-    // Pi and OMP expose compaction as a protocol command of their own.
-    if (session.kind === "pi" || session.kind === "omp") {
+    // Pi, OMP and ZCode expose compaction as a protocol command of their own.
+    if (session.kind === "pi" || session.kind === "omp" || session.kind === "zcode") {
       local.push({ name: "compact", description: t("chat.command.compactDescription") });
     }
     // What OpenCode's own interface answers without a turn, handled by the backend when sent.
@@ -2145,35 +2204,15 @@ export function ChatPane({
    *  With no turn running there is nothing to steer or interrupt, so the modifiers fall back to a
    *  normal send instead of an error. */
   const behaviorOf = (e: React.KeyboardEvent): SendBehavior =>
-    !busy ? "queue" : e.metaKey || e.ctrlKey ? "interrupt" : e.altKey && session.kind !== "antigravity" ? "steer" : "queue";
+    !busy ? "queue" : e.metaKey || e.ctrlKey ? "interrupt" : e.altKey && supportsSteering(session.kind) ? "steer" : "queue";
 
   const label = assistantLabel(session.kind);
   // The agent's own mark, drawn in the margin beside each of its answers.
   const kindIcon = useMemo(() => kindIconEl(session.kind, 12), [session.kind]);
 
-  const modelOptions: ChipOption<string>[] = [
-    // The default names no model, so it carries the settings mark, in the accent colour, rather than the
-    // agent's.
-    {
-      value: "",
-      label: t("chat.followModelDefault", label),
-      hint: t("chat.followModelDefaultHint"),
-      glyph: (
-        <span style={{ color: "var(--accent)", display: "inline-flex" }}>
-          <Icons.sliders size={14} />
-        </span>
-      ),
-    },
-    // The catalogue's description opens with the model's own name, because it is also used where the name
-    // is not already on screen. Here it is, one line above, so the menu drops the repeat.
-    // Every model row carries the agent's own mark in its brand colour, the same mark the chip shows.
-    ...catalogue.toSorted((a, b) => Number(a.largeContext) - Number(b.largeContext)).map((m) => ({
-      value: m.id,
-      label: m.label,
-      hint: withoutNamePrefix(m.description, m.label),
-      glyph: kindIconEl(session.kind, 14),
-    })),
-  ];
+  // The default names no model, so it carries the settings mark; every model row carries the agent's own
+  // mark in its brand colour, the same mark the chip shows.
+  const modelOptions = modelChipOptions(t, session.kind, catalogue, t("chat.followModelDefault", label));
   // The chip reads the selected model's own name, but a model set outside this menu — inherited from the
   // session's launch arguments, or reported by the agent — may not be in the list, so fall back to the id.
   const selected = catalogue.find((m) => m.id === model);
@@ -2189,10 +2228,7 @@ export function ChatPane({
   // The mark counts from the full ladder, not from the filtered list: a model that stops at high should
   // still show high at its stable place, not as the top of its own short scale. Auto gets an empty bar
   // because it names no level, and ultracode a full one because it runs at the top of the ladder.
-  const effortLabel = (value: string) =>
-    (EFFORTS as readonly string[]).includes(value) || value === THINKING_OFF || value === ULTRACODE
-      ? t(`chat.effort.${value}` as "chat.effort.high")
-      : value;
+  const effortLabel = (value: string) => effortChipLabel(t, value);
 
   const effortOptions: ChipOption<EffortChoice>[] = [
     // Below auto for Claude: no thinking at all, marked by an empty bar with nothing lit.
@@ -2210,25 +2246,7 @@ export function ChatPane({
           },
         ]
       : []),
-    {
-      value: "",
-      label: t("chat.effort.auto"),
-      glyph: <LevelBar level={0} of={EFFORTS.length} />,
-    },
-    ...EFFORTS.filter((value) => allowed.includes(value)).map((value) => ({
-      value,
-      label: effortLabel(value),
-      glyph: <LevelBar level={EFFORTS.indexOf(value) + 1} of={EFFORTS.length} />,
-    })),
-    ...(allowed.includes(ULTRACODE)
-      ? [
-          {
-            value: ULTRACODE,
-            label: t("chat.effort.ultracode"),
-            glyph: <LevelBar level={EFFORTS.length} of={EFFORTS.length} />,
-          },
-        ]
-      : []),
+    ...effortChipOptions(t, allowed),
   ];
   // The permission chip shows the mode that was chosen; whether that choice is already the running
   // mode is carried by the chip's mark and by the menu's row notes. Only Codex defers the change to
@@ -2272,7 +2290,17 @@ export function ChatPane({
     .find((item) => item.status === "failed" && isAgentNotInstalledError(item.error));
   const agentMissingKey =
     agentMissingItem?.id ?? (isAgentNotInstalledError(error) ? "session-error" : null);
-  const showAgentNotice = agentMissingKey !== null && agentNoticeDismissed !== agentMissingKey;
+  const showAgentNotice = agentMissing || (agentMissingKey !== null && agentNoticeDismissed !== agentMissingKey);
+  /** An agent without a terminal interface installs from the notice itself; the send that found it missing
+   *  then goes again, which starts the agent. */
+  const afterInPlaceInstall = () => {
+    setError(null);
+    refreshReadiness();
+    const item = agentMissingItem;
+    if (!item || readOnly) return;
+    void retrySubmission(session.id, item, !engineRunning ? item.translation ? startTranslatedAgent : startAgent : undefined, () => translation.refresh(true))
+      .then(receipt => finishSubmission(item, receipt));
+  };
 
   const submissionFeedback = (id: string) => {
     const item = pendingSubmissions.find(value => value.id === id);
@@ -2445,8 +2473,13 @@ export function ChatPane({
     />
   ) });
   // The account menu disables itself while a sign-in is unresolved; the inline panel handles that flow.
-  if (session.kind === "codex" || session.kind === "claude") composerChips.push({ id: "account", node: (
-    <AgentAccountMenu provider={session.kind === "claude" ? "Claude" : "Codex"} sessionId={session.id} state={extras.auth} busy={turnStartedAt !== undefined} />
+  const authProvider = session.kind === "claude" ? "Claude" : session.kind === "codex" ? "Codex" : session.kind === "zcode" ? "ZCode" : null;
+  // A check at open finds a missing sign-in before any process exists to report it. A sign-in under way wins.
+  const authState: ChatAuthState | undefined = signInMissing && !needsAttention(extras.auth)
+    ? { status: session.kind === "zcode" ? "required" : "signedOut" }
+    : extras.auth;
+  if (authProvider) composerChips.push({ id: "account", node: (
+    <AgentAccountMenu provider={authProvider} sessionId={session.id} state={authState} busy={turnStartedAt !== undefined} />
   ) });
   if (session.kind === "codex") composerChips.push({ id: "codexCredits", node: <CodexResetCredits /> });
 
@@ -2464,12 +2497,12 @@ export function ChatPane({
   ) : (
     <button
       className="sv-send"
-      disabled={sending || clientCommandRunning || syncState !== "ready" || (!draft.trim() && attachments.length === 0)}
+      disabled={agentUnavailable || sending || clientCommandRunning || syncState !== "ready" || (!draft.trim() && attachments.length === 0)}
       onPointerDown={mobile ? (event) => event.preventDefault() : undefined}
       onClick={() => send()}
       title={
         busy
-          ? `${t("chat.queueTooltip", interruptCombo)}${session.kind === "antigravity" ? "" : ` · ${t("chat.steerTooltip", steerCombo)}`}`
+          ? `${t("chat.queueTooltip", interruptCombo)}${supportsSteering(session.kind) ? ` · ${t("chat.steerTooltip", steerCombo)}` : ""}`
           : t("session.send")
       }
     >
@@ -2526,8 +2559,9 @@ export function ChatPane({
             >
               {allTurnsCollapsed ? <Icons.expand size={14} /> : <Icons.collapse size={14} />}
             </button>
-            {/* The same control the terminal view carries, in the same place, pointing the other way. */}
-            <ConversationViewHint enabled={!readOnly && !mobile && !isShareSurface && focused && !hidden} onSwitch={() => switchTo("tui")} />
+            {/* The same control the terminal view carries, in the same place, pointing the other way. An agent
+                without a terminal interface has no other view to point to. */}
+            {hasTerminalInterface(session.kind) && <ConversationViewHint enabled={!readOnly && !mobile && !isShareSurface && focused && !hidden} onSwitch={() => switchTo("tui")} />}
             <button title={labelWithCombo(t("term.splitRight"), "splitRight", shortcutOverrides)} onClick={() => paneId && onSplit(paneId, session.id, "horizontal")}>
               <Icons.splitV size={14} />
             </button>
@@ -2546,7 +2580,7 @@ export function ChatPane({
 
         <ArtifactHostContext.Provider value={artifactHost}>
         <div style={{ display: "flex", flex: 1, minHeight: 0, minWidth: 0 }}>
-        <div className="sv" style={{ position: "relative", flex: 1, minHeight: 0, minWidth: 0 }}>
+        <div ref={paneRef} className={"sv" + (shortPane && !mobile ? " sv-short" : "")} style={{ position: "relative", flex: 1, minHeight: 0, minWidth: 0 }}>
           {searchOpen && focused && !hidden && (snapshotRef.current?.protocolVersion === 2
             ? <HistorySearch key={session.id} sessionId={session.id} onLocate={locateHistorySearch} onClose={closeSearch} />
             : <ChatSearch key={session.id} entries={turnEntries} scrollRef={scrollRef} onLocate={locateSearch} onClose={closeSearch}
@@ -2678,19 +2712,22 @@ export function ChatPane({
               </div>}
               {turnStartedAt !== undefined && <WorkingRow startedAt={turnStartedAt} />}
               {extras.apiRetry && <RetryLine retry={extras.apiRetry} />}
-              {showAgentNotice && !readOnly && (
+              {/* Wrapped like every other row so it sits in the centered column. */}
+              {showAgentNotice && !readOnly && <div className="sv-item">
                 <AgentMissingNotice
-                  key={agentMissingKey}
+                  key={agentMissingKey ?? "not-installed"}
                   session={session}
-                  onInstall={installAgent}
-                  onDismiss={() => setAgentNoticeDismissed(agentMissingKey)}
+                  onInstall={hasTerminalInterface(session.kind) ? installAgent : undefined}
+                  onInstalled={afterInPlaceInstall}
+                  onDismiss={agentMissing ? undefined : () => setAgentNoticeDismissed(agentMissingKey)}
                 />
-              )}
+              </div>}
               {/* Wrapped like every other row: a bare child of the scroller would lose the centered column,
                   because the row's own left indent replaces the auto margins that center it. */}
               {error && !isAgentNotInstalledError(error) && <div className="sv-item"><ErrorRow message={error} /></div>}
               {catalogueError && <div className="sv-item"><ErrorRow message={catalogueError} /></div>}
-              {(session.kind === "codex" || session.kind === "claude") && !readOnly && <AgentAuth provider={session.kind === "claude" ? "Claude" : "Codex"} sessionId={session.id} state={extras.auth} busy={turnStartedAt !== undefined} />}
+              {authProvider && !readOnly && <AgentAuth provider={authProvider} sessionId={session.id} state={authState} busy={turnStartedAt !== undefined} />}
+              {!authProvider && signInMissing && !readOnly && <div className="sv-item"><ErrorRow message={mapBackendError(`agent_sign_in_required:${session.kind}`)} /></div>}
             </div>
             <UserMessageRail key={session.id} items={railItems} order={messageOrder} scrollRef={scrollRef} enabled={syncState === "ready" && !hidden && !(searchOpen && focused)}
               pendingId={railJump.pendingId} error={railJump.error} onCancel={railJump.cancel} onSelect={id => {
@@ -2844,7 +2881,7 @@ export function ChatPane({
                               onChange={(e) => setEditing({ id: item.id, text: e.target.value })}
                               onBlur={commitEdit}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                                   e.preventDefault();
                                   commitEdit();
                                 }
@@ -2882,7 +2919,7 @@ export function ChatPane({
                           ))}
                         </span>
                       )}
-                      {session.kind !== "antigravity" && <button
+                      {supportsSteering(session.kind) && <button
                         className="sv-queue-steer"
                         disabled={!busy || stopping.current || steeringQueue || editing !== null}
                         onClick={() => void steerQueued(item.id)}
@@ -2929,7 +2966,7 @@ export function ChatPane({
               {!mobile && <div
                 className="sv-box-resize"
                 title={t("splitter.dragToResize")}
-                onMouseDown={(e) => startComposerResize(e, inputRef.current)}
+                onMouseDown={(e) => startComposerResize(e, inputRef.current, composerInset)}
                 onDoubleClick={() => setComposerHeight(null)}
               />}
               <textarea
@@ -2938,7 +2975,7 @@ export function ChatPane({
                 disabled={clientCommandRunning}
                 value={draft}
                 rows={1}
-                style={!mobile && composerHeight !== null ? { height: composerHeight, maxHeight: "70vh" } : undefined}
+                style={!mobile && composerHeight !== null ? { height: composerHeight - composerInset, minHeight: COMPOSER_MIN_HEIGHT, maxHeight: "70vh" } : undefined}
                 placeholder={
                   busy
                     ? t("chat.placeholderBusy")
@@ -2994,7 +3031,8 @@ export function ChatPane({
                     complete(chosenSuggestion);
                     return;
                   }
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  // WebKit ends composition before the confirming Enter, so that keydown has isComposing false and keyCode 229.
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                     e.preventDefault();
                     // Exact client commands execute on the first Enter. Otherwise completion would add
                     // its cosmetic trailing space and make `/clear` or `/rewind` need two submissions.
@@ -3016,16 +3054,22 @@ export function ChatPane({
               </div>}
               {/* Model, effort, collaboration style, and permission mode sit under the input, where they belong to the message
                   about to be sent rather than to the pane. */}
-              {(busy || actionFeedback) && (
-                <div className="sv-action-feedback" role="status" aria-live="polite">
+              {syncInterrupted && syncState !== "ready" && (
+                <div className="sv-sync-notice" role="status" aria-live="polite">
+                  <span>{t(syncState === "loading" ? "chat.sync.loading" : "chat.sync.failed")}</span>
+                  {syncState === "failed" && <button className="vlx-btn" onClick={() => void refreshRef.current()}>{t("common.retry")}</button>}
+                </div>
+              )}
+              {composerFeedback && (
+                <div className={"sv-action-feedback" + (feedbackHasRoom ? "" : " sv-action-feedback-float")} role="status" aria-live="polite">
                   {actionFeedback && <span>{actionFeedback}</span>}
-                  {busy && <span>{t("chat.interruptTooltip")}{session.kind !== "antigravity" && <> · {t("chat.steerTooltip", steerCombo)}</>}</span>}
+                  {composerHint && <span>{t("chat.interruptTooltip")}{supportsSteering(session.kind) && <> · {t("chat.steerTooltip", steerCombo)}</>}</span>}
                 </div>
               )}
               <ComposerToolbar mobile={mobile} chips={composerChips} inline={["translation", ...composerInlineChips]}
                 actions={<>
-                  {(session.kind === "claude" || session.kind === "codex") && <UsageMeter extras={extras} />}
-                  {busy && session.kind !== "antigravity" && (
+                  {(session.kind === "claude" || session.kind === "codex" || session.kind === "deepseek" || session.kind === "zcode") && <UsageMeter extras={extras} />}
+                  {busy && supportsSteering(session.kind) && (
                     <button
                       className="sv-steer"
                       disabled={sending || clientCommandRunning || syncState !== "ready" || (!draft.trim() && attachments.length === 0)}
@@ -3060,7 +3104,10 @@ export function ChatPane({
                 })
               }
             />
-            <ArtifactDock path={dockPath} onClose={() => setDockPath(null)} style={{ width: dockWidth, maxWidth: "70%" }} />
+            {isArtifactPath(dockPath)
+              ? <ArtifactDock path={dockPath} onClose={() => setDockPath(null)} style={{ width: dockWidth, maxWidth: "70%" }} />
+              : <DockDocView key={dockPath} path={dockPath} reloadKey={dockOpenCount} onClose={() => setDockPath(null)}
+                  style={{ width: dockWidth, maxWidth: "70%" }} />}
           </>
         )}
         </div>
@@ -3078,8 +3125,3 @@ function queuedShellCommand(item: QueuedMessage): string | null {
   return item.shellCommand === undefined ? null : `! ${item.shellCommand}`;
 }
 
-/** Drop a leading "<name> · " from a model's description, where the name is already the row's label. */
-function withoutNamePrefix(description: string, label: string): string {
-  const prefix = `${label} \u00B7 `;
-  return description.startsWith(prefix) ? description.slice(prefix.length) : description;
-}
