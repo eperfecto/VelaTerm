@@ -248,6 +248,9 @@ function collaborationLabel(
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/** How recent a click inside a pane must be for its activation to count as made by that click. */
+const CLICK_ACTIVATION_MS = 1000;
+
 export function ChatPane({
   session,
   cwd,
@@ -503,14 +506,19 @@ export function ChatPane({
   // do. Switching tabs changes only store state and visibility, so without this the keyboard stays wherever it
   // was until the input is clicked. Wait one frame for the pane to be displayed. An activation mirrored from
   // another client does not take the keyboard from whoever is typing here; its marker is consumed instead.
-  // Phones are left alone so switching does not pop the on-screen keyboard.
+  // A click inside this pane also activates it (split panes); that click already placed focus where the user
+  // wanted it — a search box, a permission card, a text selection — so it is left alone too. Phones are
+  // left alone so switching does not pop the on-screen keyboard.
   const isActiveSession = useTermStore((s) => s.activeSessionId === session.id);
+  const pointerDownAt = useRef(Number.NEGATIVE_INFINITY);
   useEffect(() => {
-    if (hidden || !isActiveSession || readOnly || mobile) return;
+    if (hidden || !isActiveSession) return;
     if (useTermStore.getState().mirrorFocusSessionId === session.id) {
       useTermStore.setState({ mirrorFocusSessionId: null });
       return;
     }
+    if (readOnly || mobile) return;
+    if (performance.now() - pointerDownAt.current < CLICK_ACTIVATION_MS) return;
     const raf = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(raf);
   }, [hidden, isActiveSession, readOnly, mobile, session.id]);
@@ -2499,6 +2507,7 @@ export function ChatPane({
       className="term-mount"
       ref={attachChatInputGuard}
       onMouseDown={() => {
+        pointerDownAt.current = performance.now();
         if (paneId) onActivate(paneId, session.id);
       }}
       // Escape stops the running turn, the way it does in the agent's own terminal interface. The two

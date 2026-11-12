@@ -1,6 +1,6 @@
 //! Switching to a conversation's tab puts the keyboard in its composer, as switching to a terminal focuses it.
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../ipc/transport", async (original) => ({
@@ -37,22 +37,25 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const pane = (hidden: boolean) => (
-  <ChatPane session={SESSION} area={{}} hidden={hidden} focused={!hidden} multi={false}
-    onActivate={() => {}} onSplit={() => {}} onClose={() => {}} />
+const pane = (hidden: boolean, extra: { readOnly?: boolean; mobile?: boolean } = {}) => (
+  <ChatPane session={SESSION} area={{}} hidden={hidden} focused={!hidden} multi={false} paneId="pane-s" {...extra}
+    onActivate={(_paneId, sessionId) => useTermStore.setState({ activeSessionId: sessionId })}
+    onSplit={() => {}} onClose={() => {}} />
 );
 
-async function mountHidden() {
-  const view = render(pane(true));
+const nextFrame = () => act(async () => { await new Promise((resolve) => requestAnimationFrame(() => resolve(null))); });
+
+async function mountHidden(extra: { readOnly?: boolean; mobile?: boolean } = {}) {
+  const view = render(pane(true, extra));
   await waitFor(() => expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "chat_snapshot")).toBe(true));
   await act(async () => {});
   return view;
 }
 
-async function show(view: ReturnType<typeof render>) {
-  view.rerender(pane(false));
+async function show(view: ReturnType<typeof render>, extra: { readOnly?: boolean; mobile?: boolean } = {}) {
+  view.rerender(pane(false, extra));
   // The focus waits one animation frame for the pane to be displayed.
-  await act(async () => { await new Promise((resolve) => requestAnimationFrame(() => resolve(null))); });
+  await nextFrame();
 }
 
 describe("composer focus on tab switch", () => {
@@ -75,5 +78,38 @@ describe("composer focus on tab switch", () => {
     await show(view);
     expect(document.activeElement).not.toBe(screen.getByRole("textbox"));
     expect(useTermStore.getState().mirrorFocusSessionId).toBeNull();
+  });
+
+  it("leaves focus where a click inside an inactive split pane put it", async () => {
+    useTermStore.setState({ activeSessionId: "other" });
+    const view = await mountHidden();
+    view.rerender(pane(false));
+    await act(async () => {});
+    // Stands in for whatever the click focused: a search box, a permission card, another control.
+    const clicked = document.createElement("input");
+    document.body.appendChild(clicked);
+    try {
+      clicked.focus();
+      fireEvent.mouseDown(view.container.querySelector(".term-mount")!);
+      await nextFrame();
+      expect(useTermStore.getState().activeSessionId).toBe("s");
+      expect(document.activeElement).toBe(clicked);
+    } finally {
+      clicked.remove();
+    }
+  });
+
+  it("does not focus a read-only conversation but still consumes a mirror marker", async () => {
+    useTermStore.setState({ mirrorFocusSessionId: "s" });
+    const view = await mountHidden({ readOnly: true });
+    await show(view, { readOnly: true });
+    expect(document.activeElement).toBe(document.body);
+    expect(useTermStore.getState().mirrorFocusSessionId).toBeNull();
+  });
+
+  it("does not focus the composer on a phone", async () => {
+    const view = await mountHidden({ mobile: true });
+    await show(view, { mobile: true });
+    expect(document.activeElement).not.toBe(screen.queryByRole("textbox"));
   });
 });
