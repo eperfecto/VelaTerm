@@ -499,6 +499,22 @@ export function ChatPane({
   const scrollGeometry = useRef({ height: 0, viewport: 0 });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Give the composer keyboard focus when this conversation becomes the visible active session, as terminals
+  // do. Switching tabs changes only store state and visibility, so without this the keyboard stays wherever it
+  // was until the input is clicked. Wait one frame for the pane to be displayed. An activation mirrored from
+  // another client does not take the keyboard from whoever is typing here; its marker is consumed instead.
+  // Phones are left alone so switching does not pop the on-screen keyboard.
+  const isActiveSession = useTermStore((s) => s.activeSessionId === session.id);
+  useEffect(() => {
+    if (hidden || !isActiveSession || readOnly || mobile) return;
+    if (useTermStore.getState().mirrorFocusSessionId === session.id) {
+      useTermStore.setState({ mirrorFocusSessionId: null });
+      return;
+    }
+    const raf = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [hidden, isActiveSession, readOnly, mobile, session.id]);
+
   // The artifact panel: an HTML page this conversation wrote, open beside it. Phones have no room for it,
   // so cards there open the page as a tab instead.
   const [dockPath, setDockPath] = useState<string | null>(null);
