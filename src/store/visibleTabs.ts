@@ -10,6 +10,7 @@ export interface TabOwnerState {
   sessions: readonly Session[];
   ephemeralSessions: Readonly<Record<string, Session>>;
   taskTabs: Readonly<Record<string, { sessionId: string }>>;
+  newSessionTabs: Readonly<Record<string, { projectId: string }>>;
 }
 
 export interface TabScopeState extends TabOwnerState {
@@ -26,6 +27,9 @@ export function sessionProjectId(state: Pick<TabOwnerState, "projects">, session
 }
 
 export function tabProjectId(state: TabOwnerState, tabId: string): string | null {
+  // A New Session tab belongs to the project its session will be created in.
+  const draft = state.newSessionTabs[tabId];
+  if (draft) return sessionProjectId(state, { projectId: draft.projectId } as Session);
   const find = (id: string) => state.sessions.find((s) => s.id === id) ?? state.ephemeralSessions[id];
   const tree = state.paneTrees[tabId];
   const session =

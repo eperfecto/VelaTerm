@@ -810,6 +810,7 @@ function reconcileTabs(state: {
         openTabs,
         paneTrees,
         taskTabs,
+        newSessionTabs,
       })[0] ?? null;
   }
   if (activeTabId && (docTabs[activeTabId] || browserTabs[activeTabId] || taskTabs[activeTabId] || newSessionTabs[activeTabId])) {
@@ -2344,6 +2345,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
                         sessions: t.sessions,
                         ephemeralSessions: restoredEph,
                         taskTabs: {},
+                        newSessionTabs: reconciled.newSessionTabs,
                       },
                       restoredTab,
                     )
@@ -2397,6 +2399,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
               openTabs: reconciled.openTabs,
               paneTrees: reconciled.paneTrees,
               taskTabs: reconciled.taskTabs,
+              newSessionTabs: reconciled.newSessionTabs,
             },
             reconciled.activeTabId,
           );
