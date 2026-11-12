@@ -4,17 +4,23 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { setLang } from "../../i18n";
 import { MemoryLibrary } from "./MemoryLibrary";
 import { MemoryDirectory } from "./MemoryDirectory";
-import { MemoryEditor } from "./MemoryDocument";
+import { EntryFacts, MemoryEditor } from "./MemoryDocument";
 import { MemoryCompile } from "./MemoryTasks";
 import { MemoryTab } from "./MemoryTab";
 import { MemoryRoute } from "./MemoryRoute";
 import { MemoryMarkdown } from "./shared";
 import { memoryNavigate, memoryUrl } from "./navigation";
+import type { MemoryDetail, MemoryEntry } from "../../ipc/memory";
 
 const api = vi.hoisted(() => ({ list: vi.fn(), collections: vi.fn(), get: vi.fn(), options: vi.fn(), save: vi.fn(), start: vi.fn(), models: vi.fn() }));
+const launchSpec = (id: string, label: string) => ({ id, label, acceptsTask: true, effortFlag: "--effort", effortLevels: ["low", "high"], supportsPlanExecute: false, supportsReferSummary: false });
+vi.mock("../../ipc/launch", () => ({
+  launchOptions: async () => [launchSpec("claude", "Claude"), launchSpec("codex", "Codex")],
+  launchModels: api.models,
+}));
 vi.mock("../../ipc/memory", () => ({
   memoryList: api.list, memoryCollections: api.collections,
-  memoryModels: api.models, memoryGet: api.get, memoryOptions: api.options, memorySave: api.save, memoryStart: api.start,
+  memoryGet: api.get, memoryOptions: api.options, memorySave: api.save, memoryStart: api.start,
   memoryDelete: vi.fn(), memoryRestore: vi.fn(), memorySource: vi.fn(), memoryJobs: vi.fn(), memoryCancel: vi.fn(), memoryRetry: vi.fn(),
 }));
 const store = vi.hoisted(() => ({
@@ -32,8 +38,9 @@ beforeEach(() => {
   setLang("en"); window.history.replaceState(null, "", "/?memory=library");
   store.memoryPrefs = {}; store.setMemoryPrefs.mockReset();
   api.list.mockReset().mockResolvedValue({ projects: [], selectedSessionId: null, entries: [], tags: [], total: 0, pageSize: 40 });
+  api.collections.mockReset().mockResolvedValue({ projects: [], sessions: [] });
   api.get.mockReset(); api.options.mockReset(); api.save.mockReset(); api.start.mockReset(); api.models.mockReset();
-  api.models.mockResolvedValue([{ id: "chosen-model", label: "Chosen model", effortLevels: ["low", "high"] }, { id: "simple-model", label: "Simple model", effortLevels: [] }]);
+  api.models.mockResolvedValue({ models: [{ id: "chosen-model", label: "Chosen model", effortLevels: ["low", "high"] }, { id: "simple-model", label: "Simple model", effortLevels: [] }], effortLevels: ["low", "high"] });
   api.options.mockResolvedValue({ agents: [{ id: "claude", label: "Claude", available: true }, { id: "codex", label: "Codex", available: true }], defaultAgent: "codex", catalog: [] });
 });
 afterEach(cleanup);
@@ -47,6 +54,13 @@ function choose(label: string, option: string) {
   fireEvent.click(screen.getByRole("option", { name: option }));
   if (screen.queryAllByRole("listbox").length) fireEvent.click(trigger);
 }
+
+/** Commit one catalogue entry on the shared launch fields, whose inputs list the model identifiers. */
+async function pick(label: string, option: RegExp | string) {
+  fireEvent.click(screen.getByRole("combobox", { name: label }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+}
+const field = (label: string) => screen.getByRole("combobox", { name: label }) as HTMLInputElement;
 
 describe("Knowledge Base interactions", () => {
   it.each(["tauri://localhost", "tauri://localhost/"])("builds an explicit close URL for %s", (base) => {
@@ -71,33 +85,48 @@ describe("Knowledge Base interactions", () => {
     expect(location.hash).toBe("#terminal");
   });
 
+  it("offers the shared close actions from the library tab's context menu", async () => {
+    window.history.replaceState(null, "", "/?memory=library&session=keep");
+    const onCloseOthers = vi.fn();
+    render(<><MemoryTab otherTabCount={2} onCloseOthers={onCloseOthers} /><MemoryRoute /></>);
+    fireEvent.contextMenu(document.querySelector(".memory-open-tab")!);
+    expect(screen.getByRole("menuitem", { name: "Close Tabs to the Right" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Close Other Tabs" }));
+    expect(onCloseOthers).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".memory-open-tab")).not.toBeNull();
+    fireEvent.contextMenu(document.querySelector(".memory-open-tab")!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Close Tab" }));
+    await waitFor(() => expect(document.querySelector(".memory-open-tab")).toBeNull());
+    expect(location.search).toBe("?session=keep");
+  });
+
   it("uses the backend agent default and submits the user's selected model", async () => {
     api.start.mockResolvedValue({ id: "job-1", reused: false });
     render(<MemoryCompile sessionId="session" />);
     const agents = await screen.findByRole("combobox", { name: "Agent" });
     await waitFor(() => expect(agents.textContent).toContain("Codex"));
     choose("Agent", "Claude");
-    await screen.findByRole("combobox", { name: "Model (optional)" });
-    choose("Model (optional)", "Chosen model");
-    choose("Thinking effort", "High");
+    await screen.findByRole("combobox", { name: "Model" });
+    await pick("Model", /chosen-model/);
+    await pick("Reasoning effort", "high");
     fireEvent.click(screen.getByRole("button", { name: "Organize and save" }));
     await waitFor(() => expect(api.start).toHaveBeenCalledWith("session", "claude", "chosen-model", "high"));
     await waitFor(() => expect(new URLSearchParams(location.search).get("memory")).toBe("job/job-1"));
   });
 
-  it("clears effort when changing models and clears both overrides when changing agents", async () => {
+  it("clears an effort the new model lacks and clears both overrides when changing agents", async () => {
     render(<MemoryCompile sessionId="session" />);
-    await screen.findByRole("combobox", { name: "Model (optional)" });
-    choose("Model (optional)", "Chosen model");
-    choose("Thinking effort", "High");
-    choose("Model (optional)", "Simple model");
-    expect(screen.getByRole("combobox", { name: "Model (optional)" }).textContent).toContain("Simple model");
-    expect((screen.getByRole("combobox", { name: "Thinking effort" }) as HTMLButtonElement).disabled).toBe(true);
-    choose("Model (optional)", "Chosen model");
-    choose("Thinking effort", "Low");
+    await screen.findByRole("combobox", { name: "Model" });
+    await pick("Model", /chosen-model/);
+    await pick("Reasoning effort", "high");
+    await pick("Model", /simple-model/);
+    expect(field("Model").value).toBe("simple-model");
+    expect(field("Reasoning effort").value).toBe("");
+    await pick("Model", /chosen-model/);
+    await pick("Reasoning effort", "low");
     choose("Agent", "Claude");
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Model (optional)" }).textContent).toContain("Default model"));
-    expect(screen.getByRole("combobox", { name: "Thinking effort" }).textContent).toContain("Agent default");
+    await waitFor(() => expect(field("Model").value).toBe(""));
+    expect(field("Reasoning effort").value).toBe("");
   });
 
   it("restores the remembered agent, model and effort on reopen", async () => {
@@ -105,19 +134,19 @@ describe("Knowledge Base interactions", () => {
     render(<MemoryCompile sessionId="session" />);
     const agents = await screen.findByRole("combobox", { name: "Agent" });
     await waitFor(() => expect(agents.textContent).toContain("Claude"));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Model (optional)" }).textContent).toContain("Chosen model"));
-    expect(screen.getByRole("combobox", { name: "Thinking effort" }).textContent).toContain("High");
+    await waitFor(() => expect(field("Model").value).toBe("chosen-model"));
+    expect(field("Reasoning effort").value).toBe("high");
   });
 
   it("remembers each selection for the next visit", async () => {
     render(<MemoryCompile sessionId="session" />);
-    await screen.findByRole("combobox", { name: "Model (optional)" });
+    await screen.findByRole("combobox", { name: "Model" });
     choose("Agent", "Claude");
     expect(store.setMemoryPrefs).toHaveBeenCalledWith({ agent: "claude", model: null, effort: null });
-    await screen.findByRole("combobox", { name: "Model (optional)" });
-    choose("Model (optional)", "Chosen model");
-    expect(store.setMemoryPrefs).toHaveBeenCalledWith({ model: "chosen-model", effort: null });
-    choose("Thinking effort", "High");
+    await screen.findByRole("combobox", { name: "Model" });
+    await pick("Model", /chosen-model/);
+    expect(store.setMemoryPrefs).toHaveBeenCalledWith({ model: "chosen-model" });
+    await pick("Reasoning effort", "high");
     expect(store.setMemoryPrefs).toHaveBeenCalledWith({ effort: "high" });
   });
 
@@ -127,16 +156,19 @@ describe("Knowledge Base interactions", () => {
     render(<MemoryCompile sessionId="session" />);
     const agents = await screen.findByRole("combobox", { name: "Agent" });
     await waitFor(() => expect(agents.textContent).toContain("Codex"));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Model (optional)" }).textContent).toContain("Default model"));
+    await screen.findByRole("combobox", { name: "Model" });
+    expect(field("Model").value).toBe("");
   });
 
-  it("blocks compilation after a catalogue failure and retries without submitting", async () => {
-    api.models.mockRejectedValueOnce(new Error("memory_models_unavailable"));
+  it("keeps the agent default usable when the model list fails and retries it", async () => {
+    api.models.mockRejectedValueOnce(new Error("Provider catalogue unavailable"));
     render(<MemoryCompile sessionId="session" />);
-    await screen.findByRole("alert");
-    expect((screen.getByRole("button", { name: "Organize and save" }) as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByText("Provider catalogue unavailable");
+    // The shared fields accept a typed identifier or the agent default, so a missing list does not block.
+    expect((screen.getByRole("button", { name: "Organize and save" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await screen.findByRole("combobox", { name: "Model (optional)" });
+    fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+    await screen.findByRole("option", { name: /chosen-model/ });
     expect(api.start).not.toHaveBeenCalled();
   });
 
@@ -191,7 +223,7 @@ it("navigates project and session groups through shareable URLs and loads scoped
   const project = await within(directory).findByRole("link", { name: /Project A/ });
   expect(project.getAttribute("href")).toContain("memoryProject=project");
   expect(within(directory).queryByText("Saved topic")).toBeNull();
-  expect(screen.getByRole("main").contains(screen.getByLabelText("Search entry titles and content…"))).toBe(true);
+  expect(screen.getByRole("main").contains(screen.getByLabelText("Search entries…"))).toBe(true);
   fireEvent.click(project);
   fireEvent.click(await within(directory).findByRole("link", { name: /Session A/ }));
   await within(screen.getByRole("main")).findByText("Saved topic");
@@ -210,6 +242,7 @@ it("shows related entries on a search result and links to them", async () => {
     projects: [], selectedSessionId: null, total: 1, pageSize: 40, tags: [],
     entries: [{ id: "entry", title: "Saved topic", summary: "Snapshot", tags: [], updatedAt: 0, sourceCount: 1, related: [{ id: "neighbor", title: "Neighbor topic" }] }],
   });
+  window.history.replaceState(null, "", "/?memory=library&memoryQuery=topic");
   render(<MemoryLibrary selected="" />);
   const related = await screen.findByRole("link", { name: "Neighbor topic" });
   expect(related.getAttribute("href")).toContain("memory=entry%2Fneighbor");
@@ -224,7 +257,7 @@ it("keeps failure feedback and retry in the main panel", async () => {
   expect(document.querySelector(".memory-workspace .memory-directory")).toBeNull();
   fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
-  expect(screen.getByLabelText("Search entry titles and content…")).toBeTruthy();
+  expect(screen.getByLabelText("Search entries…")).toBeTruthy();
 });
 
 it("keeps later entries reachable and locates a selected entry beyond the first tree page", async () => {
@@ -238,9 +271,26 @@ it("keeps later entries reachable and locates a selected entry beyond the first 
   render(<MemoryDirectory/>);
   const late=await screen.findByRole("link",{name:"Late entry"});
   expect(late.getAttribute("aria-current")).toBe("page");
-  expect(late.closest('li[data-depth="2"]')?.querySelector('.nb-tree-row>a')?.textContent).toContain("Session");
+  expect(late.closest('li[data-depth="1"]')?.querySelector('.nb-tree-row>a')?.textContent).toContain("Session");
   fireEvent.click(screen.getByRole("button",{name:"Load more"}));
   await waitFor(()=>expect(api.list).toHaveBeenCalledWith(expect.objectContaining({projectId:"p",sessionId:"s",page:1})));
   await waitFor(()=>expect(screen.queryByRole("button",{name:"Load more"})).toBeNull());
   expect(screen.getAllByRole("link",{name:"Late entry"})).toHaveLength(1);
+});
+
+it("merges related entries and links back, and hides history until there is a second version", () => {
+  const entry = { id: "e", version: 1, title: "E", summary: "", content: "", tags: [], related: ["a", "b"], sources: ["s"], sessionId: "x", createdAt: 0, updatedAt: 0, author: "manual" } as unknown as MemoryEntry;
+  const data = {
+    entry, revision: null, catalog: [{ id: "a", title: "Alpha" }, { id: "b", title: "Beta" }],
+    backlinks: [{ id: "b", title: "Beta" }, { id: "c", title: "Gamma" }],
+    sources: [{ id: "s", sessionName: "Source session", kind: "claude", createdAt: 0, digest: "d" }],
+    versions: [{ version: 1, author: "manual", createdAt: 0 }],
+  } as unknown as MemoryDetail;
+  const { rerender } = render(<EntryFacts id="e" data={data} entry={entry} />);
+  expect(screen.getByText("From session")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /Related entries/ }).textContent).toContain("3");
+  expect(screen.getAllByText("Beta")).toHaveLength(1);
+  expect(screen.queryByText("Revision history")).toBeNull();
+  rerender(<EntryFacts id="e" data={{ ...data, versions: [...data.versions, { version: 2, author: "manual", createdAt: 1 }] }} entry={entry} />);
+  expect(screen.getByRole("heading", { name: /Revision history/ })).toBeTruthy();
 });

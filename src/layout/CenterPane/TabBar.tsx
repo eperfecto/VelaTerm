@@ -9,8 +9,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ContextMenu, type MenuItem } from "../../components/ContextMenu";
 import Icons from "../../components/Icons";
-import { GameCenterLink } from "../../components/GameCenterLink";
 import { StatusIndicator } from "../../components/StatusIndicator";
+import { changesTitle } from "../../components/diff/changesTitle";
 import { useT } from "../../i18n";
 import { DOC_EXPORT_PDF_EVENT } from "../../hooks/useKeyboardShortcuts";
 import { isTauri } from "../../ipc/transport";
@@ -25,8 +25,9 @@ import { useSessionMenu } from "../sessionMenu";
 import { MemoryTab } from "../Memory/MemoryTab";
 import { SessionKindIcon } from "../sessionViewers/sessionMeta";
 import { taskUrl } from "./session/taskNavigation";
+import { newSessionUrl, openNewSessionHere } from "../NewSession/navigation";
 import { memoryNavigate } from "../Memory/navigation";
-import { taskIcon } from "./session/TaskView";
+import { taskIcon } from "./session/taskMeta";
 
 /** Close any tab, routing dirty documents through their three-choice confirmation and closing others directly. */
 function closeAnyTab(tabId: string) {
@@ -86,6 +87,7 @@ export function TabBar() {
   const docTabs = useTermStore((s) => s.docTabs);
   const browserTabs = useTermStore((s) => s.browserTabs);
   const taskTabs = useTermStore((s) => s.taskTabs);
+  const newSessionTabs = useTermStore((s) => s.newSessionTabs);
   const setActiveTab = useTermStore((s) => s.setActiveTab);
   const closeTab = useTermStore((s) => s.closeTab);
   const requestCloseDocTab = useTermStore((s) => s.requestCloseDocTab);
@@ -351,9 +353,10 @@ export function TabBar() {
               {...middleCloseProps(tabId)}
             >
               <span style={{ color: "var(--text-dim)", display: "grid", flex: "none" }}>
-                {doc.kind === "image" ? <Icons.image size={13} /> : doc.kind === "artifact" ? <Icons.appWindow size={13} /> : <Icons.file size={13} />}
+                {doc.kind === "image" ? <Icons.image size={13} /> : doc.kind === "artifact" ? <Icons.appWindow size={13} />
+                  : doc.kind === "diff" || doc.kind === "changes" ? <Icons.git size={13} /> : <Icons.file size={13} />}
               </span>
-              <span className="tnm">{doc.title}</span>
+              <span className="tnm">{doc.changes ? `${changesTitle(t, doc.changes)} · ${doc.title}` : doc.title}</span>
               {doc.dirty && (
                 <span
                   title={t("tab.unsavedDot")}
@@ -470,6 +473,46 @@ export function TabBar() {
             </div>
           );
         }
+        // New Session tab: nothing is created until the form is submitted, so closing needs no confirmation.
+        const draft = newSessionTabs[tabId];
+        if (draft) {
+          const isActive = tabId === activeTabId;
+          const title = t("tree.newSession");
+          return (
+            <div
+              key={tabId}
+              ref={(el) => { tabRefs.current[tabId] = el; }}
+              className={tabClass(tabId, isActive)}
+              onClick={() => setActiveTab(tabId)}
+              onContextMenu={(e) => openTabMenu(e, tabId)}
+              onMouseEnter={(e) => onTabEnter(e, title)}
+              onMouseLeave={onTabLeave}
+              {...dragProps(tabId)}
+              {...middleCloseProps(tabId)}
+            >
+              <a href={newSessionUrl(draft)} className="sv-task-tab-link" onClick={(event) => {
+                event.stopPropagation();
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                setActiveTab(tabId);
+              }}>
+              <span style={{ color: "var(--text-dim)", display: "grid", flex: "none" }}>
+                <Icons.plus size={13} />
+              </span>
+              <span className="tnm">{title}</span>
+              </a>
+              <span
+                className="x"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeTab(tabId);
+                }}
+              >
+                <Icons.x size={12} />
+              </span>
+            </div>
+          );
+        }
         const session = sessions.find((s) => s.id === tabId) ?? ephemeralSessions[tabId];
         if (!session) return null;
         const isAgent = session.kind !== "terminal";
@@ -537,7 +580,10 @@ export function TabBar() {
           </div>
         );
       })}
-      <MemoryTab />
+      <MemoryTab
+        otherTabCount={visibleTabs.length}
+        onCloseOthers={() => { for (const id of visibleTabs) closeAnyTab(id); }}
+      />
       {!isShareSurface && <button className="tab-add" title={t("tab.newTerminal")} onClick={() => newScratchTab()}>
         <Icons.plus size={14} />
       </button>}
@@ -548,6 +594,10 @@ export function TabBar() {
       )}
       {/* Permanent entries on the right, separated from the tabs: new terminal, new document, built-in browser tab. */}
       {!isShareSurface && <div style={{ marginLeft: "auto", display: "flex", flex: "none" }}>
+        {/* New Session tab for the current location: beside the active session, else the selected project or group. */}
+        <button className="tab-add" title={t("tree.newSession")} aria-label={t("tree.newSession")} onClick={openNewSessionHere}>
+          <Icons.sparkle size={14} />
+        </button>
         <button className="tab-add" title={t("tab.newTerminal")} onClick={() => newScratchTab()}>
           <Icons.terminal size={14} />
         </button>
@@ -566,7 +616,6 @@ export function TabBar() {
             <Icons.compass size={14} />
           </button>
         )}
-        <GameCenterLink />
       </div>}
       {tip && (
         // Early tooltip uses fixed positioning, ignores pointer events, and uses theme raised-panel color.
@@ -649,8 +698,8 @@ export function TabBar() {
                   ]
                 : [];
             items = [...headItems, ...mdItems, { label: "", separator: true }, ...closeItems];
-          } else if (taskTabs[tabId]) {
-            // A task tab has no session, file or node behind it: close actions only.
+          } else if (taskTabs[tabId] || newSessionTabs[tabId]) {
+            // A task or New Session tab has no session, file or node behind it: close actions only.
             items = closeItems;
           } else {
             // Persisted sessions receive full operations; draft terminals/browsers receive temporary actions

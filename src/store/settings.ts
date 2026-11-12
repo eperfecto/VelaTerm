@@ -14,7 +14,7 @@ import type {
   PaneStyle,
   VisualSettings,
 } from "../theme";
-import type { SessionEngine, SessionKind } from "../types";
+import { hasTerminalInterface, type SessionEngine, type SessionKind } from "../types";
 
 /** User-configurable background keep-alive tab limit, defaulting to 32. */
 export const DEFAULT_MAX_LIVE_TABS = 32;
@@ -62,6 +62,7 @@ export function defaultEngineFor(
   kind: SessionKind,
   agentDefaults: Record<string, AgentDefaultConfig>,
 ): SessionEngine {
+  if (!hasTerminalInterface(kind)) return "chat";
   return agentDefaults[kind]?.engine ?? (kind === "claude" || kind === "codex" ? "chat" : "tui");
 }
 
@@ -146,8 +147,6 @@ export interface PersistedSettings {
   maxLiveTabs: number;
   /** Default terminal shell; empty uses the system default. */
   defaultShell: string;
-  /** Primary UI monospace font; null uses the default JetBrains Mono stack. */
-  uiFontFamily: string | null;
   /** UI font size in pixels; null follows density without an inline `--ui-fs`. */
   uiFontSize: number | null;
   /** Primary terminal monospace font; null uses the default stack. */
@@ -282,7 +281,6 @@ const SETTINGS_DEFAULTS: PersistedSettings = {
   dynamicStatusFilter: true,
   maxLiveTabs: DEFAULT_MAX_LIVE_TABS,
   defaultShell: "",
-  uiFontFamily: null,
   uiFontSize: null,
   termFontFamily: null,
   termFontSize: DEFAULT_TERMINAL_FONT_SIZE,
@@ -403,6 +401,8 @@ export function loadSettings(): PersistedSettings {
         ? Object.fromEntries(Object.entries(parsed.infoCollapsed).filter(([, closed]) => closed === true))
         : {};
     merged.turnFilesView = merged.turnFilesView === true;
+    // The right panel's knowledge tab was removed; a saved value for it, or any unknown value, opens Info.
+    if (!["files", "info", "git"].includes(merged.inspectorTab)) merged.inspectorTab = "info";
     merged.planExecutePrefs = sanitizePlanExecutePrefs(parsed.planExecutePrefs);
     merged.memoryPrefs = sanitizeLaunchChoice(parsed.memoryPrefs);
     merged.sessionTitlePrefs = sanitizeSessionTitlePrefs(parsed.sessionTitlePrefs);
@@ -468,7 +468,6 @@ export const visualOf = (s: PersistedSettings): VisualSettings => ({
   paneStyle: s.paneStyle,
   dividerStyle: s.dividerStyle,
   navLayout: s.navLayout,
-  uiFontFamily: s.uiFontFamily,
   uiFontSize: s.uiFontSize,
   chatFontFamily: s.chatFontFamily,
   chatFontSize: s.chatFontSize,

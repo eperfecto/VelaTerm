@@ -5,7 +5,7 @@ export type SessionId = string;
 export type SessionStatus = "idle" | "running" | "exited" | "error";
 
 /** AI agent kind detected within a session. */
-export type AgentKind = "claude" | "codex" | "opencode" | "copilot" | "cursor" | "antigravity" | "cline" | "pi" | "omp" | "crush" | "kimi" | "kiro" | "grok" | "zoo";
+export type AgentKind = "claude" | "codex" | "opencode" | "copilot" | "cursor" | "antigravity" | "cline" | "pi" | "omp" | "crush" | "kimi" | "kiro" | "grok" | "zoo" | "zcode" | "deepseek";
 
 /**
  * Session kind, which determines launch behavior.
@@ -17,8 +17,9 @@ export type AgentKind = "claude" | "codex" | "opencode" | "copilot" | "cursor" |
  *   events, or a
  *   PreToolUse hook injected through Crush's shadow configuration. Crush exposes only PreToolUse and therefore
  *   reports working only; idle state comes from screen detection.
+ * - deepseek: DeepSeek Harness (`dsh`), which has no terminal interface and runs only in the conversation view.
  */
-export type SessionKind = "terminal" | "claude" | "codex" | "opencode" | "copilot" | "cursor" | "antigravity" | "cline" | "pi" | "omp" | "crush" | "kimi" | "kiro" | "grok" | "zoo" | "browser";
+export type SessionKind = "terminal" | "claude" | "codex" | "opencode" | "copilot" | "cursor" | "antigravity" | "cline" | "pi" | "omp" | "crush" | "kimi" | "kiro" | "grok" | "zoo" | "zcode" | "deepseek" | "browser";
 
 /** Whether a session of this kind runs an agent; terminals and browser pages have no agent behind them. */
 export function isAgentKind(kind: SessionKind): boolean {
@@ -27,7 +28,7 @@ export function isAgentKind(kind: SessionKind): boolean {
 
 /** Agents with permission controls. Claude/Codex/OpenCode obtain their choices from the backend;
  * other supported agents expose a bypass switch. OpenCode injects configuration rather than a flag. */
-export const PERMISSION_TOGGLE_KINDS: SessionKind[] = ["claude", "codex", "opencode", "copilot", "cursor", "antigravity", "cline", "omp", "crush", "kimi", "kiro", "grok", "zoo"];
+export const PERMISSION_TOGGLE_KINDS: SessionKind[] = ["claude", "codex", "opencode", "copilot", "cursor", "antigravity", "cline", "omp", "crush", "kimi", "kiro", "grok", "zoo", "zcode", "deepseek"];
 export function supportsPermissionToggle(kind: SessionKind): boolean {
   return PERMISSION_TOGGLE_KINDS.includes(kind);
 }
@@ -45,9 +46,31 @@ export function supportsPermissionToggle(kind: SessionKind): boolean {
 export type SessionEngine = "tui" | "chat";
 
 /** Agent kinds the chat engine can drive. The backend refuses the rest, so nothing may offer them. */
-export const CHAT_ENGINE_KINDS: SessionKind[] = ["claude", "codex", "opencode", "pi", "omp", "antigravity"];
+export const CHAT_ENGINE_KINDS: SessionKind[] = ["claude", "codex", "opencode", "pi", "omp", "antigravity", "zcode", "copilot", "cursor", "kimi", "grok", "deepseek"];
 export function supportsChatEngine(kind: SessionKind): boolean {
   return CHAT_ENGINE_KINDS.includes(kind);
+}
+
+/** Whether the agent has a terminal interface. DeepSeek Harness has none, and VelaTerm drives ZCode only through
+ * the protocol server of the agent its desktop release bundles, so both only run as a conversation. */
+export function hasTerminalInterface(kind: SessionKind): boolean {
+  return kind !== "deepseek" && kind !== "zcode";
+}
+
+/** Agents driven over the Agent Client Protocol. ACP has no way to add a message to a running turn. */
+export const ACP_CHAT_KINDS: SessionKind[] = ["copilot", "cursor", "kimi", "grok", "deepseek"];
+
+/** Whether a message can be added to the turn already running, rather than waiting behind it. Antigravity
+ * and the ACP agents queue a message sent mid-turn instead; ZCode steers via `guide` delivery, joining the
+ * turn at its next tool boundary. */
+export function supportsSteering(kind: SessionKind): boolean {
+  return kind !== "antigravity" && !ACP_CHAT_KINDS.includes(kind);
+}
+
+/** Whether the conversation view can send images to this agent. The ACP servers of Grok and DeepSeek Harness
+ * decline image prompts. */
+export function acceptsChatImages(kind: SessionKind): boolean {
+  return kind !== "antigravity" && kind !== "grok" && kind !== "deepseek";
 }
 
 /**
@@ -122,6 +145,20 @@ export interface Group {
   worktreeBaseRef?: string | null;
   /** Optional emoji marker shown before the name in the sidebar; see `Session.mark`. */
   mark?: string | null;
+}
+
+/** The group whose worktree applies at `groupId`: that group or its nearest ancestor with a binding. A nested group
+ *  does not copy its parent's binding, so anything that starts work inside a group resolves the worktree here. */
+export function worktreeGroup(groups: Group[], groupId: string | null | undefined): Group | null {
+  const seen = new Set<string>();
+  for (let id = groupId; id && !seen.has(id); ) {
+    seen.add(id);
+    const g = groups.find((x) => x.id === id);
+    if (!g) return null;
+    if (g.worktreePath) return g;
+    id = g.parentGroupId;
+  }
+  return null;
 }
 
 /** A reusable agent launch configuration shown in the new-session menu.
@@ -275,6 +312,14 @@ export interface SessionRuntime {
    * missing). Runtime storage survives tab switches and pane remounts. Relevant only to agent sessions.
    */
   agentInstalling?: boolean;
+  /**
+   * Completion-marker token of the running one-click install. While set, the install locator waits for the
+   * shell to report that the install command returned before it trusts a located binary, because an executable
+   * can appear long before its installer is done. Null when the backend could not add the marker step, which
+   * leaves location polling alone in charge. Replaced by every one-click install and read only while
+   * agentInstalling is set.
+   */
+  agentInstallToken?: string | null;
   /**
    * Executable path discovered after one-click installation, or entered by hand in the install card's path
    * field, and written into settings automatically. When non-empty, AgentInstallCard shows the Installation

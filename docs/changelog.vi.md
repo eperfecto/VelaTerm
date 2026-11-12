@@ -1,3 +1,74 @@
+## v0.3.0 — 2026-11-08
+
+- 🔏 Bản macOS nay được ký bằng chứng chỉ của Vlinx Software, Inc. thay cho chứng chỉ trước đây, nên sau khi cập nhật có thể bạn cần cấp lại một số quyền của macOS, và các mục lưu trong Chuỗi khóa, như mật khẩu kết nối từ xa, cần được cho phép lại: khi được hỏi, hãy nhập mật khẩu đăng nhập và chọn “Luôn cho phép”.
+- 🗂️ Phiên giờ được chia thành ba loại “Nhiệm vụ”, “Dự án” và “Trò chuyện”, chọn ở đầu trang “Phiên mới”, còn thanh bên trái được sắp xếp thành các bộ sưu tập cố định “Dự án”, “Terminal”, “Nhiệm vụ” và “Trò chuyện”, trong đó “Terminal” liệt kê mọi terminal đang chạy cùng các tác nhân được phát hiện trong đó.
+- 🧭 Thanh hoạt động mới dọc theo cạnh trái giúp chuyển qua lại giữa “Dự án”, “Terminal”, “Nhiệm vụ”, “Trò chuyện”, “Phiên đã lưu trữ” và “Kho kiến thức”, đồng thời đặt “Cài đặt”, “Tài khoản”, “Phản hồi”, “Chia sẻ” và “Trung tâm trò chơi” ở phía dưới.
+- 📦 Có thể lưu trữ toàn bộ một bộ sưu tập bằng “Lưu trữ bộ sưu tập” trong menu chuột phải, và khôi phục bất kỳ phiên nào trong đó sẽ đưa bộ sưu tập trở lại.
+- 🆕 Trang “Phiên mới” cho phép chọn dự án, tác nhân, mô hình, mức suy luận và quyền trong một khung cài đặt phía trên ô nhập, và danh sách dự án có thể tạo, nhập hoặc sao chép dự án từ Git mà không cần rời khỏi trang.
+- 🩺 Khi mở một cuộc hội thoại, VelaTerm kiểm tra xem tác nhân của cuộc hội thoại đó đã được cài đặt và đăng nhập hay chưa: nếu chưa, lời nhắc cài đặt hoặc bảng đăng nhập sẽ xuất hiện, và nút “Gửi” bị vô hiệu hóa cho đến khi tác nhân sẵn sàng.
+- 🔧 Tác nhân chỉ được coi là đã cài đặt khi thực sự chạy được, nên bản cài đặt dở dang hoặc bản nâng cấp bị lỗi sẽ hiển thị hướng dẫn cài đặt, cài đặt một chạm chỉ hoàn tất khi tác nhân đã khởi động, và bản cập nhật khiến tác nhân không thể khởi động sẽ được báo là chưa hoàn tất.
+- 🪟 Lệnh mới `vartifact <file|URL>` mở tệp trong một bảng bên cạnh cuộc hội thoại, có bản xem trước trực tiếp cho HTML và chế độ xem có thể chỉnh sửa cho Markdown, hình ảnh và mã, lưu bằng ⌘S, còn `vopen` giờ luôn mở một thẻ.
+- 💤 Gợi ý chữ xám trên dòng trong terminal nay mặc định tắt, hoàn thành lệnh trở về “Chỉ Tab”; bản cập nhật này chuyển thiết lập “Trên dòng + Tab” hiện có sang “Chỉ Tab” một lần, và bạn có thể bật lại gợi ý trong phần cài đặt.
+- ⌨️ Ở chế độ “Trên dòng + Tab”, thiết lập mới “Phím Tab” cho phép nhấn Tab để chấp nhận gợi ý chữ xám, nhấn Tab lần nữa để hoàn tác và liệt kê các kết quả khớp, đồng thời thanh tiêu đề terminal cho biết những phím có thể dùng trong lúc gợi ý đang hiển thị.
+- 🎨 Khi chỉnh sửa dòng lệnh Zsh, phần văn bản đã gõ không còn bị chuyển sang màu xám, và phần mô tả của “Gợi ý lệnh” trong “Cài đặt” khớp với chế độ đang chọn.
+- 📡 Hoàn thành lệnh bằng Tab qua kết nối từ xa chỉ cần một lượt khứ hồi.
+- 💬 Các phiên ZCode hỗ trợ bổ sung chỉ dẫn bằng Option/Alt+Enter, và tin nhắn sẽ được thêm vào lượt đang chạy sau lần gọi công cụ tiếp theo.
+- 🔑 ZCode 3.15 trở lên có thể đăng nhập bằng OAuth, và GLM Coding Plan đã mua không còn bị báo là không có hoặc đã dùng hết.
+- 📥 Có thể nhập phiên từ Pi, OMP, ZCode và DeepSeek Harness, và hộp thoại “Nhập phiên” có thể lọc theo tác nhân.
+- 🔤 Toàn bộ giao diện dùng phông Inter, còn mã, đầu ra công cụ, đường dẫn và terminal vẫn dùng JetBrains Mono, và thiết lập phông chữ giao diện đã được gỡ bỏ.
+- 📚 Kho kiến thức hiển thị các mục trong một cột ở giữa, liệt kê các phiên đã lưu trữ dưới dạng cây gồm dự án, nhóm và phiên cha kèm chế độ xem “Theo ngày”, và cho phép cơ sở tri thức cục bộ chuyển đổi giữa dạng thẻ và dạng danh sách.
+- 🔔 Trên macOS và Windows, khi nhấp vào một thông báo, chính cửa sổ đã gửi thông báo đó sẽ được đưa lên trước, nên thông báo từ một cửa sổ từ xa không còn kéo cửa sổ chính lên che mất cửa sổ đó.
+- 📋 Trên macOS, thao tác dán không còn làm ứng dụng bị treo khi ứng dụng nguồn của bộ nhớ tạm ngừng phản hồi: VelaTerm sẽ dừng chờ sau 5 giây và thông báo cho bạn.
+- 📝 Trong trình soạn thảo mã nguồn, “Chọn tất cả” từ menu macOS hoặc menu chuột phải sẽ chọn toàn bộ tệp, nên khi sao chép không còn thiếu các dòng nằm ngoài màn hình.
+- 📏 Ô nhập không còn giãn ra rồi lại co vào sau khi bạn gửi tin nhắn.
+- 📂 “Terminal”, “Nhiệm vụ” và “Trò chuyện” hiển thị nội dung ở dạng mở rộng, bất kể những gì đang được thu gọn trong “Dự án”.
+- 🔄 Các phiên mới không còn đồng bộ thất bại với lỗi `cursor_expired` sau khi bạn mở cuộc hội thoại của một nhiệm vụ con.
+- 🧯 Kết nối lại sau một thời gian dài mất kết nối với lượng dữ liệu tồn đọng lớn không còn khiến cuộc hội thoại bị kẹt với nút “Gửi” bị vô hiệu hóa.
+- 🪞 Kết nối từ xa tới máy Windows dùng Cygwin hoặc Git Bash sẽ dùng ứng dụng VelaTerm cho máy tính đang chạy sẵn ở đó, nên gửi tin nhắn không còn thất bại khi ứng dụng đó đang chạy phiên.
+- ⚡ Việc lập chỉ mục các cuộc hội thoại Codex dài chỉ còn tốn khoảng một nửa thời gian CPU so với trước.
+- 🔗 Liên kết đến artifact của Claude sẽ mở trong trình duyệt mặc định của bạn.
+- 🗄️ Nút “Phiên đã lưu trữ” đã được chuyển từ thanh thẻ sang thanh hoạt động.
+
+## v0.2.15 — 2026-11-03
+
+- 🆕 Thẻ phiên mới cho phép chọn dự án, tác nhân, mô hình, mức suy luận, quyền, chế độ xem và một worktree riêng ngay quanh ô nhập ở giữa, rồi bắt đầu phiên với nhiệm vụ đầu tiên của bạn; bạn có thể mở thẻ này từ “Phiên mới…” trong các menu tạo phiên mới, từ nút ngôi sao trên thanh thẻ hoặc từ khung giữa đang trống.
+- 🐋 DeepSeek Harness (`dsh`) được bổ sung làm tác nhân chạy ở chế độ hội thoại, có thẻ công cụ, quá trình suy luận, yêu cầu cấp quyền, chuyển đổi mô hình và mức suy luận, mức sử dụng ngữ cảnh, cùng lịch sử được tiếp tục sau khi mở lại.
+- 🧩 Copilot, Cursor, Kimi và Grok giờ đã có thể chạy ở chế độ hội thoại.
+- 🤖 Zhipu ZCode được bổ sung làm tác nhân chạy ở chế độ hội thoại: khi ứng dụng máy tính ZCode đã được cài đặt, tác nhân này dùng tác nhân tích hợp sẵn của ứng dụng đó, và bạn có thể đăng nhập bằng Z.ai hoặc Zhipu BigModel, hoặc chuyển qua lại giữa hai nền tảng này, mà không phải rời khỏi cuộc hội thoại.
+- 📊 Với các phiên ZCode, bảng Info hiển thị số token, tỷ lệ trúng bộ đệm và tốc độ tạo của lượt này, mức sử dụng ngữ cảnh, cùng mức sử dụng trong 5 giờ và hằng tuần của GLM Coding Plan.
+- 📦 Có thể cài đặt ZCode (trên macOS và Windows) và DeepSeek Harness ngay trong cuộc hội thoại bằng “Cài đặt ngay”, và tin nhắn gửi không thành công sẽ được gửi lại khi quá trình cài đặt hoàn tất.
+- ⬆️ Nhấn “Bản cập nhật” trên huy hiệu phiên bản của tác nhân sẽ mở một hộp thoại chạy lệnh cập nhật riêng của tác nhân đó và hiển thị đầu ra trực tiếp, kèm nút “Khởi động lại tác nhân” để cuộc hội thoại tiếp tục trên phiên bản mới.
+- 🔌 Kết nối từ xa có nhiều terminal đang bận không còn bị ngắt liên tục sau khi kết nối lại.
+- 🔄 Sau khi máy chủ từ xa khởi động lại, các phiên không còn bị kẹt ở trạng thái đang đồng bộ trong lúc terminal của chúng khởi động.
+- 🔁 Khi một cuộc hội thoại đồng bộ không thành công, việc đồng bộ sẽ tự động được thử lại, và khu vực bên dưới ô nhập hiển thị trạng thái kèm nút “Thử lại”.
+- 🐢 Kết nối SSH tới máy từ xa đang tải nặng không còn bị hết thời gian chờ trong lúc đợi máy chủ phản hồi.
+- 🔗 “Kết nối lại ngay” trong cửa sổ từ xa sẽ dựng lại đường hầm SSH ngay lập tức thay vì chờ đến lần tự động thử lại tiếp theo.
+- 🪟 Trên macOS và Windows, đóng cửa sổ chính sẽ yêu cầu xác nhận và vẫn giữ các cửa sổ từ xa đang mở; trên macOS, ứng dụng vẫn ở lại trên Dock, và khi mở lại cửa sổ chính, không gian làm việc đã lưu của bạn sẽ được khôi phục.
+- 🧾 Các tệp đã thay đổi trong danh sách “This turn” và trong bảng Git mở diff trong một thẻ thay vì trong hộp thoại.
+- ⌨️ “Gợi ý lệnh” trong terminal không còn bật lên khi bạn đang gõ: Zsh hiển thị lệnh khớp gần nhất trong lịch sử dưới dạng chữ xám ngay trên dòng, có thể chấp nhận bằng → hoặc End, và danh sách chỉ xuất hiện khi bạn nhấn Tab; bạn có thể chọn “Trên dòng + Tab”, “Chỉ Tab” hoặc “Tắt” trong Cài đặt.
+- 💬 Trong bản xem trước Artifact, bạn có thể nhấp vào các phần tử trên trang để để lại bình luận cho phiên, và các tùy chọn được đánh dấu trên trang được liệt kê phía trên bản xem trước để bạn chuyển qua lại giữa chúng và chọn một tùy chọn.
+- 🔍 Tìm kiếm trong hội thoại dùng tìm kiếm toàn văn, khớp với tất cả các từ bạn nhập theo bất kỳ thứ tự nào, và hiển thị “Không có kết quả” thay vì “Đang tải cuộc trò chuyện…” khi không có nội dung nào khớp.
+- 🧰 Các kỹ năng đi kèm như vspawn và vrefer giờ được cài vào thư mục dùng chung `~/.agents/skills`, nhờ đó Pi, ZCode và DeepSeek Harness có thể sử dụng chúng, và Codex không còn liệt kê mỗi kỹ năng hai lần.
+- 📋 Kết quả `/code-review` trong chế độ hội thoại hiển thị dưới dạng danh sách các phát hiện, kèm vị trí tệp có thể nhấp vào.
+- 🌐 Khi một phiên tắt tính năng dịch câu trả lời, biểu mẫu câu hỏi có nút “Dịch” để chỉ dịch riêng biểu mẫu đó.
+- ✂️ Có thể chọn và sao chép câu hỏi cùng các tùy chọn trên biểu mẫu câu hỏi.
+- 🌳 Cây phiên đặt các nhóm và phiên cha thuộc một worktree, kể cả những phiên được khởi động trực tiếp trong thư mục worktree, vào dưới hàng của worktree đó.
+- 🌲 Các nhóm lồng nhau dùng worktree của nhóm cha gần nhất có worktree khi tạo phiên mới, thực hiện thao tác Git và hợp nhất.
+- 🔎 Đổi tên một mục trong lúc cây phiên đang được lọc không còn khiến mục đó biến mất khỏi kết quả.
+- ⏳ Khi OpenCode chạm đến giới hạn sử dụng, một dòng lỗi duy nhất sẽ nêu rõ giới hạn đó, và nếu OpenCode cho biết thời điểm đặt lại, cuộc hội thoại sẽ tự động tiếp tục sau khi giới hạn được đặt lại.
+- 📸 Lớp phủ chụp màn hình xuất hiện nhanh hơn sau khi bạn nhấn phím tắt.
+- 🚀 Cửa sổ hiển thị khung bố cục ngay khi vừa mở, và lượng mã cần tải khi khởi động giảm xuống còn chưa đến một nửa.
+- ⚡ `vspawn --yes` tạo phiên con trực tiếp mà không hiển thị thẻ khởi chạy.
+- 🛡️ Kiểm toán mã nguồn dùng Codex Security 0.8.2 và có thể chạy với DeepSeek, đồng thời biểu mẫu kiểm toán và biểu mẫu “Thêm vào kho kiến thức” dùng cùng các trường tác nhân, mô hình và mức suy luận như khi tạo phiên mới, và chấp nhận cả những mô hình không có trong danh sách.
+- 🌗 Trên macOS, khi giao diện được đặt theo hệ thống, thanh tiêu đề chuyển sang màu tối cùng với phần còn lại của cửa sổ.
+- 📥 Cài đặt một chạm chỉ báo hoàn tất sau khi lệnh cài đặt đã chạy xong, và bản cài đặt Zoo Code chưa hoàn chỉnh được xem là chưa cài đặt thay vì làm ứng dụng gặp sự cố khi khởi động.
+- 🖥️ Chuyển một phiên sang chế độ terminal không còn thất bại với lỗi “The initial task was already claimed”.
+- 🧟 Các phiên không còn báo “The previous agent is still running” sau khi ID tiến trình của tác nhân cũ được một chương trình khác sử dụng lại.
+- 🧯 Sau khi trình duyệt kết nối lại, các cuộc hội thoại không còn giữ lại dòng TransportError từ lần mất kết nối.
+- 🪞 Khi bật phản chiếu, việc mở và đóng thẻ không còn biến các phiên ở chế độ hội thoại thành phần giữ chỗ “Đã khôi phục từ không gian làm việc đã lưu”.
+- 📜 Các cuộc hội thoại Claude có chứa câu trả lời bị loại bỏ đã tải lịch sử bình thường trở lại.
+- 🧠 Các mô hình Claude tích hợp sẵn nhưng không có trong danh mục mô hình của website vẫn xuất hiện trong biểu mẫu tạo phiên mới và biểu mẫu khởi chạy.
+
 ## v0.2.14 — 2026-10-23
 
 - 🔌 Kết nối từ xa không còn ngắt và kết nối lại mỗi giây khi đang mở nhiều cuộc hội thoại dài, nên các cuộc hội thoại đó lại mở được bình thường.

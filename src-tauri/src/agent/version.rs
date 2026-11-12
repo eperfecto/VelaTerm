@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use crate::{host::AppCtx, models::SessionKind};
@@ -16,6 +15,8 @@ pub struct AgentVersion {
     pub update_available: bool,
     pub check_status: &'static str,
     pub docs_url: Option<String>,
+    /// The self-update command the badge offers to run, present only while an update is available.
+    pub update_command: Option<String>,
 }
 
 #[derive(Default)]
@@ -43,43 +44,37 @@ pub fn for_session(app: &AppCtx, id: &str, check_updates: bool) -> Result<AgentV
         else {newer(version.as_deref(), latest.version.as_deref())};
     let check_status = if latest.checked_at.is_none() { "unchecked" }
         else if latest.version.is_some() { "checked" } else { "failed" };
+    let update_command = if update_available { super::update::command_for(app, &session, version.as_deref()) } else { None };
     Ok(AgentVersion {
         version, running, latest_version: latest.version, update_available, check_status,
-        docs_url: super::install::install_recipe(session.kind.as_str()).map(|r|r.docs_url),
+        docs_url: super::install::install_recipe(session.kind.as_str()).map(|r|r.docs_url), update_command,
     })
 }
 
 /// Capture the selected executable before launch, retaining that version throughout the process lifetime.
 pub fn installed(bin: &str) -> Option<String> {
-    let mut command = crate::host::command(bin);
-    super::executable::prepare_command(&mut command, bin);
-    command.arg("--version").env("NO_COLOR", "1")
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-    let mut child = command.spawn().ok()?;
-    let stdout = child.stdout.take()?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let result = stdout.take(16_384).read_to_end(&mut bytes);
-        let _ = tx.send(result.ok().map(|_|bytes));
-    });
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let success = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.success(),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            _ => { let _ = child.kill(); let _ = child.wait(); break false; }
-        }
-    };
-    if !success { return None; }
-    let bytes = rx.recv_timeout(Duration::from_millis(100)).ok()??;
-    parse(&String::from_utf8_lossy(&bytes))
+    match super::health::run_version(bin, Duration::from_secs(3)) {
+        super::health::Outcome::Exited { success: true, stdout } => parse(&stdout),
+        _ => None,
+    }
 }
 
 fn parse(text: &str) -> Option<String> {
     text.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | ',' | '"' | '/'))
-        .filter_map(|token| semver::Version::parse(token.trim_start_matches('v')).ok())
-        .next().map(|v|v.to_string())
+        .filter_map(|token| {
+            // Copilot ends its sentence with the version ("1.0.63."), and Cursor numbers releases by date
+            // with zero-padded parts ("2026.07.01-41b2de7"), which semver rejects; the date is kept as written.
+            let token = token.trim_start_matches('v').trim_end_matches('.');
+            if let Ok(version) = semver::Version::parse(token) { return Some(version.to_string()); }
+            let (core, rest) = token.split_at(token.find(['-', '+']).unwrap_or(token.len()));
+            let parts: Vec<&str> = core.split('.').collect();
+            let numeric = parts.len() == 3 && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
+            if !numeric { return None; }
+            let unpadded = parts.iter().map(|part| part.trim_start_matches('0').to_string()).map(|part| if part.is_empty() { "0".into() } else { part })
+                .collect::<Vec<_>>().join(".");
+            semver::Version::parse(&format!("{unpadded}{rest}")).ok().map(|_| token.to_string())
+        })
+        .next()
 }
 
 fn newer(current: Option<&str>, latest: Option<&str>) -> bool {
@@ -95,6 +90,7 @@ fn source(kind: SessionKind) -> Option<(String, &'static str)> {
         SessionKind::Codex => Some("@openai/codex"),
         SessionKind::Opencode => Some("opencode-ai"),
         SessionKind::Pi => Some("@earendil-works/pi-coding-agent"),
+        SessionKind::Deepseek => Some("@deepseek-ai/dsh"),
         _ => None,
     };
     if let Some(package) = package { return Some((format!("https://registry.npmjs.org/{package}/latest"), "version")); }
@@ -164,6 +160,14 @@ fn newer_opencode_v2(current: Option<&str>, latest: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_the_version_lines_of_acp_agents() {
+        assert_eq!(parse("GitHub Copilot CLI 1.0.63.\nRun 'copilot update' to check for updates.").as_deref(), Some("1.0.63"));
+        assert_eq!(parse("2026.07.01-41b2de7").as_deref(), Some("2026.07.01-41b2de7"));
+        assert_eq!(parse("grok 1.0.46 (2765805b9442)").as_deref(), Some("1.0.46"));
+        assert_eq!(parse("2.1.1").as_deref(), Some("2.1.1"));
+    }
 
     #[test]
     fn parses_cli_output_and_preserves_prereleases() {
