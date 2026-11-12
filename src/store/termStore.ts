@@ -3527,18 +3527,23 @@ export const useTermStore = create<TermStore>((set, get) => ({
         focusedPaneId: null,
       };
     });
+    // A New Session tab belongs to its target project, so scoped tabs follow it like task tabs do.
+    set((s) => ({ activeProjectId: scopedActiveProject(s) }));
     saveLayoutTick();
     return opened;
   },
 
-  retargetNewSessionTab: (id, target) =>
+  retargetNewSessionTab: (id, target) => {
     set((state) => {
       const tab = state.newSessionTabs[id];
       if (!tab) return {};
       return { newSessionTabs: { ...state.newSessionTabs, [id]: { ...tab,
         projectId: target.projectId, groupId: target.groupId ?? null, parentSessionId: target.parentSessionId ?? null,
       } } };
-    }),
+    });
+    // Moving the shown draft to another project keeps it visible by revealing that project.
+    if (get().activeTabId === id) set((s) => ({ activeProjectId: scopedActiveProject(s) }));
+  },
 
   setDocTabPath: (id, path) =>
     set((state) => {
