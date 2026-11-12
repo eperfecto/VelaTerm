@@ -504,6 +504,30 @@ export function ChatPane({
   const scrollGeometry = useRef({ height: 0, viewport: 0 });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Give the composer keyboard focus when this conversation becomes the visible active session, as terminals
+  // do. Switching tabs changes only store state and visibility, so without this the keyboard stays wherever it
+  // was until the input is clicked. Wait one frame for the pane to be displayed. An activation mirrored from
+  // another client does not take the keyboard from whoever is typing here; its marker is consumed instead.
+  // A click inside this pane also activates it (split panes); that click already placed focus where the user
+  // wanted it — a search box, a permission card, a text selection — so it is left alone too. Phones are
+  // left alone so switching does not pop the on-screen keyboard.
+  const isActiveSession = useTermStore((s) => s.activeSessionId === session.id);
+  // Set by a click that is about to activate this pane, read and cleared by the effect below.
+  const activatedByClick = useRef(false);
+  useEffect(() => {
+    const byClick = activatedByClick.current;
+    activatedByClick.current = false;
+    if (hidden || !isActiveSession) return;
+    if (useTermStore.getState().mirrorFocusSessionId === session.id) {
+      useTermStore.setState({ mirrorFocusSessionId: null });
+      return;
+    }
+    if (readOnly || mobile) return;
+    if (byClick) return;
+    const raf = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [hidden, isActiveSession, readOnly, mobile, session.id]);
+
   // The panel beside this conversation: an HTML page it wrote, or any file `vartifact` opened. Phones have no
   // room for it, so cards there open the page as a tab instead.
   const [dockPath, setDockPath] = useState<string | null>(null);
@@ -2516,7 +2540,11 @@ export function ChatPane({
       className="term-mount"
       ref={attachChatInputGuard}
       onMouseDown={() => {
-        if (paneId) onActivate(paneId, session.id);
+        if (paneId) {
+          // Only a click that changes the active session runs the focus effect, so only that one is marked.
+          activatedByClick.current = useTermStore.getState().activeSessionId !== session.id;
+          onActivate(paneId, session.id);
+        }
       }}
       // Escape stops the running turn, the way it does in the agent's own terminal interface. The two
       // places that give Escape a local meaning — the completion list and a queued message being
