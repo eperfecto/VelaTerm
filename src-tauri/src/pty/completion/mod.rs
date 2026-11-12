@@ -6,7 +6,11 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub const MODE_KEY: &str = "terminal-completion-mode";
-pub const DEFAULT_MODE: &str = "auto";
+/// Tab only. Inline history hints stay opt-in until they are mature enough to be the default.
+pub const DEFAULT_MODE: &str = "tab";
+/// What Tab does while an inline history hint is on screen: `accept` takes the hint, `complete` always completes.
+pub const TAB_BEHAVIOR_KEY: &str = "terminal-tab-behavior";
+pub const DEFAULT_TAB_BEHAVIOR: &str = "complete";
 /// Native completion stays disabled on Windows for now. Every request forks MSYS helper processes there, and
 /// no Bash-family shell offers a startup-file hook, so the bootstrap command has to be typed into the terminal.
 /// Re-enable once per-request process creation and typing latency are reduced on that platform.
@@ -14,6 +18,8 @@ pub const AVAILABLE: bool = !cfg!(windows);
 pub const DEBOUNCE_MS: u64 = 25;
 pub const QUERY_KEY: &[u8] = b"\x1b[24;5~";
 pub const ACCEPT_KEY: &[u8] = b"\x1b[23;5~";
+/// Same as `QUERY_KEY`, except that the shell accepts a visible hint instead of collecting candidates.
+pub const QUERY_HINT_KEY: &[u8] = b"\x1b[21;5~";
 const PREFIX: &[u8] = b"\x1b]6973;";
 const LIMIT: usize = 64;
 
@@ -28,6 +34,12 @@ pub struct Snapshot {
     pub items: Vec<Item>,
     pub query: String,
     pub pending: bool,
+    /// The last Tab accepted the inline hint rather than collecting candidates; `undo` can still revert it.
+    pub hint_accepted: bool,
+    /// The candidates share text beyond the typed token, which the `extend` action inserts like native Tab.
+    pub extendable: bool,
+    /// Set only on a query's reply: the backend already inserted the single match or the shared text.
+    pub applied: bool,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -46,6 +58,10 @@ pub struct State {
     collecting: Vec<Item>,
     collecting_revision: Option<u64>,
     collecting_query: String,
+    collecting_extendable: bool,
+    collecting_hint_accepted: bool,
+    /// The shell declared the `QUERY_HINT_KEY` binding. Sending it to any other shell would type garbage.
+    pub hint_capable: bool,
     pub owner: Option<String>,
 }
 
@@ -59,6 +75,9 @@ impl Default for State {
             collecting: Vec::new(),
             collecting_revision: None,
             collecting_query: String::new(),
+            collecting_extendable: false,
+            collecting_hint_accepted: false,
+            hint_capable: false,
             owner: None,
         }
     }
@@ -76,12 +95,14 @@ impl State {
     pub fn input(&mut self, data: &str) {
         self.snapshot.input_version = self.snapshot.input_version.wrapping_add(1);
         self.snapshot.items.clear();
+        self.snapshot.extendable = false;
+        self.snapshot.hint_accepted = false;
         // The queued Enter must close the gate before its pre-execution marker reaches the reader.
         let paste = data.starts_with("\x1b[200~") && data.ends_with("\x1b[201~");
         if !paste
             && data
                 .chars()
-                .any(|c| matches!(c, '\r' | '\n' | '\u{3}' | '\u{4}' | '\u{26}'))
+                .any(|c| matches!(c, '\r' | '\n' | '\u{3}' | '\u{4}' | '\u{1a}'))
         {
             self.snapshot.ready = false;
         }
@@ -98,6 +119,7 @@ impl State {
         match fields.next() {
             Some("U") => {
                 self.snapshot = Snapshot::default();
+                self.hint_capable = false;
                 self.requested = None;
                 self.collecting_revision = None;
                 self.collecting.clear();
@@ -106,6 +128,8 @@ impl State {
                 self.snapshot.supported = true;
                 self.snapshot.ready = true;
                 self.snapshot.items.clear();
+                self.snapshot.extendable = false;
+                self.snapshot.hint_accepted = false;
                 self.requested = None;
                 self.snapshot.pending = false;
                 self.collecting_revision = None;
@@ -113,6 +137,8 @@ impl State {
             Some("X") => {
                 self.snapshot.ready = false;
                 self.snapshot.items.clear();
+                self.snapshot.extendable = false;
+                self.snapshot.hint_accepted = false;
                 self.requested = None;
                 self.snapshot.pending = false;
                 self.collecting_revision = None;
@@ -120,8 +146,13 @@ impl State {
             Some("A") => {
                 self.collecting.clear();
                 self.collecting_query.clear();
+                self.collecting_extendable = false;
+                self.collecting_hint_accepted = false;
                 self.collecting_revision = fields.next().and_then(|s| s.parse().ok());
             }
+            Some("H") => self.hint_capable = true,
+            Some("Y") if self.collecting_revision.is_some() => self.collecting_hint_accepted = true,
+            Some("E") if self.collecting_revision.is_some() => self.collecting_extendable = true,
             Some("T") if self.collecting_revision.is_some() => {
                 self.collecting_query = fields.next().and_then(unhex).unwrap_or_default();
             }
@@ -154,6 +185,8 @@ impl State {
                     if self.snapshot.ready && version == self.snapshot.input_version {
                         self.snapshot.query = self.collecting_query.clone();
                         self.snapshot.items = std::mem::take(&mut self.collecting);
+                        self.snapshot.extendable = self.collecting_extendable && self.snapshot.items.len() > 1;
+                        self.snapshot.hint_accepted = self.collecting_hint_accepted;
                         for item in &mut self.snapshot.items {
                             item.matches = match_ranges(&item.label, &self.snapshot.query);
                         }
@@ -362,6 +395,13 @@ pub fn configure_bash_startup(state: &State, binaries: &[String]) -> Result<Path
 
 fn startup_path(binaries: &[String]) -> String {
     crate::agent::executable::path_startup_script(&crate::agent::executable::binary_dirs(binaries))
+}
+
+/// Share the mode with running shells, which read it at each prompt to decide whether to draw history hints.
+pub fn write_mode(data_dir: &Path, mode: &str) -> Result<(), String> {
+    let dir = data_dir.join("terminal-completion");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("mode"), mode).map_err(|e| e.to_string())
 }
 
 /// Install only in application data; shell profiles are never edited.

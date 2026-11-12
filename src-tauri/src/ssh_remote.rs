@@ -1327,8 +1327,22 @@ fn read_file_cmd(sys: &RemoteSystem, path: &str) -> String {
 
 /// Remote command that prints `alive` when `pid` is a running process of the given kind. Windows reuses
 /// PIDs quickly, so there the process name must also match one of `names` (case-insensitive prefixes).
-fn pid_alive_cmd(sys: &RemoteSystem, pid: u32, names: &[&str]) -> String {
+///
+/// `win_pid` says the PID was recorded by a native Windows process (the desktop app's local link), as
+/// opposed to `$!` from the start script (run.json), which under Cygwin or Git Bash is the shell's own PID.
+fn pid_alive_cmd(sys: &RemoteSystem, pid: u32, names: &[&str], win_pid: bool) -> String {
     match sys.shell {
+        // Cygwin and Git Bash on Windows: their `kill` cannot see a Windows PID. `ps -W` lists every
+        // Windows process with its WINPID in the fourth column (fifth when a Cygwin status flag leads the
+        // row) and the executable path last.
+        RemoteShell::Posix if win_pid && sys.os == "windows" => {
+            let pat = names.join("|");
+            format!(
+                "ps -W 2>/dev/null | awk -v p={pid} '{{o=($1~/^[0-9]+$/)?0:1}} $(4+o)==p \
+                 {{c=tolower($0); gsub(/\\\\/,\"/\",c); n=split(c,a,\"/\"); \
+                 if(a[n]~/^({pat})/){{print \"alive\"; exit}}}}'"
+            )
+        }
         RemoteShell::Posix => format!("kill -0 {pid} 2>/dev/null && echo alive"),
         RemoteShell::Powershell => {
             let cond = names
@@ -1354,7 +1368,7 @@ fn read_local_link(t: &dyn SshTransport, sys: &RemoteSystem) -> Option<crate::we
     let path = shell_join(sys, &desktop_data_dir_expr(sys), crate::web::local_link::FILENAME);
     let out = shell_exec(t, sys, &read_file_cmd(sys, &path)).ok()?;
     let link = crate::web::local_link::parse(&out)?;
-    let alive = shell_exec(t, sys, &pid_alive_cmd(sys, link.pid, &["velaterm", "vlx-term"]))
+    let alive = shell_exec(t, sys, &pid_alive_cmd(sys, link.pid, &["velaterm", "vlx-term"], true))
         .map(|o| o.trim() == "alive")
         .unwrap_or(false);
     if alive {
@@ -1616,7 +1630,7 @@ fn detect_running(t: &dyn SshTransport, sys: &RemoteSystem) -> Option<RunState> 
         return None;
     }
     // Windows reuses PIDs quickly, so there the process must actually be vela-server.
-    let alive = shell_exec(t, sys, &pid_alive_cmd(sys, rs.pid, &["vela-server"]))
+    let alive = shell_exec(t, sys, &pid_alive_cmd(sys, rs.pid, &["vela-server"], false))
         .map(|o| o.trim() == "alive")
         .unwrap_or(false);
     if alive {
@@ -1660,11 +1674,17 @@ pub fn kill_remote_service(host: &str, session: &str) {
 ///
 /// TCP alone is insufficient because ssh -L listens before the remote service is ready. Send a real HTTP
 /// request; any status, including 401/404, proves serving and prevents false-positive readiness.
+///
+/// Each probe may use all the time left before the deadline. A service that is up but slow (a remote
+/// desktop app under heavy load can take 5-15 s per request) must not be cut off and retried forever; a
+/// service that is not up yet fails the probe at once (the tunnel closes the connection), so retries
+/// stay quick in that case.
 pub(crate) fn wait_port_healthy(port: u16, timeout: Duration) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}/");
     let deadline = Instant::now() + timeout;
     loop {
-        match ureq::get(&url).timeout(Duration::from_secs(3)).call() {
+        let left = deadline.saturating_duration_since(Instant::now()).max(Duration::from_secs(1));
+        match ureq::get(&url).timeout(left).call() {
             Ok(_) => return Ok(()),
             // Any HTTP status means the remote service is serving.
             Err(ureq::Error::Status(_, _)) => return Ok(()),
@@ -2131,8 +2151,23 @@ fn sleep_wanted(ctl: &TunnelCtl, total: Duration) -> bool {
     ctl.wanted.load(Ordering::SeqCst)
 }
 
-/// Start a monitor for the original local port. Notify reconnecting only after the first failed attempt,
-/// up on recovery, and down after automatic retries give up.
+/// Backoff wait that a manual kick cuts short, consuming the kick so the next attempt starts at once.
+/// Returns false immediately when no longer wanted.
+fn sleep_until_kick(ctl: &TunnelCtl, total: Duration) -> bool {
+    let deadline = Instant::now() + total;
+    loop {
+        if !ctl.wanted.load(Ordering::SeqCst) {
+            return false;
+        }
+        if ctl.kick.swap(false, Ordering::SeqCst) || Instant::now() >= deadline {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Start a monitor for the original local port. Notify reconnecting after each failed attempt (never
+/// before the first one), up on recovery, and down after automatic retries give up.
 pub fn watch_tunnel(
     host: String,
     session: String,
@@ -2180,9 +2215,9 @@ pub fn watch_tunnel(
             // ── Dead child and port: bounded automatic rebuild with backoff ──
             crate::diagnostic_warn!("[ssh] tunnel for {host} ({session}) died; rebuilding…");
             let mut recovered = false;
-            let mut notified = false;
             for (i, secs) in BACKOFF_SECS.iter().enumerate() {
-                if !sleep_wanted(&ctl, Duration::from_secs(*secs)) {
+                // A manual kick skips the rest of the backoff instead of waiting for the down state.
+                if !sleep_until_kick(&ctl, Duration::from_secs(*secs)) {
                     return;
                 }
                 match rebuild_tunnel(&host, &session, &identifier, local_port) {
@@ -2198,14 +2233,15 @@ pub fn watch_tunnel(
                     Err(RebuildErr::Retryable(e)) => {
                         crate::diagnostic_warn!("[ssh] tunnel rebuild attempt {} failed: {e}", i + 1);
                         // Show the red banner only after the immediate attempt fails, avoiding brief flicker.
-                        if !notified {
-                            notify("reconnecting");
-                            notified = true;
-                        }
+                        // Repeat on every failure so a pending manual attempt in the banner settles.
+                        notify("reconnecting");
                     }
                 }
             }
             if recovered {
+                // A kick that arrived during the successful attempt is stale; drop it so the healthy
+                // phase does not rebuild a working tunnel.
+                ctl.kick.store(false, Ordering::SeqCst);
                 // Always emit up so the frontend replaces a potentially half-open old WebSocket.
                 notify("up");
                 continue;
@@ -2477,6 +2513,27 @@ mod tests {
     }
 
     #[test]
+    fn manual_kick_cuts_backoff_short() {
+        let ctl = TunnelCtl { wanted: AtomicBool::new(true), kick: AtomicBool::new(true) };
+        // A pending kick ends a long wait at once and is consumed.
+        let start = Instant::now();
+        assert!(sleep_until_kick(&ctl, Duration::from_secs(16)));
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(!ctl.kick.load(Ordering::SeqCst));
+        // A zero wait still consumes a kick, so it cannot linger into the healthy phase.
+        ctl.kick.store(true, Ordering::SeqCst);
+        assert!(sleep_until_kick(&ctl, Duration::ZERO));
+        assert!(!ctl.kick.load(Ordering::SeqCst));
+        // Without a kick the full wait elapses.
+        let start = Instant::now();
+        assert!(sleep_until_kick(&ctl, Duration::from_millis(400)));
+        assert!(start.elapsed() >= Duration::from_millis(400));
+        // A monitor that is no longer wanted stops waiting.
+        ctl.wanted.store(false, Ordering::SeqCst);
+        assert!(!sleep_until_kick(&ctl, Duration::from_secs(16)));
+    }
+
+    #[test]
     fn parse_uname_cygwin_is_windows_over_a_posix_shell() {
         // A Cygwin/MSYS sshd answers uname, so Windows is reached with the whole POSIX toolbox available.
         let c = parse_uname("CYGWIN_NT-10.0-19045 x86_64").unwrap();
@@ -2715,18 +2772,29 @@ mod tests {
 
     #[test]
     fn pid_alive_cmd_checks_the_process_name_only_on_windows() {
-        let posix = pid_alive_cmd(&sys_of("linux", "x86_64", RemoteShell::Posix), 77, &["velaterm"]);
+        let posix = pid_alive_cmd(&sys_of("linux", "x86_64", RemoteShell::Posix), 77, &["velaterm"], true);
         assert_eq!(posix, "kill -0 77 2>/dev/null && echo alive");
         // Windows reuses PIDs quickly, so the desktop's two possible names are both accepted and nothing else.
         let win = pid_alive_cmd(
             &sys_of("windows", "x86_64", RemoteShell::Powershell),
             77,
             &["velaterm", "vlx-term"],
+            true,
         );
         assert!(win.contains("Get-Process -Id 77"));
         assert!(win.contains("$q.ProcessName -like 'velaterm*' -or $q.ProcessName -like 'vlx-term*'"));
-        let server = pid_alive_cmd(&sys_of("windows", "x86_64", RemoteShell::Powershell), 9, &["vela-server"]);
+        let server = pid_alive_cmd(&sys_of("windows", "x86_64", RemoteShell::Powershell), 9, &["vela-server"], false);
         assert!(server.contains("($q.ProcessName -like 'vela-server*')"));
+        // Cygwin and Git Bash: a Windows PID is invisible to `kill -0`, so look it up by WINPID instead.
+        let cygwin = pid_alive_cmd(&sys_of("windows", "x86_64", RemoteShell::Posix), 77, &["velaterm", "vlx-term"], true);
+        assert!(!cygwin.contains("kill -0"));
+        assert!(cygwin.starts_with("ps -W 2>/dev/null | awk -v p=77 '"));
+        assert!(cygwin.contains("$(4+o)==p"));
+        assert!(cygwin.contains("gsub(/\\\\/,\"/\",c)"));
+        assert!(cygwin.contains("if(a[n]~/^(velaterm|vlx-term)/){print \"alive\"; exit}}'"));
+        // run.json holds `$!` from the start script, which is the shell's own PID there.
+        let started = pid_alive_cmd(&sys_of("windows", "x86_64", RemoteShell::Posix), 9, &["vela-server"], false);
+        assert_eq!(started, "kill -0 9 2>/dev/null && echo alive");
     }
 
     #[test]

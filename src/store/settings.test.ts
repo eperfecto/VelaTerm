@@ -43,7 +43,7 @@ describe("dark palette preference", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     try {
       useTermStore.setState({ inspectorTab: "git" });
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...loadSettings(), inspectorTab: "knowledge" }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...loadSettings(), inspectorTab: "files" }));
       useTermStore.getState().hydrateSettingsFromCache();
       expect(useTermStore.getState().inspectorTab).toBe("git");
     } finally {
@@ -89,6 +89,11 @@ describe("defaultEngineFor", () => {
   it("prefers the saved per-agent choice over the built-in default", () => {
     expect(defaultEngineFor("omp", { omp: { engine: "chat" } })).toBe("chat");
     expect(defaultEngineFor("pi", { pi: { engine: "chat" } })).toBe("chat");
+  });
+
+  it("always opens DeepSeek Harness in the conversation view, which is the only view it has", () => {
+    expect(defaultEngineFor("deepseek", {})).toBe("chat");
+    expect(defaultEngineFor("deepseek", { deepseek: { engine: "tui" } })).toBe("chat");
   });
 });
 

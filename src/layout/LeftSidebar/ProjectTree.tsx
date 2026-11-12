@@ -28,10 +28,27 @@ import { MARK_LABEL_KEYS, type NodeMark, normalizeMark } from "../../marks";
 import { SessionKindIcon } from "../sessionViewers/sessionMeta";
 import { SESSION_DRAG_MIME, SESSION_MULTI_DRAG_MIME } from "../CenterPane/paneDrop";
 import { DEFAULT_BINDINGS, formatCombo } from "../../hooks/shortcutRegistry";
-import { useGitBranch } from "../../hooks/useGitBranch";
+import { useGitBranch, useLinkedWorktrees } from "../../hooks/useGitBranch";
 import { stripControlChars, useCtrlCharGuard } from "../../hooks/textInputGuards";
 import { setProjectCollection } from "../../store/projectCollections";
-import { arrangeProjectsInCollections } from "./projectCollectionLayout";
+import { arrangeProjectsInCollections, sectionEntries } from "./projectCollectionLayout";
+import {
+  LIVE_AGENTS,
+  LIVE_TERMINALS,
+  liveAgentIds,
+  liveTerminalIds,
+  type LiveSection,
+  projectDisplayName,
+  sectionCollection,
+  sectionStartsExpanded,
+  type RailSection,
+  SYSTEM_CHAT,
+  SYSTEM_PROJECTS,
+  SYSTEM_TASKS,
+  SystemCollectionIcon,
+  systemHint,
+  systemSection,
+} from "./systemCollections";
 import { collectionDialogUrl } from "./collectionNavigation";
 import { newGroupDialogUrl } from "./groupNavigation";
 import { hasProjectDrag, PROJECT_DRAG_MIME, resolveProjectDrop } from "./projectCollectionDrop";
@@ -40,8 +57,9 @@ import { isDropZoneAllowed, orderTreeByActivity } from "./activityOrder";
 import {
   gatherByWorktree,
   normalizeWorktreePath,
+  sessionGroupWorktrees,
   useWorktreeCollapse,
-  worktreeNodeIdFor,
+  worktreeNodeId,
 } from "./worktreeNodes";
 
 /** Reference to a node targeted by a context menu or operation. */
@@ -68,6 +86,8 @@ export interface TreeHandlers {
   view: SidebarTreeView;
   /** Only the primary projection consumes global reveal requests. */
   isPrimary: boolean;
+  /** Section of the pane group this tree belongs to; absent means Projects. */
+  section?: RailSection;
   onContext: (node: TreeNodeRef, x: number, y: number) => void;
   /** Current context-menu target, highlighted temporarily without changing persistent selection. */
   contextId: string | null;
@@ -101,7 +121,22 @@ type TreeRow =
       expanded: boolean;
     }
   | {
-      /** Display-only worktree level gathering sibling sessions that share a worktree; see worktreeNodes.ts. */
+      /** Runtime list (Terminals or Agents) in the Terminals section. It has no database row and cannot be renamed or moved. */
+      kind: "live";
+      id: string;
+      section: LiveSection;
+      count: number;
+      expanded: boolean;
+    }
+  | {
+      /** A running terminal shown in a runtime list; the same session also keeps its row in its project. */
+      kind: "liveSession";
+      id: string;
+      session: Session;
+      section: LiveSection;
+    }
+  | {
+      /** Display-only worktree level gathering sibling groups and sessions that share a worktree; see worktreeNodes.ts. */
       kind: "worktree";
       id: string;
       path: string;
@@ -112,6 +147,11 @@ type TreeRow =
       depth: number;
       expanded: boolean;
     };
+
+/** A group or session at one sibling level, before worktree gathering. */
+type TreeItem = { kind: "group"; group: Group } | { kind: "session"; session: Session };
+const groupItem = (group: Group): TreeItem => ({ kind: "group", group });
+const sessionItem = (session: Session): TreeItem => ({ kind: "session", session });
 
 function Chevron({ open }: { open: boolean }) {
   return open ? <Icons.chevD size={13} /> : <Icons.chevR size={13} />;
@@ -181,6 +221,8 @@ interface SessionRowProps {
   setRenameVal: (v: string) => void;
   commitRename: () => void;
   cancelRename: () => void;
+  /** Rows in the runtime lists create nothing, so they have no hover add button. */
+  hideAdd?: boolean;
 }
 
 /** Session-row states remain independent. `active` means opened in the center pane, while `selected` means membership
@@ -292,7 +334,7 @@ const SessionRow = memo(function SessionRow(p: SessionRowProps) {
       )}
       {/* Browser page nodes have no PTY or agent, so a status dot would be meaningless and is omitted. */}
       {!isBrowser && <StatusIndicator status={status} unread={unread} />}
-      {!isShareSurface && <span className="meta">
+      {!isShareSurface && !p.hideAdd && <span className="meta">
         <span
           className="add"
           title={t("tree.newChildSession")}
@@ -325,6 +367,7 @@ export function ProjectTree(h: TreeHandlers) {
     onNewCollection,
     view,
     isPrimary,
+    section = "projects",
   } = h;
 
   const rawProjects = useTermStore((s) => s.projects);
@@ -359,8 +402,21 @@ export function ProjectTree(h: TreeHandlers) {
         : { projects: rawProjects, groups: rawGroups, sessions: rawSessions };
     return { ...tree, projects: collectionsFirst(tree.projects) };
   }, [sortByActivity, sessionActivity, rawProjects, rawGroups, rawSessions]);
+  // Every pane lists its group's section, picked in the activity bar; the tree shows only the section's contents,
+  // without the section's own row. A backend without the fixed collections keeps the old single tree.
+  const fixedLayout = useMemo(() => projects.some((p) => p.id === SYSTEM_PROJECTS), [projects]);
+  const sectionRoot = !fixedLayout ? null : sectionCollection(section);
+  const liveSection = fixedLayout && section === "terminals";
   const ephemeralSessions = useTermStore((s) => s.ephemeralSessions);
+  // Runtime lists subscribe to a string of IDs, so agent state changes that keep the same members do not
+  // rebuild the tree. Agents carry the detected kind, which their icon shows.
+  const liveKey = useTermStore((s) => {
+    const terminals = liveTerminalIds(s.sessions, s.ephemeralSessions, s.runtimes);
+    const agents = liveAgentIds(terminals, s.runtimes).map((id) => `${id}=${s.runtimes[id]?.agent}`);
+    return `${terminals.join(",")}|${agents.join(",")}`;
+  });
   const toggleCollapsed = useTermStore((s) => s.toggleCollapsed);
+  const newScratchTab = useTermStore((s) => s.newScratchTab);
   const openSession = useTermStore((s) => s.openSession);
   // activeSessionId changes only on user navigation, so subscribing here for reveal behavior does not compromise
   // per-row isolation of high-frequency runtime updates.
@@ -401,14 +457,15 @@ export function ProjectTree(h: TreeHandlers) {
 
   // The primary pane reads and writes the shared collapse state kept in the database. Every split-off pane keeps its
   // own map instead, so expanding a node here never moves the other panes. Nodes created after the split have no
-  // entry yet and fall back to the shared value.
+  // entry yet and fall back to the shared value, except in sections that start expanded, where they are open.
   const setViewCollapsed = useTermStore((s) => s.setSidebarTreeViewCollapsed);
   const collapsedOverrides = useMemo(
     () => (isPrimary ? null : (view.collapsedOverrides ?? {})),
     [isPrimary, view.collapsedOverrides],
   );
+  const startsExpanded = !isPrimary && fixedLayout && sectionStartsExpanded(section);
   const nodeCollapsed = (id: string, shared: boolean | undefined) =>
-    collapsedOverrides && id in collapsedOverrides ? collapsedOverrides[id] : !!shared;
+    collapsedOverrides && id in collapsedOverrides ? collapsedOverrides[id] : !startsExpanded && !!shared;
   const toggleNodeCollapsed = (kind: NodeKind, id: string, shared: boolean | undefined) => {
     if (!collapsedOverrides) {
       void toggleCollapsed(kind, id);
@@ -449,6 +506,22 @@ export function ProjectTree(h: TreeHandlers) {
     (statusFiltering && statusMatch(s)) ||
     (markFiltering && markMatch(s.mark));
 
+  // Search text hits accumulate for as long as the text stays the same, so a matching item renamed while filtering
+  // stays in the results instead of vanishing under the user. Editing the search text starts a fresh set.
+  const nameHitsRef = useRef<{ filter: string; ids: Set<string> }>({ filter: "", ids: new Set() });
+  const nameHitIds = useMemo(() => {
+    const prev = nameHitsRef.current;
+    const ids = new Set(prev.filter === filter ? prev.ids : []);
+    if (filter) {
+      for (const n of [...projects, ...groups, ...sessions]) {
+        if (n.name.toLowerCase().includes(filter)) ids.add(n.id);
+      }
+    }
+    nameHitsRef.current = { filter, ids };
+    return ids;
+  }, [filter, projects, groups, sessions]);
+  const nameMatch = (id: string) => filter.length > 0 && nameHitIds.has(id);
+
   const groupsById = useMemo(
     () => new Map(groups.map((g) => [g.id, g])),
     [groups],
@@ -462,24 +535,51 @@ export function ProjectTree(h: TreeHandlers) {
     [selection],
   );
 
-  // Worktree a container already stands for, so sessions in it are not wrapped in a redundant worktree level: the
-  // nearest bound group, else the project root (a project opened at a worktree directory).
-  const groupWorktree = (projectId: string, groupId: string | null): string => {
-    let g = groupId ? groupsById.get(groupId) : undefined;
-    while (g) {
-      if (g.worktreePath) return normalizeWorktreePath(g.worktreePath);
-      g = g.parentGroupId ? groupsById.get(g.parentGroupId) : undefined;
-    }
-    return normalizeWorktreePath(projects.find((p) => p.id === projectId)?.rootPath);
+  // Worktree each sibling-level item belongs to: a group by its binding, a session by itself or, outside any
+  // worktree, by its descendants all sharing one. Only the outermost belonging item is gathered under a worktree
+  // row; everything inside it is shown without further worktree rows.
+  // A session started directly in an existing worktree directory has no persisted worktreePath. Its cwd is probed
+  // instead, the same probe that gives its icon the worktree badge, so the badge and the worktree row agree.
+  const probedCwds = useMemo(
+    () => [...new Set(sessions.flatMap((s) => (!s.worktreePath && s.cwd ? [s.cwd] : [])))].sort(),
+    [sessions],
+  );
+  const cwdWorktrees = useLinkedWorktrees(probedCwds);
+  const sessionGroupWt = useMemo(
+    () => sessionGroupWorktrees(sessions, (s) => s.worktreePath || (s.cwd ? cwdWorktrees.get(s.cwd) : null)),
+    [sessions, cwdWorktrees],
+  );
+  // With "Group by worktree" off no item belongs to a worktree, so the walks build no worktree rows.
+  const itemWorktree = (item: TreeItem): string => {
+    if (!groupByWorktree) return "";
+    return item.kind === "group"
+      ? normalizeWorktreePath(item.group.worktreePath)
+      : sessionGroupWt.get(item.session.id) ?? "";
   };
-  // Children of a session already in a worktree stay direct children when they share it.
-  const sessionWorktree = (s: Session): string =>
-    normalizeWorktreePath(s.worktreePath) || groupWorktree(s.projectId, s.groupId ?? null);
-  // Container a top-level or child session is gathered in, matching the walks below.
-  const worktreeNodeOf = (s: Session): string | null => {
-    const parent = s.parentSessionId ? sessionsById.get(s.parentSessionId) : undefined;
-    if (parent) return worktreeNodeIdFor(s, parent.id, sessionWorktree(parent), groupByWorktree);
-    return worktreeNodeIdFor(s, s.groupId || s.projectId, groupWorktree(s.projectId, s.groupId ?? null), groupByWorktree);
+  // A project opened at a worktree directory already stands for it, so its items are not wrapped again.
+  const projectWorktree = (projectId: string): string =>
+    normalizeWorktreePath(projects.find((p) => p.id === projectId)?.rootPath);
+  // Worktree row wrapping a session or one of its ancestor groups and sessions, matching the walks below. Only the
+  // outermost item belonging to a worktree can be wrapped, so there is at most one.
+  const worktreeNodeAbove = (s: Session): string | null => {
+    const chain: TreeItem[] = [];
+    let top = s;
+    for (let ps: Session | undefined = s; ps; ps = ps.parentSessionId ? sessionsById.get(ps.parentSessionId) : undefined) {
+      chain.unshift({ kind: "session", session: ps });
+      top = ps;
+    }
+    for (let g = top.groupId ? groupsById.get(top.groupId) : undefined; g; g = g.parentGroupId ? groupsById.get(g.parentGroupId) : undefined) {
+      chain.unshift({ kind: "group", group: g });
+    }
+    const item = chain.find((i) => itemWorktree(i));
+    if (!item) return null;
+    const wt = itemWorktree(item);
+    if (wt === projectWorktree(s.projectId)) return null;
+    const containerId =
+      item.kind === "group"
+        ? item.group.parentGroupId || item.group.projectId
+        : item.session.parentSessionId || item.session.groupId || item.session.projectId;
+    return worktreeNodeId(containerId, wt);
   };
 
   // During filtering, keep matching sessions and their ancestor groups/projects. Under a status filter, ancestor
@@ -492,10 +592,10 @@ export function ProjectTree(h: TreeHandlers) {
       };
     }
     const sessionMatch = (s: Session) =>
-      (!filter || s.name.toLowerCase().includes(filter)) && attributeMatch(s);
+      (!filter || nameMatch(s.id)) && attributeMatch(s);
     // A group/project qualifies on its own when its name matches the search text or it carries the filtered marker.
-    const nodeSelfMatch = (name: string, mark?: string | null) =>
-      (!statusFilter && filter.length > 0 && name.toLowerCase().includes(filter)) ||
+    const nodeSelfMatch = (id: string, mark?: string | null) =>
+      (!statusFilter && nameMatch(id)) ||
       markHit(mark);
     const subMemo = new Map<string, boolean>();
     const subtreeVisible = (s: Session): boolean => {
@@ -510,13 +610,13 @@ export function ProjectTree(h: TreeHandlers) {
     // A group created while a status filter is active joins the snapshot so it stays visible even though it is empty.
     const keptGroup = (g: Group) =>
       statusFiltering && !!statusFilterIds && g.id in statusFilterIds &&
-      (!filter || g.name.toLowerCase().includes(filter));
+      (!filter || nameMatch(g.id));
     const memo = new Map<string, boolean>();
     const groupVisible = (g: Group): boolean => {
       const cached = memo.get(g.id);
       if (cached !== undefined) return cached;
       const vis =
-        nodeSelfMatch(g.name, g.mark) ||
+        nodeSelfMatch(g.id, g.mark) ||
         keptGroup(g) ||
         sessions.some(
           (s) => !s.parentSessionId && s.groupId === g.id && subtreeVisible(s),
@@ -530,7 +630,7 @@ export function ProjectTree(h: TreeHandlers) {
     const visP = new Set<string>();
     for (const p of projects) {
       const vis =
-        nodeSelfMatch(p.name, p.mark) ||
+        nodeSelfMatch(p.id, p.mark) ||
         sessions.some(
           (s) =>
             !s.parentSessionId &&
@@ -550,7 +650,7 @@ export function ProjectTree(h: TreeHandlers) {
         revealChildren(child.id, seen);
       }
     };
-    for (const p of projects) if (isVirtualProject(p) && nodeSelfMatch(p.name, p.mark)) revealChildren(p.id);
+    for (const p of projects) if (isVirtualProject(p) && nodeSelfMatch(p.id, p.mark)) revealChildren(p.id);
     for (const id of [...visP]) {
       let parent = projects.find(p => p.id === id)?.collectionId;
       const seen = new Set<string>();
@@ -561,13 +661,31 @@ export function ProjectTree(h: TreeHandlers) {
     }
     return { visGroups: visG, visProjects: visP };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtering, filter, statusFiltering, statusFilterIds, markFilter, groups, sessions, projects]);
+  }, [filtering, filter, nameHitIds, statusFiltering, statusFilterIds, markFilter, groups, sessions, projects]);
+
+  // Running terminals and the agents started in them. Each row is the session itself; an agent row shows the
+  // agent's icon in place of the terminal's.
+  const liveLists = useMemo(() => {
+    const [terminalPart, agentPart] = liveKey.split("|");
+    const find = (id: string) => sessionsById.get(id) ?? ephemeralSessions[id];
+    const terminals = terminalPart ? terminalPart.split(",").flatMap((id) => find(id) ?? []) : [];
+    const agents = agentPart ? agentPart.split(",").flatMap((entry) => {
+      const [id, kind] = entry.split("=");
+      const session = find(id);
+      return session ? [{ ...session, kind: kind as Session["kind"] }] : [];
+    }) : [];
+    return { agents, terminals };
+  }, [liveKey, sessionsById, ephemeralSessions]);
 
   const projectEntries = useMemo(() => {
+    if (liveSection) return [];
     const visible =
       filtering && visProjects ? projects.filter((p) => visProjects.has(p.id)) : projects;
-    return arrangeProjectsInCollections(visible, p => filtering || !nodeCollapsed(p.id, p.collapsed));
-  }, [projects, filtering, visProjects, collapsedOverrides]);
+    const entries = arrangeProjectsInCollections(
+      visible, p => p.id === sectionRoot || filtering || !nodeCollapsed(p.id, p.collapsed),
+    );
+    return sectionRoot ? sectionEntries(entries, sectionRoot) : entries;
+  }, [projects, filtering, visProjects, collapsedOverrides, sectionRoot, liveSection]);
 
   // A status filter hides projects without qualifying sessions; searching still lists them, flat and
   // collapsed, below the filtered results so they stay reachable.
@@ -579,16 +697,15 @@ export function ProjectTree(h: TreeHandlers) {
   // A name match propagates visibility downward so a matching node's complete subtree remains expandable even when
   // descendants lack the term. Marker propagation is added only for projects/groups below: a marked session keeps
   // its ancestor chain visible, but must not pull unrelated descendants into the marker result.
-  const nameHit = (name: string) =>
-    !statusFiltering && filter.length > 0 && name.toLowerCase().includes(filter);
-  const containerHit = (name: string, mark?: string | null) =>
-    nameHit(name) || markHit(mark);
+  const nameHit = (id: string) => !statusFiltering && nameMatch(id);
+  const containerHit = (id: string, mark?: string | null) =>
+    nameHit(id) || markHit(mark);
 
   const projectContainerHit = (project: Project) => {
     let current: Project | undefined = project;
     const seen = new Set<string>();
     while (current && !seen.has(current.id)) {
-      if (containerHit(current.name, current.mark)) return true;
+      if (containerHit(current.id, current.mark)) return true;
       seen.add(current.id);
       current = projects.find(p => p.id === current?.collectionId);
     }
@@ -596,80 +713,100 @@ export function ProjectTree(h: TreeHandlers) {
   };
 
   const sessionMatch = (s: Session) =>
-    (!filter || s.name.toLowerCase().includes(filter)) && attributeMatch(s);
+    (!filter || nameMatch(s.id)) && attributeMatch(s);
   const sessionSubtreeVisible = (s: Session): boolean =>
     sessionMatch(s) ||
     sessions.some((c) => c.parentSessionId === s.id && sessionSubtreeVisible(c));
   const sessionVisible = (s: Session) => !filtering || sessionSubtreeVisible(s);
 
+  // Visible groups followed by top-level sessions of one project or group level.
+  const levelItems = (projectId: string, parentGroupId: string | null, ancestorMatched: boolean): TreeItem[] => {
+    let childGroups = groups.filter(
+      (g) =>
+        g.projectId === projectId &&
+        (parentGroupId ? g.parentGroupId === parentGroupId : !g.parentGroupId),
+    );
+    if (filtering && !ancestorMatched && visGroups) {
+      childGroups = childGroups.filter((g) => visGroups.has(g.id));
+    }
+    let childSessions = sessions.filter(
+      (s) =>
+        !s.parentSessionId &&
+        s.projectId === projectId &&
+        (parentGroupId ? s.groupId === parentGroupId : !s.groupId),
+    );
+    if (filtering && !ancestorMatched) {
+      childSessions = childSessions.filter((s) => sessionVisible(s));
+    }
+    return [...childGroups.map(groupItem), ...childSessions.map(sessionItem)];
+  };
+
   // Flattened visible order for Shift-range selection.
   const flat = useMemo(() => {
     const out: SelNode[] = [];
-    // Worktree nodes are not selectable, but a collapsed one hides its sessions from range selection.
-    const siblingWalk = (
-      siblings: Session[],
+    // Worktree nodes are not selectable, but a collapsed one hides its items from range selection.
+    const levelWalk = (
+      items: TreeItem[],
       containerId: string,
-      containerWt: string,
+      projectId: string,
+      inWorktree: boolean,
       ancestorMatched: boolean,
     ) => {
-      for (const item of gatherByWorktree(siblings, containerId, containerWt, groupByWorktree)) {
-        if (item.kind === "session") sessionWalk(item.session, ancestorMatched);
-        else if (filtering || !wtNodeCollapsed(item.id)) {
-          for (const s of item.sessions) sessionWalk(s, ancestorMatched);
+      if (inWorktree) {
+        for (const item of items) itemWalk(item, ancestorMatched, true);
+        return;
+      }
+      for (const entry of gatherByWorktree(items, itemWorktree, containerId, projectWorktree(projectId))) {
+        if (entry.kind === "item") itemWalk(entry.item, ancestorMatched, !!itemWorktree(entry.item));
+        else if (filtering || !wtNodeCollapsed(entry.id)) {
+          for (const item of entry.items) itemWalk(item, ancestorMatched, true);
         }
       }
     };
-    const sessionWalk = (s: Session, ancestorMatched: boolean) => {
+    const itemWalk = (item: TreeItem, ancestorMatched: boolean, inWorktree: boolean) => {
+      if (item.kind === "group") {
+        const g = item.group;
+        out.push({ id: g.id, kind: "group" });
+        const expanded = filtering ? true : !nodeCollapsed(g.id, g.collapsed);
+        if (expanded) walk(g.projectId, g.id, inWorktree, ancestorMatched || containerHit(g.id, g.mark));
+        return;
+      }
+      const s = item.session;
       out.push({ id: s.id, kind: "session" });
       const expanded = filtering ? true : !nodeCollapsed(s.id, s.collapsed);
       if (!expanded) return;
-      const matched = ancestorMatched || nameHit(s.name);
+      const matched = ancestorMatched || nameHit(s.id);
       let kids = sessions.filter((c) => c.parentSessionId === s.id);
       if (filtering && !matched) kids = kids.filter((c) => sessionVisible(c));
-      siblingWalk(kids, s.id, sessionWorktree(s), matched);
+      levelWalk(kids.map(sessionItem), s.id, s.projectId, inWorktree, matched);
     };
     const walk = (
       projectId: string,
       parentGroupId: string | null,
+      inWorktree: boolean,
       ancestorMatched: boolean,
     ) => {
-      let childGroups = groups.filter(
-        (g) =>
-          g.projectId === projectId &&
-          (parentGroupId ? g.parentGroupId === parentGroupId : !g.parentGroupId),
-      );
-      if (filtering && !ancestorMatched && visGroups) {
-        childGroups = childGroups.filter((g) => visGroups.has(g.id));
-      }
-      for (const g of childGroups) {
-        out.push({ id: g.id, kind: "group" });
-        const expanded = filtering ? true : !nodeCollapsed(g.id, g.collapsed);
-        if (expanded) walk(projectId, g.id, ancestorMatched || containerHit(g.name, g.mark));
-      }
-      let childSessions = sessions.filter(
-        (s) =>
-          !s.parentSessionId &&
-          s.projectId === projectId &&
-          (parentGroupId ? s.groupId === parentGroupId : !s.groupId),
-      );
-      if (filtering && !ancestorMatched) {
-        childSessions = childSessions.filter((s) => sessionVisible(s));
-      }
-      siblingWalk(
-        childSessions, parentGroupId || projectId, groupWorktree(projectId, parentGroupId), ancestorMatched,
+      levelWalk(
+        levelItems(projectId, parentGroupId, ancestorMatched), parentGroupId || projectId, projectId, inWorktree,
+        ancestorMatched,
       );
     };
     for (const entry of projectEntries) {
       const p = entry.project;
+      // The section's own collection has no row; its contents start at the top level.
+      if (entry.indent < 0) {
+        walk(p.id, null, false, projectContainerHit(p));
+        continue;
+      }
       out.push({ id: p.id, kind: "project" });
       const expanded = filtering ? true : !nodeCollapsed(p.id, p.collapsed);
-      if (expanded) walk(p.id, null, projectContainerHit(p));
+      if (expanded) walk(p.id, null, false, projectContainerHit(p));
     }
     for (const p of otherProjects) out.push({ id: p.id, kind: "project" });
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    projects, groups, sessions, filter, statusFiltering, statusFilterIds, markFilter,
+    projects, groups, sessions, filter, nameHitIds, statusFiltering, statusFilterIds, markFilter,
     visGroups, visProjects, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed, groupByWorktree,
   ]);
 
@@ -677,40 +814,55 @@ export function ProjectTree(h: TreeHandlers) {
   // recursive order/depth. Keep this separate from persistent-only `flat`; temporary rows cannot enter range selection.
   const rows = useMemo(() => {
     const out: TreeRow[] = [];
-    // Sibling sessions sharing a worktree go one level deeper, under a worktree row placed where the first sat.
-    const siblingWalk = (
-      siblings: Session[],
+    // Sibling items sharing a worktree go one level deeper, under a worktree row placed where the first sat. Inside
+    // an item belonging to a worktree no further worktree rows are shown.
+    const levelWalk = (
+      items: TreeItem[],
       container: { projectId: string; groupId: string | null; parentSessionId: string | null },
-      containerWt: string,
+      inWorktree: boolean,
       depth: number,
       ancestorMatched: boolean,
     ) => {
+      if (inWorktree) {
+        for (const item of items) itemWalk(item, depth, ancestorMatched, true);
+        return;
+      }
       const containerId = container.parentSessionId || container.groupId || container.projectId;
-      for (const item of gatherByWorktree(siblings, containerId, containerWt, groupByWorktree)) {
-        if (item.kind === "session") {
-          sessionWalk(item.session, depth, ancestorMatched);
+      for (const entry of gatherByWorktree(items, itemWorktree, containerId, projectWorktree(container.projectId))) {
+        if (entry.kind === "item") {
+          itemWalk(entry.item, depth, ancestorMatched, !!itemWorktree(entry.item));
           continue;
         }
-        const expanded = filtering ? true : !wtNodeCollapsed(item.id);
+        const expanded = filtering ? true : !wtNodeCollapsed(entry.id);
         out.push({
-          kind: "worktree", id: item.id, path: item.path, name: item.name, ...container, depth, expanded,
+          kind: "worktree", id: entry.id, path: entry.path, name: entry.name, ...container, depth, expanded,
         });
-        if (expanded) for (const s of item.sessions) sessionWalk(s, depth + 1, ancestorMatched);
+        if (expanded) for (const item of entry.items) itemWalk(item, depth + 1, ancestorMatched, true);
       }
     };
-    // Session subtree, matching the former renderSessionNodes order.
-    const sessionWalk = (s: Session, depth: number, ancestorMatched: boolean) => {
-      const matched = ancestorMatched || nameHit(s.name);
+    const itemWalk = (item: TreeItem, depth: number, ancestorMatched: boolean, inWorktree: boolean) => {
+      if (item.kind === "group") {
+        const g = item.group;
+        const expanded = filtering ? true : !nodeCollapsed(g.id, g.collapsed);
+        out.push({ kind: "group", id: g.id, group: g, depth, expanded });
+        if (expanded) {
+          walkChildren(g.projectId, g.id, inWorktree, depth + 1, ancestorMatched || containerHit(g.id, g.mark));
+        }
+        return;
+      }
+      // Session subtree, matching the former renderSessionNodes order.
+      const s = item.session;
+      const matched = ancestorMatched || nameHit(s.id);
       let kids = sessions.filter((c) => c.parentSessionId === s.id);
       if (filtering && !matched) kids = kids.filter((c) => sessionVisible(c));
       const hasKids = kids.length > 0;
       const expanded = filtering ? true : !nodeCollapsed(s.id, s.collapsed);
       out.push({ kind: "session", id: s.id, session: s, depth, hasKids, expanded });
       if (hasKids && expanded) {
-        siblingWalk(
-          kids,
+        levelWalk(
+          kids.map(sessionItem),
           { projectId: s.projectId, groupId: s.groupId ?? null, parentSessionId: s.id },
-          sessionWorktree(s), depth + 1, matched,
+          inWorktree, depth + 1, matched,
         );
       }
     };
@@ -718,45 +870,41 @@ export function ProjectTree(h: TreeHandlers) {
     const walkChildren = (
       projectId: string,
       parentGroupId: string | null,
+      inWorktree: boolean,
       depth: number,
       ancestorMatched: boolean,
     ) => {
-      let childGroups = groups.filter(
-        (g) =>
-          g.projectId === projectId &&
-          (parentGroupId ? g.parentGroupId === parentGroupId : !g.parentGroupId),
-      );
-      if (filtering && !ancestorMatched && visGroups) {
-        childGroups = childGroups.filter((g) => visGroups.has(g.id));
-      }
-      for (const g of childGroups) {
-        const expanded = filtering ? true : !nodeCollapsed(g.id, g.collapsed);
-        out.push({ kind: "group", id: g.id, group: g, depth, expanded });
-        if (expanded) {
-          walkChildren(projectId, g.id, depth + 1, ancestorMatched || containerHit(g.name, g.mark));
-        }
-      }
-      let childSessions = sessions.filter(
-        (s) =>
-          !s.parentSessionId &&
-          s.projectId === projectId &&
-          (parentGroupId ? s.groupId === parentGroupId : !s.groupId),
-      );
-      if (filtering && !ancestorMatched) {
-        childSessions = childSessions.filter((s) => sessionVisible(s));
-      }
-      siblingWalk(
-        childSessions,
+      levelWalk(
+        levelItems(projectId, parentGroupId, ancestorMatched),
         { projectId, groupId: parentGroupId, parentSessionId: null },
-        groupWorktree(projectId, parentGroupId), depth, ancestorMatched,
+        inWorktree, depth, ancestorMatched,
       );
     };
 
+    // The Terminals section holds two runtime lists: running terminals, then the agents started in them. The
+    // search text matches session names; status and marker filters do not apply to them.
+    if (liveSection) {
+      for (const [list, id] of [["terminals", LIVE_TERMINALS], ["agents", LIVE_AGENTS]] as const) {
+        const members = liveLists[list].filter((s) => !filter || s.name.toLowerCase().includes(filter));
+        if (filter && !members.length) continue;
+        const expanded = filter ? true : !wtNodeCollapsed(id);
+        out.push({ kind: "live", id, section: list, count: members.length, expanded });
+        if (expanded) {
+          for (const session of members) out.push({ kind: "liveSession", id: `${id}:${session.id}`, session, section: list });
+        }
+      }
+      return out;
+    }
     for (const entry of projectEntries) {
       const p = entry.project;
+      // The section's own collection has no row; its contents start at the top level.
+      if (entry.indent < 0) {
+        walkChildren(p.id, null, false, 0, projectContainerHit(p));
+        continue;
+      }
       const expanded = filtering ? true : !nodeCollapsed(p.id, p.collapsed);
       out.push({ kind: "project", id: p.id, project: p, expanded, indent: entry.indent });
-      if (expanded) walkChildren(p.id, null, 1 + entry.indent, projectContainerHit(p));
+      if (expanded) walkChildren(p.id, null, false, 1 + entry.indent, projectContainerHit(p));
     }
     if (otherProjects.length > 0) {
       out.push({ kind: "section", id: "section:other-projects" });
@@ -767,8 +915,8 @@ export function ProjectTree(h: TreeHandlers) {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    projects, groups, sessions, filter, statusFiltering, statusFilterIds, markFilter,
-    visGroups, visProjects, filtering, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed, groupByWorktree,
+    projects, groups, sessions, filter, nameHitIds, statusFiltering, statusFilterIds, markFilter,
+    visGroups, visProjects, filtering, collapsedOverrides, projectEntries, otherProjects, worktreeCollapsed, groupByWorktree, liveLists, liveSection,
   ]);
 
   // Exact row heights are compact 24, regular 28, or comfy 32, reduced by 3 in compact navigation. Supplying this
@@ -916,15 +1064,11 @@ export function ProjectTree(h: TreeHandlers) {
       return;
     }
     let changed = false;
-    // The session and each ancestor session may sit under a collapsed worktree node of its own container.
-    let wtSession: Session | undefined = s;
-    while (wtSession) {
-      const wtId = worktreeNodeOf(wtSession);
-      if (wtId && wtNodeCollapsed(wtId)) {
-        setWtNodeCollapsed(wtId, false);
-        changed = true;
-      }
-      wtSession = wtSession.parentSessionId ? sessionsById.get(wtSession.parentSessionId) : undefined;
+    // The session or one of its ancestors may sit under a collapsed worktree node.
+    const wtId = worktreeNodeAbove(s);
+    if (wtId && wtNodeCollapsed(wtId)) {
+      setWtNodeCollapsed(wtId, false);
+      changed = true;
     }
     let ps = s.parentSessionId ? sessionsById.get(s.parentSessionId) : undefined;
     while (ps) {
@@ -1385,6 +1529,12 @@ export function ProjectTree(h: TreeHandlers) {
     [],
   );
   const sSetRenameVal = useCallback((v: string) => cbRef.current.h.setRenameVal(v), []);
+  // Rows in the runtime lists open their session and leave the tree selection alone.
+  const sOnLiveClick = useCallback((node: SelNode, e: React.MouseEvent) => {
+    useTermStore.getState().openSession(node.id, e.altKey ? { newTab: true } : undefined);
+  }, []);
+  const sOnNoDrag = useCallback((_id: string, _e: React.DragEvent) => {}, []);
+  const sOnNoDrop = useCallback((_target: Session, e: React.DragEvent) => e.preventDefault(), []);
   const sCommitRename = useCallback(() => cbRef.current.h.commitRename(), []);
   const sCancelRename = useCallback(() => cbRef.current.h.cancelRename(), []);
 
@@ -1446,22 +1596,24 @@ export function ProjectTree(h: TreeHandlers) {
       case "project": {
         const p = row.project;
         const renaming = renamingId === p.id;
+        const fixed = systemSection(p.id);
+        const name = projectDisplayName(t, p);
         const ref: TreeNodeRef = {
           kind: "project",
           id: p.id,
-          name: p.name,
+          name,
           projectId: p.id,
           groupId: null,
         };
         return (
           <div
             className={
-              "row project" + (isVirtualProject(p) ? " collection" : "") +
+              "row project" + (isVirtualProject(p) ? " collection" : "") + (fixed ? " system" : "") +
               (selectedIds.has(p.id) ? " sel" : "") +
               (contextId === p.id ? " context" : "")
             }
             style={{ paddingLeft: 6 + row.indent * 13, ...dragStyle(p.id) }}
-            draggable={!renaming && !isShareSurface}
+            draggable={!renaming && !isShareSurface && !fixed}
             onDragStart={onDragStart({ kind: "project", id: p.id, projectId: p.id })}
             onDragOver={(e) =>
               hasProjectDrag(e.dataTransfer.types) ? allowProjectDrop(e, p.id) : allowDrop(e, p.id, true)
@@ -1485,19 +1637,20 @@ export function ProjectTree(h: TreeHandlers) {
             <span
               className="ic"
               style={{ color: "var(--text-dim)" }}
-              title={isVirtualProject(p) ? t("collection.tag") : p.rootPath}
+              title={fixed ? systemHint(t, fixed) : isVirtualProject(p) ? t("collection.tag") : p.rootPath}
             >
-              {isVirtualProject(p) ? <Icons.collection size={15} /> : <Icons.project size={15} />}
+              {fixed ? <SystemCollectionIcon section={fixed} />
+                : isVirtualProject(p) ? <Icons.collection size={15} /> : <Icons.project size={15} />}
             </span>
             {renaming ? (
               renameInput
             ) : (
               <>
                 <NodeMarkBadge mark={p.mark} />
-                <span className="nm">{p.name}</span>
+                <span className="nm">{name}</span>
               </>
             )}
-            {metaButtons(ref, true, isVirtualProject(p))}
+            {metaButtons(ref, true, isVirtualProject(p) && p.id !== SYSTEM_TASKS && p.id !== SYSTEM_CHAT)}
           </div>
         );
       }
@@ -1554,6 +1707,77 @@ export function ProjectTree(h: TreeHandlers) {
             )}
             {metaButtons(ref, true)}
           </div>
+        );
+      }
+      case "live": {
+        // Fixed runtime list: no selection, menu, rename or drop. Clicking toggles it like a collection.
+        const toggle = () => {
+          if (!filter) setWtNodeCollapsed(row.id, row.expanded);
+        };
+        return (
+          <div
+            className="row project collection system live"
+            style={{ paddingLeft: 6 }}
+            onMouseDown={preventModifierSelect}
+            onClick={toggle}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <span className="tw">
+              <Chevron open={row.expanded} />
+            </span>
+            <span className="ic" title={systemHint(t, row.section)}>
+              <SystemCollectionIcon section={row.section} />
+            </span>
+            <span className="nm">{projectDisplayName(t, { id: row.id, name: "" })}</span>
+            {row.count > 0 && <span className="live-count">{row.count}</span>}
+            {row.section === "terminals" && !isShareSurface && (
+              <span className="meta">
+                <span
+                  className="add"
+                  title={t("tab.newTerminal")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void newScratchTab();
+                  }}
+                >
+                  <Icons.plus size={12} />
+                </span>
+              </span>
+            )}
+          </div>
+        );
+      }
+      case "liveSession": {
+        // A persistent session's own row lives in its project and is renamed there. A draft lives only in
+        // center tabs, so its Terminals row is where it is renamed; the Agents row repeats it without an editor.
+        const s = row.session;
+        const persistent = sessionsById.has(s.id);
+        const renaming = !persistent && row.section === "terminals" && renamingId === s.id;
+        return (
+          <SessionRow
+            session={s}
+            rootPath={projects.find((pr) => pr.id === s.projectId)?.rootPath ?? null}
+            depth={1}
+            hasKids={false}
+            expanded={false}
+            context={contextId === s.id}
+            renaming={renaming}
+            renameVal={renaming ? renameVal : undefined}
+            draggable={false}
+            onRowClick={sOnLiveClick}
+            onRowContext={sOnContext}
+            onToggle={sOnToggleSession}
+            onDragStartRow={sOnDragStart}
+            onDragOverRow={sOnNoDrag}
+            onDragLeaveRow={sOnDragLeave}
+            onDropRow={sOnNoDrop}
+            onMouseDownRow={sOnMouseDown}
+            onAddSession={sOnAddSession}
+            setRenameVal={sSetRenameVal}
+            commitRename={sCommitRename}
+            cancelRename={sCancelRename}
+            hideAdd
+          />
         );
       }
       case "worktree": {
@@ -1643,9 +1867,26 @@ export function ProjectTree(h: TreeHandlers) {
     );
   }
 
-  // Show the three project entry points plus collection creation when the tree is empty; draft terminals
+  // Tasks and Chats hold one session type each; when empty they offer a new session of that type.
+  if (fixedLayout && !filtering && rows.length === 0 && (section === "tasks" || section === "chat")) {
+    const root = section === "tasks" ? SYSTEM_TASKS : SYSTEM_CHAT;
+    return (
+      <div className="sidebar-section-empty">
+        <div>{t(section === "tasks" ? "sidebarSection.noTasks" : "sidebarSection.noChats")}</div>
+        <button
+          className="empty-action"
+          onClick={(e) => onAddSession({ kind: "project", id: root, name: "", projectId: root, groupId: null }, e.clientX, e.clientY)}
+        >
+          <Icons.plus size={14} />
+          {t(section === "tasks" ? "newSession.newTask" : "newSession.newChat")}
+        </button>
+      </div>
+    );
+  }
+
+  // Show the three project entry points plus collection creation when there are no projects; draft terminals
   // appear only in center tabs.
-  if (projects.length === 0) {
+  if (fixedLayout ? section === "projects" && !filtering && rows.length === 0 : projects.length === 0) {
     return (
       <div
         style={{
