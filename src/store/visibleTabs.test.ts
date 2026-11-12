@@ -40,6 +40,7 @@ function scope(patch: Partial<TabScopeState> = {}): TabScopeState {
     sessions: [session("a1", "A"), session("a2", "A"), session("b1", "B")],
     ephemeralSessions: { g1: session("g1", "", { global: true }) },
     taskTabs: {},
+    newSessionTabs: {},
     ...patch,
   };
 }
@@ -145,5 +146,25 @@ describe("projectShowing", () => {
 
   it("keeps the active project when no tab is given", () => {
     expect(projectShowing(scope(), null)).toBe("A");
+  });
+});
+
+describe("new session tabs", () => {
+  it("belong to the project the new session is created in", () => {
+    const state = scope({
+      openTabs: ["a1", "new-session-b", "new-session-a"],
+      newSessionTabs: { "new-session-b": { projectId: "B" }, "new-session-a": { projectId: "A" } },
+    });
+    expect(tabProjectId(state, "new-session-b")).toBe("B");
+    expect(visibleTabIds(state)).toEqual(["a1", "new-session-a"]);
+  });
+
+  it("stay visible when created in a collection", () => {
+    const state = scope({
+      openTabs: ["a1", "new-session-c"],
+      projects: [{ id: "A" }, { id: "B" }, { id: "C", rootPath: "" }],
+      newSessionTabs: { "new-session-c": { projectId: "C" } },
+    });
+    expect(visibleTabIds(state)).toEqual(["a1", "new-session-c"]);
   });
 });

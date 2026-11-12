@@ -3,8 +3,6 @@
 import type en from "./en";
 
 const es: typeof en = {
-  "panel.averageOutput": "salida media",
-  "panel.averageOutputHint": "Estimación de los tokens generados por segundo durante el tiempo de respuesta medido, incluidos los tokens de razonamiento declarados. Excluye la ejecución de herramientas y la espera del usuario. No se muestra ningún valor si el uso y el tiempo no se pueden relacionar de forma fiable. No representa la velocidad de decodificación pura del modelo.",
   "panel.turnStats": "Estadísticas del turno",
   "panel.fileCount": (n: number) => n === 1 ? "1 archivo" : `${n} archivos`,
   "panel.showChangedFiles": "Mostrar los archivos modificados en este turno",
@@ -202,20 +200,20 @@ const es: typeof en = {
   "nb.attach": "Adjuntar archivo",
   "nb.browse": "Examinar",
   "nb.chooseNote": "Empieza con una nota",
-  "nb.closeHint": "Quitar este cuaderno de la lista. Sus archivos permanecerán en el disco.",
-  "nb.closeVault": "Cerrar cuaderno",
+  "nb.closeHint": "Quitar esta base de conocimientos de la lista. Sus archivos permanecerán en el disco.",
+  "nb.closeVault": "Cerrar base de conocimientos",
   "nb.conflict": "El archivo se ha modificado fuera de este editor. Tu borrador se conserva. Vuelve a cargar el archivo o guarda el borrador como una nota nueva.",
-  "nb.copyTo": "Copiar a un cuaderno local",
+  "nb.copyTo": "Copiar a una base de conocimientos local",
   "nb.createVault": "Crear base de conocimientos",
   "nb.destination": "Ruta de destino",
   "nb.download": "Descargar",
   "nb.downloadHint": "Descarga este archivo adjunto para abrirlo en otra aplicación.",
-  "nb.empty": "Abre una carpeta para empezar a escribir o crea un cuaderno.",
+  "nb.empty": "Abre una carpeta para empezar a escribir o crea una base de conocimientos.",
   "nb.emptyImport": "No se han seleccionado archivos que se puedan importar.",
   "nb.emptyNotes": "Las notas se guardan como archivos Markdown.",
   "nb.emptyOutline": "Los encabezados del documento aparecerán aquí.",
   "nb.emptyTrash": "La papelera está vacía.",
-  "nb.error": "No se puede acceder al cuaderno. Comprueba la conexión y la carpeta e inténtalo de nuevo.",
+  "nb.error": "No se puede acceder a la base de conocimientos. Comprueba la conexión y la carpeta e inténtalo de nuevo.",
   "nb.exists": "El destino ya existe. Elige otro nombre o carpeta.",
   "nb.favorites": "Favoritos",
   "nb.files": "Archivos",
@@ -223,6 +221,9 @@ const es: typeof en = {
   "nb.generatedHint": "Conocimiento organizado a partir de tus sesiones, con sus fuentes e historial de revisiones.",
   "nb.homeHint": "Explora la base de conocimientos de sesiones y las bases de conocimientos locales.",
   "nb.homeSearch": "Busca en el conocimiento de las sesiones y en las notas locales…",
+  "nb.layout": "Diseño",
+  "nb.layoutCards": "Tarjetas",
+  "nb.layoutList": "Lista",
   "nb.loadMore": "Cargar más",
   "nb.import": "Importar",
   "nb.importFiles": "Elegir archivos",
@@ -256,7 +257,7 @@ const es: typeof en = {
   "nb.local": "Archivos locales",
   "nb.localVaults": "Bases de conocimientos locales",
   "nb.move": "Renombrar o mover",
-  "nb.moveHint": "Introduce una ruta relativa a la carpeta raíz del cuaderno. Los enlaces existentes se actualizan al mover el archivo o la carpeta.",
+  "nb.moveHint": "Introduce una ruta relativa a la carpeta raíz de la base de conocimientos. Los enlaces existentes se actualizan al mover el archivo o la carpeta.",
   "nb.name": "Nombre",
   "nb.newFolder": "Nueva carpeta",
   "nb.newNote": "Nueva nota",
@@ -290,14 +291,14 @@ const es: typeof en = {
   "nb.searchThisVault": "Esta base de conocimientos",
   "nb.skipped": "Omitidos",
   "nb.split": "Vista dividida",
-  "nb.tooLarge": "El archivo o la selección supera los límites del cuaderno.",
+  "nb.tooLarge": "El archivo o la selección supera los límites de la base de conocimientos.",
   "nb.trash": "Papelera",
-  "nb.trashHint": "Mover este elemento a la papelera del cuaderno. Podrás restaurarlo más adelante.",
+  "nb.trashHint": "Mover este elemento a la papelera de la base de conocimientos. Podrás restaurarlo más adelante.",
   "nb.unsaved": "Cambios sin guardar",
   "nb.vaults": "Bases de conocimientos",
   "nb.view": "Modo de vista",
-  "nb.welcome": "Tus cuadernos",
-  "nb.welcomeText": "Escribe con libertad, conecta ideas y conserva tus notas en archivos locales normales. Abre una carpeta Markdown existente o importa documentos a un nuevo cuaderno.",
+  "nb.welcome": "Tus bases de conocimientos",
+  "nb.welcomeText": "Escribe con libertad, conecta ideas y conserva tus notas en archivos locales normales. Abre una carpeta Markdown existente o importa documentos a una nueva base de conocimientos.",
   "memory.globalMemory": "Base de conocimientos de sesiones",
   "memory.collections": "Sesiones archivadas",
   "memory.collectionConversation": "Conversación",
@@ -310,7 +311,6 @@ const es: typeof en = {
   "memory.entries": "Artículos de conocimiento",
   "memory.emptyJobs": "Aún no hay registros de organización.",
   "memory.jobs": "Historial de organización",
-  "memory.search": "Buscar en títulos y contenido…",
   "memory.empty": "No hay artículos que coincidan. Genera artículos a partir de una sesión o crea uno manualmente.",
   "memory.emptyDetail": "Selecciona un artículo para consultar su contenido, relaciones y fuentes.",
   "memory.new": "Nuevo artículo",
@@ -319,7 +319,6 @@ const es: typeof en = {
   "memory.content": "Contenido (Markdown)",
   "memory.tags": "Etiquetas (separadas por comas)",
   "memory.related": "Artículos relacionados",
-  "memory.backlinks": "Enlaces a este artículo",
   "memory.sources": "Fuentes",
   "memory.history": "Historial de revisiones",
   "memory.restore": "Restaurar esta revisión",
@@ -378,6 +377,8 @@ const es: typeof en = {
   "chat.imageCopy": "Copiar imagen",
   "chat.imageSave": "Guardar imagen",
   "chat.imageActionFailed": "No se pudo completar la operación con la imagen. Inténtelo de nuevo.",
+  "clipboard.unresponsive":
+    "La aplicación de origen del portapapeles no responde, por lo que no se ha pegado nada. Inténtelo de nuevo en unos instantes.",
   "common.copy": "Copiar", // Copy
   "common.cut": "Cortar", // Cut
   "common.paste": "Pegar", // Paste
@@ -504,6 +505,8 @@ const es: typeof en = {
     `Inicia con ${flag}. Omite todas las confirmaciones de permiso — usar con cuidado.`, // YOLO flag hint
   "settings.permViaEnvHint":
     "Omite todas las confirmaciones de permiso mediante inyección de configuración (sin flag CLI). Se aplica al iniciar la sesión.",
+  "settings.permViaAnswerHint":
+    "Aprueba todas las solicitudes de permiso en la vista de conversación, incluidos los comandos que van más allá del espacio de trabajo. Úsalo con cuidado.",
   "settings.catGeneral": "General", // General
   "settings.cliLabel": "Comando de shell",
   "settings.cliInstall": "Instalar el comando ‘vela’",
@@ -638,6 +641,7 @@ const es: typeof en = {
   "changes.noChanges": "Sin cambios",
   "changes.unchangedLines": "Mostrar $ líneas sin cambios",
   "changes.refresh": "Actualizar",
+  "changes.openFile": "Abrir archivo",
   "changes.notRepo": "No es un repositorio git",
   "changes.selectFile": "Selecciona un archivo",
   "changes.binary": "Archivo binario: diff por línea no disponible",
@@ -825,10 +829,9 @@ const es: typeof en = {
   "settings.recordSessionsHint":
     "Desactivado por defecto. Si se activa, la salida del terminal se guarda en un archivo de registro para reproducción de archivo y búsqueda. Las sesiones de terminal normales nunca se graban; las sesiones de agente leen su propia transcripción.", // Record session logs hint
   "settings.fonts": "Fonts", // TODO translate
-  "settings.uiFont": "Interface font", // TODO translate
-  "settings.uiFontSize": "Interface size", // TODO translate
-  "settings.termFont": "Terminal font", // TODO translate
-  "settings.termFontSize": "Terminal size", // TODO translate
+  "settings.uiFontSize": "Tamaño de fuente de la interfaz",
+  "settings.termFont": "Fuente del terminal",
+  "settings.termFontSize": "Tamaño de fuente del terminal",
   "settings.termLineHeight": "Interlineado del terminal",
   "settings.chatTypography": "Vista de conversación",
   "settings.chatTypographyHint": "Estos ajustes de fuente son independientes del terminal y se aplican de inmediato.",
@@ -852,7 +855,7 @@ const es: typeof en = {
   "settings.composerChip.tasks": "Tareas en segundo plano",
   "settings.composerChip.account": "Cuenta",
   "settings.composerChip.codexCredits": "Créditos de restablecimiento de Codex",
-  "settings.fontDefault": "Default", // TODO translate
+  "settings.fontDefault": "Predeterminada",
   "settings.fontCustom": "Custom…", // TODO translate
   "settings.fontListUnavailable": "No se puede obtener la lista de fuentes del sistema. Puede introducir un nombre de fuente manualmente.",
   "settings.fontUnconfirmed": "No se puede confirmar si esta fuente está disponible.",
@@ -1108,6 +1111,7 @@ const es: typeof en = {
   "tree.openInVSCode": "Abrir en VS Code", // Open in VS Code
   "tree.openRepositoryNoRemote": "El repositorio Git de este proyecto no tiene dirección web: agrega un remoto origin que apunte a un servidor.", // No web address for origin
   "tree.projectInfo": "Información del proyecto", // Project Info
+  "tree.codeAudit": "Auditoría de código", // Code audit
   "info.branch": "Rama", // Branch
   "info.path": "Ruta", // Path
   "info.recentCommits": "Commits recientes", // Recent Commits
@@ -1116,6 +1120,7 @@ const es: typeof en = {
   "tree.killProcessConfirm": (name: string) => `¿Terminar el proceso de «${name}»? Se interrumpirá la tarea actual. Se conservarán el historial de conversación y los archivos guardados.`,
   "tree.archiveSession": "Archivar sesión", // Archive Session
   "tree.archiveGroup": "Archivar grupo", // Archive Group
+  "tree.archiveCollection": "Archivar colección", // Archive Collection
   // Temporary (draft) sessions
   "tree.scratchTag": "temp", // scratch
   "tree.persistSession": "Convertir en sesión permanente…", // Make Permanent Session…
@@ -1314,10 +1319,12 @@ const es: typeof en = {
   "importSessions.results": ({ count }: { count: number }) => `Resultados: ${count}`,
   "importSessions.selected": ({ count }: { count: number }) => `Seleccionadas: ${count}`,
   "importSessions.clearSelection": "Borrar selección",
-  "importSessions.clearSearch": "Borrar búsqueda",
+  "importSessions.clearFilters": "Borrar filtros",
+  "importSessions.agentFilter": "Filtrar por agente",
+  "importSessions.allAgents": "Todos los agentes",
   "importSessions.noHistory": "No se encontraron sesiones anteriores para este directorio de proyecto.",
   "importSessions.title": "Importar sesiones",
-  "importSessions.description": "Busca sesiones existentes de Codex, Claude, OpenCode y Kiro cuyo directorio de trabajo coincida con este proyecto. Selecciona las sesiones que quieras añadir al proyecto y abre una para continuar la conversación. Por ahora, solo se pueden ver historiales de Kiro que contengan únicamente texto.",
+  "importSessions.description": "Busca sesiones existentes de Codex, Claude, OpenCode, Pi, OMP, ZCode, DeepSeek y Kiro cuyo directorio de trabajo coincida con este proyecto. Selecciona las sesiones que quieras añadir al proyecto y abre una para continuar la conversación. Por ahora, solo se pueden ver historiales de Kiro que contengan únicamente texto.",
   "importSessions.search": "Buscar por título, agente o ID de sesión",
   "importSessions.empty": "No se encontraron sesiones coincidentes.",
   "importSessions.imported": "Ya importada",
@@ -1441,6 +1448,7 @@ const es: typeof en = {
   "browser.loading": "Cargando…", // Loading…
   // Application-exit confirmation and dormant restored sessions.
   "quit.title": "¿Salir de VelaTerm?", // Quit VelaTerm?
+  "quit.closeWindowTitle": "¿Cerrar la ventana principal?", // Close the main window?
   "quit.body":
     "Se detendrán todas las sesiones de terminal y de agente en ejecución.", // Any running terminal and agent sessions will be stopped.
   "quit.remoteWindows": "También se cerrarán las ventanas remotas abiertas.", // Open remote windows will also be closed.
@@ -1494,6 +1502,23 @@ const es: typeof en = {
   "agentVersion.update": (version) => `Actualización: v${version}`,
   "agentVersion.upgrade": (version) => `La versión ${version} está disponible. Abrir las instrucciones oficiales de actualización.`,
   "agentVersion.checkFailed": "No se pudieron comprobar las actualizaciones.",
+  "agentVersion.upgradeAction": (version) => `La versión ${version} está disponible. Haz clic para actualizar.`,
+  "agentUpdate.title": (label) => `Actualizar ${label}`,
+  "agentUpdate.commandHint": "VelaTerm ejecutará el comando de actualización incluido en el agente:",
+  "agentUpdate.confirm": "Actualizar",
+  "agentUpdate.docs": "Instrucciones oficiales",
+  "agentUpdate.running": "Actualizando…",
+  "agentUpdate.background": "Puedes cerrar esta ventana; la actualización continuará.",
+  "agentUpdate.waiting": "Esperando la salida…",
+  "agentUpdate.succeeded": (label, version) => `${label} se actualizó a la v${version}.`,
+  "agentUpdate.unchanged": (version) => `El comando terminó, pero la versión instalada sigue siendo la v${version}. Revisa la salida de arriba.`,
+  "agentUpdate.finished": "El comando de actualización terminó. Revisa la salida de arriba.",
+  "agentUpdate.failed": "La actualización no se completó. Revisa la salida de arriba o copia el comando y ejecútalo en una terminal.",
+  "agentUpdate.broken": (label) => `${label} no se inicia después de la actualización, así que la actualización está incompleta. Revisa la salida de arriba o vuelve a instalar ${label}.`,
+  "agentUpdate.timedOut": "La actualización se detuvo tras 15 minutos. Copia el comando y ejecútalo en una terminal.",
+  "agentUpdate.restartHint": "Esta conversación todavía usa la versión anterior. Reinicia el agente para cambiar: la conversación se conserva y la nueva versión se iniciará con tu próximo mensaje.",
+  "agentUpdate.restart": "Reiniciar agente",
+  "agentUpdate.startFailed": "No se pudo iniciar la actualización. Inténtalo de nuevo.",
   "agentInstall.title": (label) => `${label} no está instalado`, // {label} is not installed
   "agentInstall.desc": (label) =>
     `VelaTerm no encontró ${label} en tu PATH. Instálalo para iniciar esta sesión.`, // couldn't find {label} on PATH
@@ -1502,6 +1527,10 @@ const es: typeof en = {
   "agentInstall.dismiss": "Lo haré yo mismo", // I'll do it myself
   "agentInstall.docs": "Documentación", // Install docs
   "agentInstall.needsNode": "Requiere Node.js / npm", // Requires Node.js / npm
+  "agentInstall.runInTerminal": "Ejecuta este comando en una terminal para instalarlo y luego vuelve a enviar tu mensaje.",
+  "agentInstall.installing": "Instalando…", // Installing…
+  "agentInstall.installingDesc": "Descargando e instalando. Puede tardar unos minutos.", // Downloading and installing. This can take a few minutes.
+  "agentInstall.installFailed": "La instalación no se completó. Ejecuta este comando en una terminal para ver qué falló y luego vuelve a enviar tu mensaje.", // Installation didn't finish. Run this command in a terminal to see what went wrong, then send your message again.
   "agentInstall.afterInstall": "Después de instalar:", // After install:
   "agentInstall.pathSaved": (label: string) =>
     `Ruta del ejecutable de ${label} guardada en Ajustes:`, // executable path saved to Settings
@@ -2163,6 +2192,8 @@ const es: typeof en = {
   "chat.attach.tooLarge": (name: string, mb: number) => `${name} supera los ${mb} MB y no se adjuntó`,
   "chat.attach.unreadable": (name: string) => `No se pudo leer ${name}`,
   // ── Shell mode: `!` runs a command in the session's shell ──
+  "chat.findings.count": (n: number) => (n === 1 ? "1 problema encontrado" : `${n} problemas encontrados`),
+  "chat.findings.none": "No se encontraron problemas",
   "chat.shell.title": "Comando de shell",
   "chat.shell.running": "En ejecución…",
   "chat.shell.cancel": "Cancelar",
@@ -2287,6 +2318,15 @@ const es: typeof en = {
   "chat.auth.claude.invalidCode": "Pega el código completo de este intento de autorización, incluida la parte que aparece después de #.",
   "chat.auth.claude.externalAuth": "Las claves de API y los demás métodos de autenticación configurados no se modificarán.",
   "chat.auth.open": "Abrir página de autorización",
+  "chat.auth.zcode.required": "Inicia sesión en ZCode con tu cuenta de Z.ai o BigModel para usar esta conversación.",
+  "chat.auth.zcode.pending": "Abre la página de autorización y concede el acceso. Esta vista se actualizará cuando finalice el inicio de sesión.",
+  "chat.auth.zcode.failed": "No se pudo completar el inicio de sesión. Inténtalo de nuevo.",
+  "chat.auth.zcode.zai": "Iniciar sesión con Z.ai",
+  "chat.auth.zcode.bigmodel": "Iniciar sesión con BigModel",
+  "chat.auth.zcode.noPlan.zai": "Has iniciado sesión en ZCode con Z.ai, pero esta cuenta de Z.ai no tiene ningún GLM Coding Plan disponible o ya agotó su cuota. Si contrataste el plan en BigModel, abre el menú «Cuenta de ZCode» y elige «Iniciar sesión con BigModel».",
+  "chat.auth.zcode.noPlan.bigmodel": "Has iniciado sesión en ZCode con BigModel, pero esta cuenta de BigModel no tiene ningún GLM Coding Plan disponible o ya agotó su cuota. Si contrataste el plan en Z.ai, abre el menú «Cuenta de ZCode» y elige «Iniciar sesión con Z.ai».",
+  "chat.auth.zcode.noModels.zai": "ZCode no encontró ningún GLM Coding Plan en tu sesión de Z.ai, así que no hay modelos disponibles. Abre el menú «Cuenta de ZCode» y elige «Iniciar sesión con Z.ai» para volver a iniciar sesión. Si contrataste el plan en BigModel, elige «Iniciar sesión con BigModel».",
+  "chat.auth.zcode.noModels.bigmodel": "ZCode no encontró ningún GLM Coding Plan en tu sesión de BigModel, así que no hay modelos disponibles. Abre el menú «Cuenta de ZCode» y elige «Iniciar sesión con BigModel» para volver a iniciar sesión. Si contrataste el plan en Z.ai, elige «Iniciar sesión con Z.ai».",
   "chat.resetCredits.label": (n: string) => `Créditos de restablecimiento: ${n}`,
   "chat.resetCredits.title": "Créditos para restablecer los límites de Codex",
   "chat.resetCredits.unknown": "No se puede obtener el número de créditos de restablecimiento.",
@@ -2368,11 +2408,20 @@ const es: typeof en = {
     `Reintentando (${attempt}/${max}) en ${seconds} s: ${message}`,
   "chat.notify.dismiss": "Cerrar",
   "settings.completionMode": "Sugerencias de comandos",
-  "settings.completionAuto": "Automáticas",
-  "settings.completionTab": "Con Tab",
+  "settings.completionAuto": "En línea + Tab",
+  "settings.completionTab": "Solo Tab",
   "settings.completionOff": "Desactivadas",
   "settings.completionUnavailable": "No se pudo cargar o guardar la configuración.",
-  "settings.completionHint": "Se aplica a terminales nuevas de Zsh, Bash 4+, Fish y PowerShell. CMD conserva el comportamiento habitual de Tab. Tab inserta la sugerencia seleccionada; Enter ejecuta el comando actual sin aplicar ninguna sugerencia.",
+  "settings.completionHint": "Al escribir en Zsh, el comando más reciente del historial que coincide aparece atenuado después del cursor; pulsa → o Fin para aceptarlo. Tab funciona como en la shell: inserta directamente una coincidencia única, completa primero la parte común y muestra la lista cuando quedan varias opciones. Se aplica a terminales nuevas de Zsh, Bash 4+, Fish y PowerShell.",
+  "settings.completionTabOnlyHint": "No aparecen sugerencias mientras escribes. Pulsa Tab para completar como en la shell: inserta directamente una coincidencia única, completa primero la parte común y muestra la lista cuando quedan varias opciones. Se aplica a terminales nuevas de Zsh, Bash 4+, Fish y PowerShell.",
+  "settings.completionTabKey": "Tecla Tab",
+  "settings.completionTabAccept": "Aceptar sugerencia",
+  "settings.completionTabComplete": "Completar comando",
+  "settings.completionTabAcceptHint": "Mientras se muestra una sugerencia atenuada, Tab la acepta. Si vuelves a pulsar Tab justo después, se deshace y aparece la lista de coincidencias. También puedes aceptarla con → o Fin.",
+  "settings.completionTabCompleteHint": "Tab siempre completa el comando, aunque se muestre una sugerencia atenuada. Pulsa → o Fin para aceptar la sugerencia.",
+  "term.completionTipAccept": "Aceptar sugerencia",
+  "term.completionTipComplete": "Completar comando",
+  "term.completionTipUndo": "Deshacer y ver coincidencias",
 
   // Native texts of the mobile remote plugin (iOS, Android, download bridge). They reach the apps through native-text.json; {name} placeholders are replaced natively.
   "mobile.native.trustTitle": "Confirmar huella digital remota",
@@ -2479,6 +2528,9 @@ const es: typeof en = {
   "term.runs.logEmpty": "Todavía no hay salida",
   "chat.antigravity.placeholder": "Escribe a Antigravity o usa @archivos para hacer referencia a archivos",
   "chat.antigravity.textOnly": "La vista de conversación de Antigravity actualmente solo admite mensajes de texto.",
+  "chat.textOnly": (agent: string) => `La vista de conversación de ${agent} solo admite mensajes de texto.`,
+  "chat.signInRequired": (agent: string) => `Inicia sesión en ${agent} para usar la vista de conversación. Cambia a la vista de terminal para iniciar sesión y luego vuelve a enviar tu mensaje.`,
+  "chat.apiKeyRequired": "DeepSeek Harness necesita una clave de API. Define la variable de entorno DEEPSEEK_API_KEY o ejecuta `dsh web` y guarda la clave en su página Models; después, vuelve a enviar tu mensaje.",
   "chat.antigravity.permissionsHint": "Las herramientas que requieren aprobación deben autorizarse previamente en la configuración de Antigravity o utilizarse en la vista de terminal.",
   "chat.antigravity.settingsHint": "Cambie el modelo, el nivel de razonamiento o los permisos entre turnos.",
   "ports.title": "Puertos", // Ports
@@ -2570,6 +2622,111 @@ const es: typeof en = {
   "artifact.cardOpenTitle": "Abrir junto a esta sesión", // Open beside this session
   "artifact.cardKind": "Página HTML", // HTML page
   "artifact.frameTitle": (name: string) => `Vista previa de ${name}`, // Preview of ${name}
+  "newSession.menu": "Nueva sesión…", // New Session…
+  "newSession.heading": "¿En qué quiere trabajar?", // What should we work on?
+  "newSession.terminalOnly": "Solo vista de terminal", // Terminal view only
+  "newSession.conversationOnly": "Solo vista de conversación", // Conversation view only
+  "newSession.noConversationView": "Este agente no tiene vista de conversación, así que la sesión se abrirá en la vista de terminal.", // This agent has no conversation view, so the session opens in the terminal view.
+  "newSession.noTerminalView": "Este agente no tiene vista de terminal, así que la sesión se abrirá en la vista de conversación.", // This agent has no terminal view, so the session opens in the conversation view.
+  "newSession.taskLabel": "Primera tarea", // First task
+  "newSession.placeholder": "Describe una tarea o haz una pregunta", // Describe a task or ask a question
+  "newSession.enterHint": "Intro para iniciar · Mayús+Intro para una nueva línea", // Enter to start · Shift+Enter for a new line
+  "newSession.start": "Iniciar", // Start
+  "newSession.starting": "Iniciando…", // Starting…
+  "newSession.viewLabel": "Vista", // View
+  "newSession.worktreeHint": "Ejecuta esta sesión en su propia rama, en una carpeta independiente.", // Runs this session on its own branch in a separate folder.
+  "newSession.worktreeNotRepo": "Un worktree independiente requiere un repositorio Git.", // A separate worktree needs a Git repository.
+  "newSession.worktreeName": "Nombre del worktree (opcional)", // Worktree name (optional)
+  "newSession.worktreeNameHint": "Da nombre a la nueva carpeta y rama. Déjelo vacío para usar el nombre de la sesión.", // Names the new folder and branch. Leave empty to use the session name.
+  "newSession.typeLabel": "Tipo de sesión",
+  "newSession.typeTask": "Tarea",
+  "newSession.typeProject": "Proyecto",
+  "newSession.typeChat": "Chat",
+  "newSession.typeTaskHint": "Realiza una tarea sin proyecto, como importar uno.",
+  "newSession.typeProjectHint": "Trabaja en la carpeta de un proyecto.",
+  "newSession.typeChatHint": "Una conversación sin proyecto ni archivos.",
+  "newSession.location": "Proyecto o colección",
+  "newSession.locationSearch": "Filtrar proyectos y colecciones",
+  "newSession.collectionOption": "Colección",
+  "newSession.newTask": "Nueva sesión de tarea",
+  "newSession.newChat": "Nueva sesión de chat",
+  "systemCollection.projects": "Proyectos",
+  "systemCollection.agents": "Agentes",
+  "systemCollection.terminals": "Terminales",
+  "systemCollection.tasks": "Tareas",
+  "systemCollection.chat": "Chats",
+  "systemCollection.projectsHint": "Todos los proyectos. Colección integrada que no se puede eliminar.",
+  "systemCollection.agentsHint": "Agentes que se ejecutan en terminales. Un agente sale de la lista cuando termina.",
+  "systemCollection.terminalsHint": "Terminales en ejecución.",
+  "systemCollection.tasksHint": "Sesiones de tarea, que no pertenecen a ningún proyecto.",
+  "systemCollection.chatHint": "Sesiones de chat.",
+  "sidebarSection.nav": "Secciones de la barra lateral",
+  "sidebarSection.noTasks": "Todavía no hay sesiones de tarea.",
+  "sidebarSection.noChats": "Todavía no hay sesiones de chat.",
+  "artifact.comment": "Comentar", // Comment
+  "artifact.commentTitle": "Haz clic en elementos de la página para dejar comentarios al agente", // Click elements in the page to leave comments for the agent
+  "artifact.pickHint": "Haz clic en un elemento de la página para comentarlo. Pulsa Esc para terminar.", // Click an element in the page to comment on it. Press Esc to stop.
+  "artifact.commentOn": (target: string) => `Comentario sobre ${target}`, // Comment on ${target}
+  "artifact.commentPlaceholder": "¿Qué debería cambiar aquí?", // What should change here?
+  "artifact.commentAdd": "Añadir comentario", // Add comment
+  "artifact.commentMore": "Comentar otro elemento", // Comment on another element
+  "artifact.commentRemove": "Quitar comentario", // Remove comment
+  "artifact.showInPage": "Mostrar en la página", // Show in page
+  "artifact.sendCommentsTitle": "Coloca estos comentarios en el cuadro de mensaje de la sesión que escribió esta página", // Put these comments in the message box of the session that wrote this page
+  "artifact.copyCommentsTitle": "Copia estos comentarios para enviarlos a un agente", // Copy these comments to send to an agent
+  "artifact.options": "Opciones", // Options
+  "artifact.useOption": (id: string) => `Usar ${id}`, // Use ${id}
+  "artifact.useOptionTitle": "Coloca en el cuadro de mensaje de la sesión que escribió esta página un mensaje que pide conservar esta opción", // Put a message asking to keep this option in the message box of the session that wrote this page
+  "artifact.useOptionCopyTitle": "Copia un mensaje que pide conservar esta opción", // Copy a message asking to keep this option
+  // Knowledge base and archived sessions pages.
+  "kb.overview": "Resumen",
+  "kb.sources": "Fuentes",
+  "kb.searchAll": "Buscar en conocimientos y notas…",
+  "kb.localHint": "Carpetas Markdown de este equipo. Edítalas aquí o en cualquier otro editor.",
+  "kb.archiveHint": "Conversaciones terminadas. Añade a la base de conocimientos las que merezca la pena conservar.",
+  "kb.recent": "Actualizado recientemente",
+  "kb.openArchived": "Abrir sesión archivada",
+  "kb.editDetails": "Editar detalles",
+  "kb.moreActions": "Más acciones",
+  "archive.allSessions": "Todas las sesiones",
+  "archive.projects": "Proyectos",
+  "archive.allProjects": "Todos los proyectos",
+  "archive.allAgents": "Todos los agentes",
+  "archive.anyKnowledge": "Con o sin conocimientos",
+  "archive.withKnowledge": "Añadida a la base de conocimientos",
+  "archive.withoutKnowledge": "Aún sin añadir",
+  "archive.view": "Vista",
+  "archive.viewTree": "Árbol",
+  "archive.viewTime": "Por fecha",
+  "archive.newest": "Más recientes primero",
+  "archive.oldest": "Más antiguas primero",
+  "archive.colSession": "Sesión",
+  "archive.colProject": "Proyecto",
+  "archive.colAgent": "Agente",
+  "archive.colKnowledge": "Conocimientos",
+  "archive.colArchived": "Archivada",
+  "archive.restoreShort": "Restaurar",
+  "kb.needsAttention": (count: string) => `${count} ${count === "1" ? "requiere" : "requieren"} atención`,
+  "kb.statusAttention": "Requiere atención",
+  "kb.statusOrganized": "Organizada",
+  "kb.organizedCount": (count: string) => `${count} ${count === "1" ? "organizada" : "organizadas"}`,
+  "kb.failedTimes": (count: string) => `Falló ${count} veces`,
+  "kb.succeededAfter": (count: string) => `Completada tras ${count} ${count === "1" ? "intento fallido" : "intentos fallidos"}`,
+  "kb.fromSession": "De la sesión",
+  "kb.showAllTags": "Mostrar todas las etiquetas",
+  "kb.inKnowledgeBase": (count: string) => `${count} en la base de conocimientos`,
+  "kb.entriesCount": (count: string) => `${count} ${count === "1" ? "artículo" : "artículos"}`,
+  "kb.entriesFrom": (count: string, sessions: string) => `${count === "1" ? "artículo" : "artículos"} de ${sessions} ${sessions === "1" ? "sesión" : "sesiones"}`,
+  "kb.notesIn": (count: string, folders: string) => `${count === "1" ? "nota" : "notas"} en ${folders} ${folders === "1" ? "carpeta" : "carpetas"}`,
+  "kb.sessionsIn": (count: string, projects: string) => `${count === "1" ? "sesión" : "sesiones"} en ${projects} ${projects === "1" ? "proyecto" : "proyectos"}`,
+  "kb.lastArchived": "Último archivado",
+  "nb.notesWord": (count: string) => count === "1" ? "nota" : "notas",
+  "archive.sessionsInProjects": (sessions: string, projects: string) => `${sessions} ${sessions === "1" ? "sesión" : "sesiones"} en ${projects} ${projects === "1" ? "proyecto" : "proyectos"}`,
+  "archive.collapseAll": "Contraer todo",
+  "kb.andMore": (count: string) => `y ${count} más`,
+  "kb.searchEntries": "Buscar artículos…",
+  "kb.updatedOn": (date: string) => `Actualizado el ${date}`,
+  "archive.sessionsCount": (count: string) => `${count} ${count === "1" ? "sesión" : "sesiones"}`,
 };
 
 export default es;

@@ -13,7 +13,7 @@ import { isTauri } from "../../../ipc/transport";
 import { env, platform } from "../../../platform";
 import { DOC_EXPORT_PDF_EVENT, DOC_SAVE_EVENT } from "../../../hooks/useKeyboardShortcuts";
 import { labelWithCombo } from "../../../hooks/shortcutRegistry";
-import { useTermStore, type DocTab } from "../../../store/termStore";
+import { findDocTab, useTermStore, type DocTab } from "../../../store/termStore";
 import Icons from "../../../components/Icons";
 import { ContextMenu, type MenuItem } from "../../../components/ContextMenu";
 import { Splitter } from "../../../components/Splitter";
@@ -21,6 +21,8 @@ import { DocFileTree } from "./DocFileTree";
 import { DocOutline, parseOutline, type OutlineHeading } from "./DocOutline";
 import { DocSearchBar } from "./DocSearchBar";
 import type { DocSearchControl } from "./docSearch";
+import { ChangesView } from "../../../components/diff/ChangesView";
+import { DiffDocView } from "./DiffDocView";
 import { ImageDocView } from "./ImageDocView";
 import { SourceEditor, type SourceHandle } from "./SourceEditor";
 import { MarkdownEditor, type MarkdownHandle, type MarkdownViewMode } from "./MarkdownEditor";
@@ -48,9 +50,12 @@ const OUTLINE_DEBOUNCE_MS = 600;
 /** Debounce status-bar statistics while typing; counting serializes the visual document. */
 const STATS_DEBOUNCE_MS = 500;
 
-/** Routes images to ImageViewer, HTML pages to the artifact preview, and markdown/code to TextDocView. */
+/** Routes images to ImageViewer, HTML pages to the artifact preview, diffs to DiffDocView, comparisons to
+ *  ChangesView, and markdown/code to TextDocView. */
 export function DocView({ tab, hidden }: { tab: DocTab; hidden: boolean }) {
   if (tab.kind === "image") return <ImageDocView tab={tab} hidden={hidden} />;
+  if (tab.kind === "diff") return <DiffDocView tab={tab} hidden={hidden} />;
+  if (tab.kind === "changes") return <ChangesView tab={tab} hidden={hidden} />;
   if (tab.kind === "artifact") return <ArtifactDocView tab={tab} hidden={hidden} />;
   return <TextDocView tab={tab} hidden={hidden} />;
 }
@@ -301,7 +306,7 @@ function TextDocView({ tab, hidden, artifact }: { tab: DocTab; hidden: boolean; 
     if (tab.reloadNonce === lastReloadNonceRef.current) return;
     lastReloadNonceRef.current = tab.reloadNonce;
     ignoredMtimeRef.current = null;
-    if (useTermStore.getState().docTabs[tab.id]?.dirty) {
+    if (findDocTab(useTermStore.getState(), tab.id)?.dirty) {
       void statFile(tab.path)
         .then((st) => {
           if (st.mtimeMs !== baselineMtimeRef.current) setExternalMtime(st.mtimeMs);
@@ -327,7 +332,7 @@ function TextDocView({ tab, hidden, artifact }: { tab: DocTab; hidden: boolean; 
         const baseline = baselineMtimeRef.current;
         if (baseline == null || st.mtimeMs === baseline) return;
         if (st.mtimeMs === ignoredMtimeRef.current) return;
-        if (artifactRef.current && !useTermStore.getState().docTabs[tab.id]?.dirty) {
+        if (artifactRef.current && !findDocTab(useTermStore.getState(), tab.id)?.dirty) {
           void quietReload();
           return;
         }
@@ -525,7 +530,7 @@ function TextDocView({ tab, hidden, artifact }: { tab: DocTab; hidden: boolean; 
 
   const onEdited = useCallback(() => {
     editedRef.current = true;
-    const cur = useTermStore.getState().docTabs[tab.id];
+    const cur = findDocTab(useTermStore.getState(), tab.id);
     if (cur && !cur.dirty) setDocTabDirty(tab.id, true);
     // Refresh the visible outline after the edit debounce expires.
     if (outlineOnRef.current) {

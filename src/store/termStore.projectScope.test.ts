@@ -218,6 +218,21 @@ describe("keeping the active tab visible", () => {
     expect(useTermStore.getState().activeProjectId).toBe("B");
   });
 
+  it("opening a New Session tab for another project reveals that project", () => {
+    const id = useTermStore.getState().openNewSessionTab({ projectId: "B" });
+    const state = useTermStore.getState();
+    expect(state.activeProjectId).toBe("B");
+    expect(visibleTabIds(state)).toContain(id);
+  });
+
+  it("retargeting the active New Session tab to another project reveals that project", () => {
+    const id = useTermStore.getState().openNewSessionTab({ projectId: "A" });
+    useTermStore.getState().retargetNewSessionTab(id, { projectId: "B" });
+    const state = useTermStore.getState();
+    expect(state.activeProjectId).toBe("B");
+    expect(visibleTabIds(state)).toContain(id);
+  });
+
   it("turning the setting on reveals the active tab's project", () => {
     seed({ scopeTabsToProject: false, activeProjectId: "B" });
     useTermStore.getState().setScopeTabsToProject(true);

@@ -65,7 +65,11 @@ vi.mock("../../i18n", () => ({ useT: () => (key: string) => key }));
 vi.mock("../../components/Icons", () => ({ default: new Proxy({}, { get: () => () => null }) }));
 vi.mock("../../components/StatusIndicator", () => ({ StatusIndicator: () => null }));
 vi.mock("../sessionViewers/sessionMeta", () => ({ SessionKindIcon: () => null }));
-vi.mock("../../hooks/useGitBranch", () => ({ useGitBranch: () => null, isWorktreeGone: () => false }));
+vi.mock("../../hooks/useGitBranch", () => ({
+  useGitBranch: () => null,
+  isWorktreeGone: () => false,
+  useLinkedWorktrees: () => new Map(),
+}));
 vi.mock("../../sharing/sessionNavigation", () => ({ navigateSharedSession: vi.fn(), sharedSessionUrl: () => "" }));
 // jsdom has no layout, so the real virtualizer would render nothing; this stand-in renders every row.
 vi.mock("@tanstack/react-virtual", () => ({

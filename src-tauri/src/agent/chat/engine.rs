@@ -32,6 +32,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+mod acp;
+pub use acp::DEEPSEEK_MODELS_SETTING;
 mod antigravity;
 mod auth;
 mod claude_identity;
@@ -42,7 +44,9 @@ mod opencode;
 mod outgoing_wire;
 mod permission_restart;
 mod pi;
+mod zcode;
 
+use super::acp_protocol;
 use super::codex_protocol;
 use super::pi_protocol;
 use super::skills;
@@ -59,6 +63,8 @@ type RowPath = Vec<String>;
 /// How often dirty rows are swept to the frontend. Short enough to read as live typing.
 const FLUSH_INTERVAL: Duration = Duration::from_millis(60);
 pub(crate) const SNAPSHOT_PAGE_ROWS: usize = 60;
+/// The rows' share of one snapshot response; the rest carries the message outline and control fields.
+const SNAPSHOT_ROW_BYTES: usize = crate::agent::history_store::limits::PAGE_BYTES / 2;
 
 /// How much of stderr to keep. Enough for a stack trace, bounded so a chatty CLI cannot grow without limit.
 const STDERR_LIMIT: usize = 8 * 1024;
@@ -1005,7 +1011,10 @@ struct ChatProcess {
     opencode: Mutex<opencode::OpencodeState>,
     /// The Pi/OMP side of this conversation: its variant, model catalogue, and pending extension dialogs.
     pi: Mutex<pi::PiState>,
+    zcode: Mutex<zcode::ZcodeState>,
     antigravity: Mutex<super::antigravity_protocol::StreamState>,
+    /// The ACP side of this conversation: its session catalogue, timeline mapper and pending requests.
+    acp: Mutex<acp::AcpState>,
     /// Codex service tier (`fast`, or another id from its model catalogue) for subsequent turns. None
     /// keeps whatever the thread was opened with.
     service_tier: Mutex<Option<String>>,
@@ -1232,6 +1241,8 @@ fn initial_mode(kind: SessionKind, stored: Option<&str>) -> String {
         SessionKind::Omp => crate::agent::permission_catalog::normalize(SessionKind::Omp, stored)
             .unwrap_or("default"),
         SessionKind::Pi => "default",
+        SessionKind::Zcode => crate::agent::permission_catalog::normalize(SessionKind::Zcode, stored)
+            .unwrap_or("default"),
         _ => protocol::cli_permission_mode(stored).unwrap_or("default"),
     }
     .to_string()
@@ -1279,6 +1290,16 @@ impl ChatManager {
             terminate_owned(&mut child); let _ = child.wait();
             if let Some(owner) = proc.owner.lock().unwrap().take() { owner.retire(app,&session); }
         }
+    }
+
+    /// Closing the main window stops every agent the way an exit does, but the backend lives on for the
+    /// remote windows, so the next main window must be able to start conversations again from scratch.
+    pub fn stop_all(&self, app: &AppCtx) {
+        self.shutdown(app);
+        let _start = self.starts.lock().unwrap();
+        self.sessions.lock().unwrap().clear();
+        self.permission_restarts.lock().unwrap().clear();
+        self.closing.store(false, Ordering::Relaxed);
     }
 
     pub fn new() -> Self {
@@ -1539,7 +1560,8 @@ impl ChatManager {
             let conn = app.db().conn.lock().unwrap();
             crate::db::repo::get_fork_pending(&conn, session_id)?
         };
-        let mut cmd = crate::host::command(bin);
+        // ZCode's desktop release runs its bundled agent through the app's own binary; see `agent::zcode`.
+        let mut cmd = if kind == SessionKind::Zcode { crate::agent::zcode::command(bin) } else { crate::host::command(bin) };
         // OpenCode is reached over HTTP: the port it listens on and the password that guards it.
         let mut opencode_launch: Option<(u16, String)> = None;
         match kind {
@@ -1550,6 +1572,10 @@ impl ChatManager {
             SessionKind::Antigravity => {
                 if fork { return Err("Antigravity does not support conversation forks".into()); }
                 cmd.args(super::antigravity_protocol::launch_args(resume, model, effort, &mode, extra_args)?);
+            }
+            kind if acp_protocol::supported(kind) => {
+                if fork { return Err(format!("{} does not support conversation forks", acp_protocol::label(kind))); }
+                cmd.args(acp_protocol::launch_args(kind, model, effort, extra_args)?);
             }
             SessionKind::Codex => {
                 cmd.arg("app-server").arg("--stdio");
@@ -1582,6 +1608,12 @@ impl ChatManager {
                 cmd.args(pi_protocol::launch_args(variant, resume, fork, model, bypass));
                 cmd.args(extra_args);
             }
+            SessionKind::Zcode => {
+                if fork { return Err("ZCode conversations cannot be forked from VelaTerm".into()); }
+                // The server takes no launch arguments of the session's: model, effort and mode travel with every
+                // message instead.
+                cmd.arg("app-server").arg("--stdio");
+            }
             _ => return Err(format!("The chat engine does not support {} sessions", kind.as_str())),
         }
         if let Some(cwd) = cwd {
@@ -1604,6 +1636,8 @@ impl ChatManager {
             antigravity::restart_state(self.sessions.lock().unwrap().get(session_id).cloned())
         } else { (TurnQueue::default(), Arc::new(AtomicBool::new(false))) };
         crate::agent::executable::prepare_command(&mut cmd, bin);
+        // Read with the environment the agent gets, which decides where its account is kept.
+        let zcode_account = (kind == SessionKind::Zcode).then(|| crate::agent::zcode_account::Account::for_command(&cmd)).flatten();
         let mut owner = super::ownership::Owner::acquire(app, session_id,
             resume.filter(|_| !fork).map(|id|format!("{}:{id}",kind.as_str())))?;
         // Read again under the writer lease: another client may have completed a view switch.
@@ -1624,7 +1658,9 @@ impl ChatManager {
         }
         // Sizes only, taken before the agent can append: everything past them is this process's own.
         // A fork writes a new recording, so it has no earlier offset to cut at.
-        let history_cut=resume.filter(|_| !fork).and_then(|id|crate::agent::history_store::api::ProcessCut::capture(kind,id));
+        // ACP agents replay their history through `session/load` instead of a recording offset.
+        let history_cut=resume.filter(|_| !fork && !acp_protocol::supported(kind))
+            .and_then(|id|crate::agent::history_store::api::ProcessCut::capture(kind,id));
         let version = crate::agent::version::installed(bin);
         let mut child = match cmd.spawn() {
             Ok(child) => child,
@@ -1669,7 +1705,9 @@ impl ChatManager {
             codex_pending_child_events: Mutex::new(HashMap::new()),
             opencode: Mutex::new(opencode::OpencodeState::default()),
             pi: Mutex::new(pi::PiState::default()),
+            zcode: Mutex::new(zcode::ZcodeState::default()),
             antigravity: Mutex::new(crate::agent::chat::antigravity_protocol::StreamState::default()),
+            acp: Mutex::new(acp::AcpState::default()),
             service_tier: Mutex::new(service_tier),
             personality: Mutex::new(personality),
             codex_turn_error: Mutex::new(None),
@@ -1682,7 +1720,8 @@ impl ChatManager {
             model: Mutex::new(model.map(str::to_string)),
             effort: Mutex::new(effort.map(str::to_string)),
             mode: Mutex::new(mode),
-            permission_confirmed: AtomicBool::new(matches!(kind, SessionKind::Opencode | SessionKind::Omp)),
+            // These engines answer approvals themselves in bypass mode, so the selected mode is the one in force.
+            permission_confirmed: AtomicBool::new(matches!(kind, SessionKind::Opencode | SessionKind::Omp | SessionKind::Zcode) || acp_protocol::supported(kind)),
             bypass_capable,
             codex_permission_state: Mutex::new(CodexPermissionState::default()),
             collaboration_mode: Mutex::new(match kind {
@@ -1693,8 +1732,9 @@ impl ChatManager {
                     }
                     .to_string(),
                 ),
-                // An OpenCode agent name; checked against the server's catalogue once it answers.
-                SessionKind::Opencode => collaboration_mode
+                // An OpenCode agent name or an ACP session mode; checked against the agent's catalogue once
+                // it answers.
+                kind if kind == SessionKind::Opencode || acp_protocol::supported(kind) => collaboration_mode
                     .map(str::trim)
                     .filter(|name| !name.is_empty())
                     .map(str::to_string),
@@ -1726,6 +1766,10 @@ impl ChatManager {
 
         let restored_auth = self.sessions.lock().unwrap().get(session_id)
             .is_some_and(|previous| auth::claude::restore(previous, &proc));
+
+        if let Some(native) = resume.filter(|_| acp_protocol::supported(kind)) {
+            acp::prefill(app, &proc, native);
+        }
 
         self.sessions
             .lock()
@@ -1805,9 +1849,15 @@ impl ChatManager {
                 proc.pi.lock().unwrap().variant = pi_protocol::PiVariant::of(kind);
                 pi::bootstrap(&proc);
             }
+            SessionKind::Zcode => zcode::bootstrap(&proc, zcode_account),
+            kind if acp_protocol::supported(kind) => acp::bootstrap(app, &proc, resume, cwd, collaboration_mode),
             _ => unreachable!(),
         }
-        if let Some(native)=resume {spawn_history_restore(app.clone(),session_id.into(),proc.clone(),native.into());}
+        // ZCode delivers its own history through its subscription, and ACP through `session/load`, which the
+        // handshake already asked for; replaying the store too would draw it twice.
+        if let Some(native)=resume.filter(|_| kind != SessionKind::Zcode && !acp_protocol::supported(kind)) {
+            spawn_history_restore(app.clone(),session_id.into(),proc.clone(),native.into());
+        }
         Ok(())
     }
 
@@ -1821,6 +1871,16 @@ impl ChatManager {
         state.server.clone()
     }
 
+    /// The model catalogue a running ZCode process reported, or None when none owns the session.
+    pub fn zcode_models(&self, session_id: &str) -> Option<Vec<Value>> {
+        let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
+        if !proc.alive.load(Ordering::Relaxed) || proc.kind != SessionKind::Zcode {
+            return None;
+        }
+        let models = zcode::chat_models(&proc);
+        (!models.is_empty()).then_some(models)
+    }
+
     /// The model catalogue a running Pi or OMP process reported, or None when none owns the session.
     pub fn pi_models(&self, session_id: &str) -> Option<Vec<Value>> {
         let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
@@ -1829,6 +1889,26 @@ impl ChatManager {
         }
         let models = pi::chat_models(&proc);
         (!models.is_empty()).then_some(models)
+    }
+
+    /// The model catalogue a running ACP session reported, or None when it reported none.
+    pub fn acp_models(&self, session_id: &str) -> Option<Vec<Value>> {
+        let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
+        if !proc.alive.load(Ordering::Relaxed) || !acp_protocol::supported(proc.kind) {
+            return None;
+        }
+        acp::chat_models(&proc)
+    }
+
+    /// Whether a running ACP session switches model and reasoning level itself. When it cannot, the choice
+    /// is a launch setting that takes effect when the process next starts.
+    pub fn acp_switchable(&self, session_id: &str) -> (bool, bool) {
+        let Some(proc) = self.sessions.lock().unwrap().get(session_id).cloned() else { return (false, false) };
+        if !proc.alive.load(Ordering::Relaxed) || !acp_protocol::supported(proc.kind) || !proc.ready.load(Ordering::Relaxed) {
+            return (false, false);
+        }
+        let catalog = proc.acp.lock().unwrap().catalog.clone();
+        (catalog.model_switchable(), catalog.effort_switchable())
     }
 
     /// Send a user turn, or decide what to do with it when one is already running.
@@ -1906,6 +1986,9 @@ impl ChatManager {
         }
         if proc.kind == SessionKind::Antigravity {
             super::antigravity_protocol::validate(text, images.len(), behavior)?;
+        }
+        if acp_protocol::supported(proc.kind) {
+            acp::validate(proc, behavior, images.len())?;
         }
         // Steering is a prompt, never a local command or a queued replacement.
         if proc.kind == SessionKind::Opencode && behavior != "steer" && proc.ready.load(Ordering::Relaxed) && opencode::is_local_command(text.trim()) {
@@ -2169,6 +2252,13 @@ impl ChatManager {
         if proc.kind == SessionKind::Omp {
             return pi::respond_extension_ui(app, session_id, &proc, request_id, allow);
         }
+        if proc.kind == SessionKind::Zcode {
+            return zcode::respond(app, session_id, &proc, request_id, &request, allow,
+                updated_input.as_ref(), message, updated_permissions.as_ref());
+        }
+        if acp_protocol::supported(proc.kind) {
+            return acp::respond(app, session_id, &proc, request_id, allow, updated_permissions.as_ref());
+        }
         // Claim the request so a late answer from another client is refused, and put it back when this
         // answer could not be delivered, so the person can answer again.
         let claimed=proc.permissions.lock().unwrap().remove(request_id)
@@ -2276,6 +2366,20 @@ impl ChatManager {
             }
             return Ok(());
         }
+        if proc.kind == SessionKind::Zcode {
+            // The mode travels with every message; approvals already waiting are let through here.
+            if mode == "bypassPermissions" {
+                zcode::approve_pending(app, session_id, &proc);
+            }
+            return Ok(());
+        }
+        if acp_protocol::supported(proc.kind) {
+            // ACP leaves approvals to the client, which answers them itself in bypass from now on.
+            if mode == "bypassPermissions" {
+                acp::approve_pending(app, session_id, &proc);
+            }
+            return Ok(());
+        }
         Ok(())
     }
 
@@ -2305,7 +2409,7 @@ impl ChatManager {
         mode: &str,
     ) -> Result<(), String> {
         let proc = self.get(session_id)?;
-        if !matches!(proc.kind, SessionKind::Codex | SessionKind::Opencode) {
+        if !matches!(proc.kind, SessionKind::Codex | SessionKind::Opencode) && !acp_protocol::supported(proc.kind) {
             return Err(format!(
                 "{} does not support collaboration modes",
                 proc.kind.as_str()
@@ -2315,10 +2419,15 @@ impl ChatManager {
         if !supported.iter().any(|preset| preset.mode == mode) {
             return Err(match proc.kind {
                 SessionKind::Opencode => format!("OpenCode has no agent named {mode}"),
-                _ => format!("Codex app-server does not support collaboration mode {mode}"),
+                SessionKind::Codex => format!("Codex app-server does not support collaboration mode {mode}"),
+                kind => format!("{} has no mode named {mode}", acp_protocol::label(kind)),
             });
         }
         drop(supported);
+        // An ACP session switches at once; the other agents apply the choice to their next turn.
+        if acp_protocol::supported(proc.kind) {
+            acp::set_mode(&proc, mode)?;
+        }
         *proc.collaboration_mode.lock().unwrap() = Some(mode.to_string());
         emit(
             app,
@@ -2387,6 +2496,10 @@ impl ChatManager {
             if let Some(model) = model {
                 pi::set_model(&proc, model)?;
             }
+        } else if acp_protocol::supported(proc.kind) {
+            if let Some(model) = model {
+                acp::set_model(&proc, model)?;
+            }
         }
         *proc.model.lock().unwrap() = model.map(str::to_string);
         Ok(())
@@ -2425,6 +2538,10 @@ impl ChatManager {
             if let Some(level) = effort {
                 pi::set_effort(&proc, level)?;
             }
+        } else if acp_protocol::supported(proc.kind) {
+            if let Some(level) = effort {
+                acp::set_effort(&proc, level)?;
+            }
         }
         Ok(())
     }
@@ -2450,8 +2567,8 @@ impl ChatManager {
 
     fn account_process(&self, session_id: &str) -> Result<Arc<ChatProcess>, String> {
         let proc = self.get(session_id)?;
-        if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex) {
-            return Err("Account operations require a Claude or Codex conversation.".into());
+        if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex | SessionKind::Zcode) {
+            return Err("Account operations require a Claude, Codex or ZCode conversation.".into());
         }
         if proc.kind == SessionKind::Codex {
             for _ in 0..500 {
@@ -2462,15 +2579,24 @@ impl ChatManager {
         Ok(proc)
     }
 
-    pub fn auth_start(&self, app: &AppCtx, session_id: &str) -> Result<(), String> {
+    /// Whether the session's agent is installed and signed in. Runs commands, so it stays off the UI thread.
+    pub fn agent_readiness(&self, app: &AppCtx, session_id: &str) -> Result<auth::readiness::AgentReadiness, String> {
+        auth::readiness::check(app, session_id)
+    }
+
+    /// `provider` picks ZCode's account provider (`zai` or `bigmodel`); the other agents have one each.
+    pub fn auth_start(&self, app: &AppCtx, session_id: &str, provider: Option<&str>) -> Result<(), String> {
         let _change = self.auth_change.lock().unwrap();
         let proc = self.account_process(session_id)?;
         let _action = proc.action.lock().unwrap();
         if self.sessions.lock().unwrap().iter().any(|(id, other)| id != session_id && other.kind == proc.kind && auth::active(other)) {
             return Err("An account operation for this provider is already in progress in another conversation.".into());
         }
-        if proc.kind == SessionKind::Claude { auth::claude::start(app, session_id, &proc) }
-        else { auth::start(app, session_id, &proc) }
+        match proc.kind {
+            SessionKind::Claude => auth::claude::start(app, session_id, &proc),
+            SessionKind::Zcode => auth::zcode::start(app, session_id, &proc, provider),
+            _ => auth::start(app, session_id, &proc),
+        }
     }
 
     pub fn auth_logout(&self, app: &AppCtx, session_id: &str) -> Result<(), String> {
@@ -2480,15 +2606,21 @@ impl ChatManager {
         if self.sessions.lock().unwrap().iter().any(|(id, other)| id != session_id && other.kind == proc.kind && auth::active(other)) {
             return Err("An account operation for this provider is already in progress in another conversation.".into());
         }
-        if proc.kind == SessionKind::Claude { auth::claude::logout(app, session_id, &proc) }
-        else { auth::logout(app, session_id, &proc) }
+        match proc.kind {
+            SessionKind::Claude => auth::claude::logout(app, session_id, &proc),
+            SessionKind::Zcode => auth::zcode::logout(app, session_id, &proc),
+            _ => auth::logout(app, session_id, &proc),
+        }
     }
 
     pub fn auth_cancel(&self, app: &AppCtx, session_id: &str) -> Result<(), String> {
         let proc = self.account_process(session_id)?;
         let _action = proc.action.lock().unwrap();
-        if proc.kind == SessionKind::Claude { auth::claude::cancel(app, session_id, &proc) }
-        else { auth::cancel(app, session_id, &proc) }
+        match proc.kind {
+            SessionKind::Claude => auth::claude::cancel(app, session_id, &proc),
+            SessionKind::Zcode => auth::zcode::cancel(app, session_id, &proc),
+            _ => auth::cancel(app, session_id, &proc),
+        }
     }
 
     pub fn auth_submit(&self, app: &AppCtx, session_id: &str, code: &str) -> Result<(), String> {
@@ -2504,6 +2636,7 @@ impl ChatManager {
         match proc.kind {
             SessionKind::Codex => codex::compact(&proc),
             SessionKind::Pi | SessionKind::Omp => pi::compact(&proc),
+            SessionKind::Zcode => zcode::compact(&proc),
             other => Err(format!(
                 "{} does not support manual compaction",
                 other.as_str()
@@ -2588,6 +2721,11 @@ impl ChatManager {
         Ok(())
     }
 
+    /// Whether the session's agent still has background work that will wake it when it reports back.
+    pub fn background_pending(&self, session_id: &str) -> bool {
+        self.get(session_id).is_ok_and(|proc| background_pending(&proc.turn.lock().unwrap()))
+    }
+
     /// Move every foreground task to the background so the turn continues without waiting on them.
     pub fn background_tasks(&self, session_id: &str) -> Result<(), String> {
         let proc = self.claude(session_id)?;
@@ -2659,14 +2797,20 @@ impl ChatManager {
     /// Model and context usage from the running Claude or Codex process, for the Info panel.
     pub fn context_info(&self, session_id: &str) -> Option<crate::agent::transcript::AgentContextInfo> {
         let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
-        // Codex reports the same two numbers through `thread/tokenUsage/updated`, into the same fields.
-        if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex) {
+        // Codex reports the same two numbers through `thread/tokenUsage/updated`, and ZCode through its
+        // conversation's `usage` state, into the same fields.
+        if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex | SessionKind::Zcode) {
             return None;
         }
         let extras = proc.extras.lock().unwrap().clone();
-        // Codex token-usage notifications omit the model; the session stores it separately.
+        // Codex token-usage notifications omit the model; the session stores it separately. ZCode's model id
+        // is `<provider>/<model>`, and the panel names the model alone, as ZCode's own store records it.
         let model = extras.usage_model.clone()
-            .or_else(|| proc.model.lock().unwrap().clone());
+            .or_else(|| proc.model.lock().unwrap().clone())
+            .map(|model| match proc.kind {
+                SessionKind::Zcode => model.split_once('/').map_or(model.clone(), |(_, name)| name.to_string()),
+                _ => model,
+            });
         if let Some(usage) = &extras.context_usage {
             let limit = usage.get("maxTokens").and_then(Value::as_u64)?;
             return Some(crate::agent::transcript::AgentContextInfo {
@@ -2840,11 +2984,22 @@ impl ChatManager {
                         }
                     }
                 }
-                start = end.saturating_sub(SNAPSHOT_PAGE_ROWS);
+                start = bounded_window_start(&timeline.rows, end);
             }
-            let selected: Vec<ChatRow> = if let Some(since) = delta {
-                start = window.and_then(|w| w.from.as_ref()).and_then(|id| timeline.at.get(id)).copied().unwrap_or(start);
-                timeline.rows[start..].iter().filter(|row| timeline.row_versions.get(row.id()).copied().unwrap_or(0) > since).cloned().collect()
+            // A client away for a long time can owe more rows than one response carries. It gets the
+            // recent window instead, which replaces its stale copy; older rows stay reachable by paging.
+            let changed = delta.and_then(|since| {
+                let from = window.and_then(|w| w.from.as_ref()).and_then(|id| timeline.at.get(id)).copied().unwrap_or(start);
+                let changed: Vec<ChatRow> = timeline.rows[from..].iter()
+                    .filter(|row| timeline.row_versions.get(row.id()).copied().unwrap_or(0) > since)
+                    .take(SNAPSHOT_PAGE_ROWS + 1).cloned().collect();
+                let fits = changed.len() <= SNAPSHOT_PAGE_ROWS && bounded_window_start(&changed, changed.len()) == 0;
+                fits.then_some((from, changed))
+            });
+            if delta.is_some() && changed.is_none() { kind = "recent"; }
+            let selected: Vec<ChatRow> = if let Some((from, changed)) = changed {
+                start = from;
+                changed
             } else { timeline.rows[start..end].to_vec() };
             let positions = selected.iter().filter_map(|row| timeline.at.get(row.id()).map(|index| (row.id().to_owned(), *index))).collect();
             let user_messages = if kind == "history" { None } else { Some(super::user_messages::outline(&timeline.rows)) };
@@ -3522,6 +3677,19 @@ fn slim_tool_input(input: &Value, encoded: &str) -> Value {
     }
 }
 
+/// Where a window ending at `end` starts: at most one page of rows within the rows' byte share.
+/// The row next to `end` always counts, so paging moves forward even past an oversized row.
+fn bounded_window_start(rows: &[ChatRow], end: usize) -> usize {
+    let mut start = end;
+    let mut bytes = 0;
+    while start > 0 && end - start < SNAPSHOT_PAGE_ROWS {
+        bytes += serde_json::to_vec(&snapshot_row(&rows[start - 1])).map_or(0, |wire| wire.len());
+        if bytes > SNAPSHOT_ROW_BYTES && start < end { break; }
+        start -= 1;
+    }
+    start
+}
+
 /// Serialize a timeline row for a snapshot without embedding image bytes.
 fn snapshot_row(row: &ChatRow) -> Value {
     match row {
@@ -3952,6 +4120,7 @@ fn spawn_stdout_reader(
         auth::claude::exited(&app, &session_id, &proc);
         let _exit_callback = proc.callbacks.read().unwrap();
         if proc.kind == SessionKind::Antigravity { antigravity::finish_rows(&proc); }
+        if acp_protocol::supported(proc.kind) { acp::finish(&proc); }
         proc.alive.store(false, Ordering::Relaxed);
         for (_, waiter) in proc.waiters.lock().unwrap().drain() {
             let _ = waiter.send(Err("The agent exited before answering the request".to_string()));
@@ -4113,6 +4282,14 @@ fn handle_line(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>, line: &s
     }
     if matches!(proc.kind, SessionKind::Pi | SessionKind::Omp) {
         pi::handle_line(app, session_id, proc, line);
+        return;
+    }
+    if proc.kind == SessionKind::Zcode {
+        zcode::handle_line(app, session_id, proc, line);
+        return;
+    }
+    if acp_protocol::supported(proc.kind) {
+        acp::handle_line(app, session_id, proc, line);
         return;
     }
     if proc.kind == SessionKind::Codex {
@@ -5863,6 +6040,10 @@ fn report_auto_continue(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>,
                 }
             });
         }
+        // OpenCode Go v2 errors carry no reset time; the pane then says the task will not continue on its own.
+        SessionKind::Opencode => {
+            auto_continue::turn_ended(app, session_id, TurnOutcome::LimitReached(opencode::take_usage_limit_reset(proc)))
+        }
         _ => auto_continue::turn_ended(app, session_id, TurnOutcome::Other),
     }
 }
@@ -5915,6 +6096,18 @@ fn send_interrupt_locked(proc: &Arc<ChatProcess>, turn: &mut TurnQueue) -> Resul
             return Ok(());
         }
         return pi::abort(proc);
+    }
+    if proc.kind == SessionKind::Zcode {
+        if !turn.running {
+            return Ok(());
+        }
+        return zcode::stop(proc);
+    }
+    if acp_protocol::supported(proc.kind) {
+        if !turn.running {
+            return Ok(());
+        }
+        return acp::cancel(proc);
     }
     if proc.kind == SessionKind::Codex {
         if !turn.running {
@@ -6030,6 +6223,9 @@ fn dispatch_steer(
     if proc.kind == SessionKind::Antigravity {
         super::antigravity_protocol::validate(text, images.len(), "steer")?;
     }
+    if acp_protocol::supported(proc.kind) {
+        acp::validate(proc, "steer", images.len())?;
+    }
     let commands = proc.commands.lock().unwrap().clone();
     let normalized = skills::native_text(text, &commands);
     let text = normalized.as_ref();
@@ -6059,6 +6255,9 @@ fn dispatch_steer(
         }
         SessionKind::Opencode => opencode::steer(proc, &row_id, text, images)?,
         SessionKind::Pi | SessionKind::Omp => pi::steer(proc, text, images)?,
+        // `guide` delivery joins the running turn at its next tool boundary; ZCode queues the message
+        // itself when the turn has no boundary left, so the receipt below stays honest either way.
+        SessionKind::Zcode => zcode::steer(app, session_id, proc, &row_id, text, images)?,
         SessionKind::Claude => write_claude_user_message(app,session_id,proc,&row_id,text,images)?,
         _ => proc.write_source(|writer|outgoing_wire::claude(writer,text,images,None))?,
     }
@@ -6134,6 +6333,10 @@ fn dispatch(
         opencode::dispatch(app, session_id, proc, &row_id, text, images)?;
     } else if matches!(proc.kind, SessionKind::Pi | SessionKind::Omp) {
         pi::dispatch(proc, text, images)?;
+    } else if proc.kind == SessionKind::Zcode {
+        zcode::dispatch(app, session_id, proc, &row_id, text, images)?;
+    } else if acp_protocol::supported(proc.kind) {
+        acp::dispatch(proc, text, images)?;
     } else if proc.kind == SessionKind::Codex {
         let thread_id = proc
             .agent_session_id
@@ -6857,7 +7060,9 @@ mod tests {
             codex_pending_child_events: Mutex::new(HashMap::new()),
             opencode: Mutex::new(opencode::OpencodeState::default()),
             pi: Mutex::new(pi::PiState::default()),
+            zcode: Mutex::new(zcode::ZcodeState::default()),
             antigravity: Mutex::new(crate::agent::chat::antigravity_protocol::StreamState::default()),
+            acp: Mutex::new(acp::AcpState::default()),
             service_tier: Mutex::new(None),
             personality: Mutex::new(None),
             codex_turn_error: Mutex::new(None),
@@ -7555,6 +7760,109 @@ mod tests {
         assert!(rows.iter().any(|row| matches!(row, ChatRow::Assistant { text, .. } if text == "done")));
     }
 
+    /// A ZCode turn followed through its V4 frames, shaped like a live `zcode app-server` 0.17.0 run: the
+    /// engine's own input is not drawn twice, deltas stream into rows, an approval becomes a card and leaves
+    /// with the server's list, and the turn header's terminal state ends the turn.
+    #[test]
+    fn zcode_frames_build_the_timeline_and_end_the_turn() {
+        let app = ctx("zcode-frames");
+        let proc = inert_process(SessionKind::Zcode);
+        *proc.agent_session_id.lock().unwrap() = Some("sess_1".into());
+        proc.turn.lock().unwrap().running = true;
+        zcode::test_await(&proc, "cmd-1", "u-1");
+        proc.timeline.lock().unwrap().upsert(ChatRow::User { id: "u-1".into(), text: "please use a tool".into(), images: Vec::new(), at: None });
+        let frame = |from: u64, to: u64, payload: Value| json!({"method":"v4/conversation/frame","params":{"wireVersion":3,"kind":"complete",
+            "frame":{"topic":"conversation/sess_1","fromSeq":from,"toSeq":to,"payload":payload}}}).to_string();
+        let deltas = |list: Value| json!({"kind":"deltas","deltas":list});
+        let lines = [
+            frame(0, 2, json!({"kind":"snapshot","snapshot":{"revision":1,"control":{"phase":"draft","lastError":null},
+                "config":{"provider":"fake","model":"fake-model","thought":"enabled","mode":"build"},
+                "usage":{"contextWindow":null,"cumulative":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}},
+                "pendingInteractions":[],"rows":{"window":[],"totalCount":0}}})),
+            frame(2, 6, deltas(json!([
+                {"op":"row.appended","row":{"rowId":1,"kind":"turnHeader","state":"running","sourceCommandId":"cmd-1","visibility":"visible"}},
+                {"op":"row.appended","row":{"rowId":2,"kind":"userInput","text":"please use a tool","sourceCommandId":"cmd-1","visibility":"visible"}},
+                {"op":"row.appended","row":{"rowId":3,"kind":"reasoning","text":"","state":"streaming","visibility":"visible"}},
+                {"op":"row.delta","rowId":3,"path":"text","append":"Need a tool."},
+            ]))),
+            frame(6, 9, deltas(json!([
+                {"op":"row.appended","row":{"rowId":4,"kind":"toolCall","toolCallId":"call_1","toolName":"Bash","status":"pendingApproval",
+                    "inputText":"{\"command\":\"touch made.txt\"}","input":{"command":"touch made.txt"},"visibility":"visible"}},
+                {"op":"state.updated","patch":{"pendingInteractions":[{"interactionId":"perm_1","kind":"permission","payload":{"kind":"permission",
+                    "toolName":"Bash","summary":"High risk tools require explicit approval","detail":{"command":"touch made.txt"},
+                    "options":[{"optionId":"allowOnce","kind":"allowOnce"},{"optionId":"deny","kind":"deny"}]}}]}},
+            ]))),
+        ];
+        for line in &lines {
+            zcode::handle_line(&app, "s", &proc, line);
+        }
+        assert!(proc.permissions.lock().unwrap().contains_key("perm_1"), "the approval waits as a card");
+        assert_eq!(proc.extras.lock().unwrap().context_window, None, "no window before the model answers");
+        for line in [
+            frame(9, 12, deltas(json!([
+                {"op":"state.updated","patch":{"pendingInteractions":[]}},
+                {"op":"row.upserted","row":{"rowId":4,"kind":"toolCall","toolCallId":"call_1","toolName":"Bash","status":"success",
+                    "input":{"command":"touch made.txt"},"output":{"text":"(Bash completed with no output)"},"visibility":"visible"}},
+                {"op":"row.appended","row":{"rowId":5,"kind":"assistantText","text":"","state":"streaming","visibility":"visible"}},
+                {"op":"row.delta","rowId":5,"path":"text","append":"Done"},
+            ]))),
+            frame(12, 14, deltas(json!([
+                {"op":"row.upserted","row":{"rowId":5,"kind":"assistantText","text":"Done.","state":"complete","visibility":"visible"}},
+                {"op":"row.upserted","row":{"rowId":1,"kind":"turnHeader","state":"completedSuccess","sourceCommandId":"cmd-1","visibility":"visible"}},
+                {"op":"state.updated","patch":{"usage":{"contextWindow":{"usedTokens":75349,"maxTokens":200000,"autoCompactThresholdTokens":null},
+                    "cumulative":{"inputTokens":73009,"outputTokens":2340,"cacheReadTokens":72768,"cacheWriteTokens":0}}}},
+            ]))),
+        ] {
+            zcode::handle_line(&app, "s", &proc, &line);
+        }
+        assert!(proc.permissions.lock().unwrap().is_empty(), "the card leaves with the server's list");
+        assert!(!proc.turn.lock().unwrap().running, "the terminal turn header ends the turn");
+        assert_eq!(proc.model.lock().unwrap().as_deref(), Some("fake/fake-model"));
+        assert_eq!(proc.effort.lock().unwrap().as_deref(), Some("enabled"));
+        let extras = proc.extras.lock().unwrap().clone();
+        assert_eq!((extras.context_tokens, extras.context_window), (Some(75349), Some(200000)), "the measured window feeds the meter");
+        let rows = proc.timeline.lock().unwrap().rows.clone();
+        assert_eq!(rows.iter().filter(|row| matches!(row, ChatRow::User { .. })).count(), 1, "the echo is not drawn twice");
+        assert!(rows.iter().any(|row| matches!(row, ChatRow::Reasoning { text, .. } if text == "Need a tool.")));
+        assert!(rows.iter().any(|row| matches!(row, ChatRow::Tool { id, name, output, status, .. }
+            if id == "z-4" && name == "Bash" && output.as_deref() == Some("(Bash completed with no output)") && *status == "completed")));
+        assert!(rows.iter().any(|row| matches!(row, ChatRow::Assistant { text, streaming: false, .. } if text == "Done.")));
+        assert!(!rows.iter().any(|row| row.id() == "z-1"), "turn headers are not drawn");
+    }
+
+    /// A steered message asks ZCode for `guide` delivery, so it joins the turn in flight rather than
+    /// waiting behind it, and the command is claimed so the projected echo is not drawn twice.
+    #[test]
+    fn a_zcode_steer_requests_guide_delivery() {
+        use std::io::BufRead as _;
+        let app = ctx("zcode-steer");
+        let proc = inert_process(SessionKind::Zcode);
+        *proc.agent_session_id.lock().unwrap() = Some("sess_1".into());
+        // A live pipe stands in for the agent: whatever the engine writes comes back out to be read.
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        let stdin = child.stdin.take().unwrap();
+        *proc.child.lock().unwrap() = child;
+        *proc.stdin.lock().unwrap() = Some(stdin);
+        zcode::steer(&app, "s", &proc, "u-9", "and this too", &[]).unwrap();
+        assert!(zcode::test_claimed(&proc, "u-9"), "the command is claimed before anything is written");
+        let mut written = String::new();
+        stdout.read_line(&mut written).unwrap();
+        let request: Value = serde_json::from_str(written.trim()).unwrap();
+        assert_eq!(request["method"], "v4/command");
+        assert_eq!(request["params"]["type"], "sendText");
+        assert_eq!(request["params"]["sessionId"], "sess_1");
+        assert_eq!(request["params"]["payload"]["text"], "and this too");
+        assert_eq!(request["params"]["payload"]["requestedDelivery"], "guide");
+        // Acknowledge the command so the sending thread ends instead of waiting out its timeout.
+        zcode::handle_line(&app, "s", &proc, &json!({"id": request["id"], "result": {"status": "accepted"}}).to_string());
+    }
+
     /// An OMP approval dialog becomes a permission card, and the answer travels back as its response.
     #[test]
     fn omp_extension_dialog_becomes_a_permission_card() {
@@ -7897,6 +8205,40 @@ mod tests {
         assert_eq!(reset.rows.len(), 1);
     }
 
+    /// A client away for a long time owes more than one response carries, by row count or by bytes.
+    /// Either way it gets a bounded recent window, and the rows before it stay reachable by paging.
+    #[test]
+    fn a_backlog_too_large_for_one_response_falls_back_to_the_recent_window() {
+        let limit = crate::agent::history_store::limits::PAGE_BYTES;
+        let proc = inert_process(SessionKind::Claude);
+        let manager = ChatManager::new();
+        manager.sessions.lock().unwrap().insert("away".into(), proc.clone());
+        let user = |i: usize, size: usize| ChatRow::User { id: format!("r{i}"), text: "x".repeat(size), images: vec![], at: None };
+        proc.timeline.lock().unwrap().upsert(user(0, 1));
+        let known = manager.snapshot_window("away", Some(&ChatWindow::default()));
+        let missed = |since: u64| ChatWindow { since: Some(since), from: Some("r0".into()), epoch: known.started_at, ..Default::default() };
+
+        for i in 1..=100 { proc.timeline.lock().unwrap().upsert(user(i, 1)); }
+        let by_count = manager.snapshot_window("away", Some(&missed(known.rows_revision)));
+        assert_eq!(by_count.page_kind, "recent");
+        assert_eq!(by_count.rows.len(), SNAPSHOT_PAGE_ROWS);
+        assert_eq!(by_count.rows[0].id(), "r41");
+        assert!(by_count.has_more);
+
+        for i in 101..=140 { proc.timeline.lock().unwrap().upsert(user(i, 20_000)); }
+        let by_bytes = manager.snapshot_window("away", Some(&missed(by_count.rows_revision)));
+        assert_eq!(by_bytes.page_kind, "recent");
+        assert_eq!(by_bytes.rows.last().unwrap().id(), "r140");
+        assert!(by_bytes.rows.len() < 40 && by_bytes.has_more);
+        assert!(serde_json::to_vec(&by_bytes).unwrap().len() <= limit);
+
+        let first = by_bytes.positions[by_bytes.rows[0].id()];
+        let older = manager.snapshot_window("away", Some(&ChatWindow { before: Some(by_bytes.rows[0].id().into()), epoch: known.started_at, ..Default::default() }));
+        assert_eq!(older.page_kind, "history");
+        assert_eq!(older.positions[older.rows.last().unwrap().id()], first - 1);
+        assert!(serde_json::to_vec(&older).unwrap().len() <= limit);
+    }
+
     #[test]
     fn large_tool_details_are_deferred_and_epoch_checked() {
         let proc = inert_process(SessionKind::Claude);
@@ -8149,7 +8491,9 @@ mod tests {
             codex_pending_child_events: Mutex::new(HashMap::new()),
             opencode: Mutex::new(opencode::OpencodeState::default()),
             pi: Mutex::new(pi::PiState::default()),
+            zcode: Mutex::new(zcode::ZcodeState::default()),
             antigravity: Mutex::new(crate::agent::chat::antigravity_protocol::StreamState::default()),
+            acp: Mutex::new(acp::AcpState::default()),
             service_tier: Mutex::new(None),
             personality: Mutex::new(None),
             codex_turn_error: Mutex::new(None),
@@ -9178,6 +9522,35 @@ mod tests {
     }
 
     #[test]
+    fn opencode_usage_limit_shows_one_error_and_reaches_auto_continue() {
+        let app = ctx("oc-usage-limit");
+        let manager = manager_with_session("s");
+        let proc = manager.get("s").unwrap();
+        *proc.agent_session_id.lock().unwrap() = Some("ses_q".into());
+        manager.send(&app, "s", "say hi", Vec::new(), "queue").unwrap();
+        // The events OpenCode 2.0.32 sent when an exhausted OpenCode Go window refused the turn.
+        let error = json!({"type":"provider.quota","message":"Go usage limit exceeded","status":429,"response":{"body":
+            "{\"error\":{\"type\":\"GoUsageLimitError\"},\"metadata\":{\"limitName\":\"5 hour\"}}"}});
+        for event in [
+            json!({"type":"session.execution.started","data":{"sessionID":"ses_q"}}),
+            json!({"type":"session.step.started","created":1,"data":{"sessionID":"ses_q","agent":"build",
+                "model":{"id":"glm-5.3","providerID":"opencode-go"},"assistantMessageID":"msg_a"}}),
+            json!({"type":"session.step.failed","created":2,"data":{"sessionID":"ses_q","assistantMessageID":"msg_a","error":error.clone()}}),
+            json!({"type":"session.execution.failed","created":3,"data":{"sessionID":"ses_q","error":error.clone()}}),
+        ] {
+            opencode::handle_event(&app, "s", &proc, event);
+        }
+        let errors: Vec<String> = manager.snapshot("s").rows.into_iter().filter_map(|row| match row {
+            ChatRow::Error { message, .. } => Some(message),
+            _ => None,
+        }).collect();
+        assert_eq!(errors, vec!["Go usage limit exceeded (5 hour limit)".to_string()]);
+        assert!(!proc.turn.lock().unwrap().running, "the failed turn ended");
+        assert!(!proc.extras.lock().unwrap().usage_limit_hit, "turn end handed the limit to auto-continue");
+        manager.stop(&app, "s").unwrap();
+    }
+
+    #[test]
     fn opencode_duplicate_idle_does_not_complete_the_next_queued_turn() {
         let app = ctx("oc-idle");
         let m = manager_with_session("s");
@@ -9704,6 +10077,28 @@ mod tests {
         assert_eq!(crate::db::repo::get_session(&app.db().conn.lock().unwrap(),"s").unwrap().unwrap().engine,"chat");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_reused_child_pid_that_leads_an_unrelated_group_does_not_block_the_conversation() {
+        use std::os::unix::process::CommandExt;
+        struct Group(u32);
+        impl Drop for Group { fn drop(&mut self) { unsafe { libc::kill(-(self.0 as i32),libc::SIGKILL); } } }
+        let app=ctx("reused-child-pid");
+        app.db().conn.lock().unwrap().execute_batch("INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','Recovery','/tmp',0); INSERT INTO sessions(id,project_id,name,kind,engine,created_at) VALUES ('s','p','Recovery','claude','chat',0);").unwrap();
+        // An unrelated process now holds the recorded child PID and leads a group with that ID.
+        let mut unrelated=std::process::Command::new("sleep").arg("30").process_group(0).spawn().unwrap();
+        let _cleanup=Group(unrelated.id());
+        app.db().conn.lock().unwrap().execute("INSERT INTO chat_process_owners(session_id,token,host_pid,host_birth,child_pid,child_birth) VALUES ('s','stale',?1,1,?2,1)",
+            rusqlite::params![std::process::id(),unrelated.id()]).unwrap();
+        drop(super::super::ownership::idle_guard(&app,"s").unwrap());
+        let left: i64=app.db().conn.lock().unwrap().query_row("SELECT COUNT(*) FROM chat_process_owners WHERE session_id='s'",[],|r|r.get(0)).unwrap();
+        assert_eq!(left,0);
+        app.db().conn.lock().unwrap().execute("INSERT INTO chat_process_owners(session_id,token,host_pid,host_birth,child_pid,child_birth) VALUES ('s','stale',?1,1,?2,1)",
+            rusqlite::params![std::process::id(),unrelated.id()]).unwrap();
+        assert!(super::super::ownership::Owner::acquire(&app,"s",None).is_ok());
+        unrelated.kill().unwrap(); unrelated.wait().unwrap();
+    }
+
     #[test]
     fn application_shutdown_stops_agents_and_rejects_new_work() {
         let app=ctx("durable-queue-shutdown");
@@ -10005,7 +10400,12 @@ mod tests {
         let input=json!({"metadata":{"source":"fixture"},"questions":[{"header":"Hello","question":"Hello plan?","options":[{"label":"Original option","description":"Hello install.sh"}],"multiSelect":false}]});
         let request=json!({"id":"ask","tool_name":"AskUserQuestion","input":input});
         proc.permissions.lock().unwrap().insert("ask".into(),request.clone());
-        let display=translation::dispatch(&app,"translation_question",&json!({"sessionId":"s","requestId":"ask"}),false).unwrap();
+        // With automatic reply translation off, only an explicit request from the card translates the question.
+        let manual_prefs=json!({"outgoing":true,"replies":false,"source":"en","target":"de","replySource":"en","replyTarget":"de","display":"immersive","repliesSince":0});
+        translation::dispatch(&app,"translation_session_save",&json!({"sessionId":"s","preferences":manual_prefs}),true).unwrap();
+        assert_eq!(translation::dispatch(&app,"translation_question",&json!({"sessionId":"s","requestId":"ask"}),false).unwrap_err(),"translation:disabled");
+        let display=translation::dispatch(&app,"translation_question",&json!({"sessionId":"s","requestId":"ask","manual":true}),false).unwrap();
+        translation::dispatch(&app,"translation_session_save",&json!({"sessionId":"s","preferences":prefs}),true).unwrap();
         assert_eq!(display["input"]["questions"][0]["question"],"Hallo plan?");
         assert_eq!(display["originalInput"],input);
         assert_eq!(translation::dispatch(&app,"translation_question",&json!({"sessionId":"s","requestId":"ask"}),false).unwrap()["input"],display["input"]);
@@ -10083,8 +10483,8 @@ mod tests {
     fn claude_auth_validates_code_and_preserves_the_native_conversation() {
         let (app, proc, mut reader) = claude_auth_fixture("claude-auth-submit");
         let manager = app.chat();
-        manager.auth_start(&app, "s").unwrap();
-        manager.auth_start(&app, "s").unwrap();
+        manager.auth_start(&app, "s", None).unwrap();
+        manager.auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         assert_eq!(request["request"]["subtype"], "claude_authenticate");
         assert_eq!(request["request"]["loginWithClaudeAi"], true);
@@ -10141,15 +10541,15 @@ mod tests {
         assert!(proc.extras.lock().unwrap().auth.is_none());
         // Valid credentials wait for background work, and the refusal names what to wait for.
         proc.turn.lock().unwrap().active_tasks.insert("task".into());
-        assert!(app.chat().auth_start(&app, "s").unwrap_err().ends_with(": task"));
+        assert!(app.chat().auth_start(&app, "s", None).unwrap_err().ends_with(": task"));
         assert!(app.chat().auth_logout(&app, "s").is_err());
         proc.turn.lock().unwrap().running = true;
         auth::claude::observe(&app, "s", &proc, &json!({"type":"assistant","error":"authentication_failed"}).to_string());
         assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "required");
-        assert!(app.chat().auth_start(&app, "s").is_err());
+        assert!(app.chat().auth_start(&app, "s", None).is_err());
         // Rejected credentials no longer wait for background work that cannot reach the model anyway.
         proc.turn.lock().unwrap().running = false;
-        app.chat().auth_start(&app, "s").unwrap();
+        app.chat().auth_start(&app, "s", None).unwrap();
         assert_eq!(read_codex_request(&mut reader)["request"]["subtype"], "claude_authenticate");
         proc.child.lock().unwrap().kill().unwrap();
         proc.child.lock().unwrap().wait().unwrap();
@@ -10158,7 +10558,7 @@ mod tests {
     #[test]
     fn claude_auth_unsupported_controls_fail_without_losing_history() {
         let (app, proc, mut reader) = claude_auth_fixture("claude-auth-unsupported");
-        app.chat().auth_start(&app, "s").unwrap();
+        app.chat().auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         claude_auth_answer(&app, &proc, &request, Value::Null, Some("Unknown request subtype"));
         assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "failed");
@@ -10204,7 +10604,7 @@ mod tests {
     fn claude_auth_cancel_waits_for_a_native_outcome_and_success_wins_the_race() {
         for succeeded in [false, true] {
             let (app, proc, mut reader) = claude_auth_fixture(if succeeded { "claude-auth-race" } else { "claude-auth-cancel" });
-            app.chat().auth_start(&app, "s").unwrap();
+            app.chat().auth_start(&app, "s", None).unwrap();
             let request = read_codex_request(&mut reader);
             app.chat().auth_cancel(&app, "s").unwrap();
             assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "canceling");
@@ -10225,8 +10625,8 @@ mod tests {
         let original = manager.snapshot("s").agent_session_id;
         auth::require(&app, "s", &proc, &json!({"codexErrorInfo":"unauthorized","message":"refresh token was revoked"}));
         assert_eq!(manager.snapshot("s").extras.auth.unwrap().status, "required");
-        manager.auth_start(&app, "s").unwrap();
-        manager.auth_start(&app, "s").unwrap();
+        manager.auth_start(&app, "s", None).unwrap();
+        manager.auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         assert_eq!(request["method"], "account/login/start");
         assert_eq!(request["params"]["type"], "chatgptDeviceCode");
@@ -10259,7 +10659,7 @@ mod tests {
     fn codex_auth_cancels_late_login_responses_and_rejects_invalid_destinations() {
         let (app, proc, mut reader) = codex_permission_fixture("codex-auth-cancel");
         let manager = app.chat();
-        manager.auth_start(&app, "s").unwrap();
+        manager.auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         manager.auth_cancel(&app, "s").unwrap();
         handle_codex_line(&app, "s", &proc, &json!({"id":request["id"],"result":{
@@ -10269,7 +10669,7 @@ mod tests {
         assert_eq!(cancel["method"], "account/login/cancel");
         assert_eq!(cancel["params"]["loginId"], "late");
         assert_eq!(manager.snapshot("s").extras.auth.unwrap().status, "canceled");
-        manager.auth_start(&app, "s").unwrap();
+        manager.auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         handle_codex_line(&app, "s", &proc, &json!({"id":request["id"],"result":{
             "type":"chatgptDeviceCode","loginId":"unsafe","verificationUrl":"javascript:alert(1)","userCode":"ABCD-1234"
@@ -10294,7 +10694,7 @@ mod tests {
         handle_codex_notification(&app, "s", &proc, "turn/completed", json!({"turn":{"status":"failed","error":{"codexErrorInfo":"unauthorized","message":"refresh token revoked"}}}));
         assert!(!proc.turn.lock().unwrap().running);
         assert_eq!(app.chat().snapshot("s").queue.len(), 1);
-        app.chat().auth_start(&app, "s").unwrap();
+        app.chat().auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         handle_codex_line(&app, "s", &proc, &json!({"id":request["id"],"result":{
             "type":"chatgptDeviceCode","loginId":"pending","verificationUrl":"https://auth.openai.com/codex/device","userCode":"ABCD-1234"
@@ -10316,7 +10716,7 @@ mod tests {
     #[test]
     fn codex_auth_rejected_by_an_older_cli_releases_a_detached_peer() {
         let (app, proc, mut reader) = codex_permission_fixture("codex-auth-unsupported");
-        app.chat().auth_start(&app, "s").unwrap();
+        app.chat().auth_start(&app, "s", None).unwrap();
         let request = read_codex_request(&mut reader);
         app.chat().detach(&app, "s");
         assert!(app.chat().is_alive("s"));
@@ -10351,7 +10751,7 @@ mod tests {
         start_waiting_message(&app, "s", &proc);
         assert_eq!(app.chat().snapshot("s").queue.len(), 1);
         app.chat().auth_logout(&app, "s").unwrap(); // Already signed out; no duplicate provider request.
-        app.chat().auth_start(&app, "s").unwrap();
+        app.chat().auth_start(&app, "s", None).unwrap();
         assert_eq!(read_codex_request(&mut reader)["method"], "account/login/start");
         app.chat().auth_cancel(&app, "s").unwrap();
         proc.child.lock().unwrap().kill().unwrap();
@@ -10364,7 +10764,7 @@ mod tests {
         proc.turn.lock().unwrap().running = true;
         assert!(app.chat().auth_logout(&app, "s").is_err());
         proc.turn.lock().unwrap().running = false;
-        app.chat().auth_start(&app, "s").unwrap();
+        app.chat().auth_start(&app, "s", None).unwrap();
         assert_eq!(read_codex_request(&mut reader)["method"], "account/login/start");
         assert!(app.chat().auth_logout(&app, "s").is_err());
         app.chat().auth_cancel(&app, "s").unwrap();

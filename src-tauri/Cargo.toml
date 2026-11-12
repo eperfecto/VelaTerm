@@ -1,6 +1,6 @@
 [package]
 name = "velaterm"
-version = "0.2.22"
+version = "0.2.23"
 description = "VelaTerm multi-session terminal manager"
 authors = ["vlinx"]
 edition = "2021"
@@ -8,7 +8,9 @@ edition = "2021"
 [lib]
 # The `_lib` suffix avoids a known Windows conflict with the binary name.
 name = "velaterm_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# rlib only: staticlib/cdylib are the Tauri template's mobile outputs. No iOS/Android target exists, and
+# producing them cost every build a ~300 MB static archive plus an extra dylib link.
+crate-type = ["rlib"]
 
 [features]
 # GUI is enabled by default for the desktop app. Minimal vela-server builds use `--no-default-features`,
@@ -33,11 +35,24 @@ gui = [
     "dep:russh-sftp",
     # Linux GTK signal access for recovering the paths of files dropped from the file manager.
     "dep:gtk",
+    "dep:zbus",
 ]
 # Backend for the Electron shell on Linux: the headless server plus native font enumeration, with no
 # Tauri/WebKit/GTK, so the packaged app runs on hosts without WebKitGTK. It keeps the desktop release
 # identity (see `serve_identifier`) so it opens the same data directory the desktop app always used.
 sidecar = ["dep:font-kit"]
+
+[workspace]
+# Domain crates live under crates/. Profiles stay in this root manifest: Cargo ignores them in members.
+members = ["crates/*"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tiny_http = "0.12"
+time = { version = "0.3", features = ["local-offset"] }
+libc = "0.2"
 
 [profile.dev]
 debug = false
@@ -60,6 +75,7 @@ tao = { git = "https://github.com/tauri-apps/tao", rev = "c704261c519c58cfdd0bc2
 tao-macros = { version = "=0.1.4", registry = "crates-io" }
 
 [dependencies]
+vlx-core = { path = "crates/vlx-core" }
 # Native font enumeration belongs to the display host, not the remote headless server.
 font-kit = { version = "0.14.3", optional = true }
 # The built-in browser needs unstable Window::add_child multi-WebView APIs. Their signatures may change,
@@ -83,8 +99,8 @@ tauri-plugin-single-instance = { version = "2", optional = true }
 # System-wide screenshot hotkey that works while another application has focus.
 # Pinned below 2.4, which requires Tauri 2.12; the built-in browser pins Tauri within 2.11.
 tauri-plugin-global-shortcut = { version = "~2.3.2", optional = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 # Source offsets let translation replace prose without rewriting Markdown, code, or link destinations.
 pulldown-cmark = { version = "0.13.4", default-features = false }
 semver = "1"
@@ -104,11 +120,13 @@ ureq = "2"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 portable-pty = "0.8"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true }
+# DeepSeek Harness writes its session logs as zstd-compressed JSONL; already in the tree through dependencies.
+zstd = "0.13"
 # Server audit-log timestamps use local `yyyy-MM-dd HH:mm:ss` date and time.
-time = { version = "0.3", features = ["local-offset"] }
+time = { workspace = true }
 # Lightweight loopback HTTP service receiving official agent hooks and Codex notify callbacks.
-tiny_http = "0.12"
+tiny_http = { workspace = true }
 
 # Browser remote-access service hosts static frontend assets and bridges commands, events, and PTY over
 # WebSocket. An axum Tokio runtime runs on its own thread outside the Tauri event loop.
@@ -127,6 +145,12 @@ rust-embed = { version = "8" }
 # SHA-256 for the self-signed-certificate fingerprint (tls.rs) and server-binary manifest verification
 # (server_supply.rs); login hashing moved to Argon2id below.
 sha2 = "0.10"
+# Open the ZCode account `zcode login` seals (AES-256-GCM) to tell its protocol server which plans the
+# account holds (agent/zcode_account.rs). Same version the SSH stack already locks.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+# RS256 verification of Cloudflare Access JWTs (web/cloudflare_access.rs). 10.3+ fixes GHSA-h395-gr6q-cpjc;
+# aws-lc-rs is the crypto backend rustls already links.
+jsonwebtoken = { version = "10.4", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 # Memory-hard Argon2id password hashing so the remote-access password persists only as a PHC verifier
 # string (never plaintext) across restarts. Pure Rust, builds in headless --no-default-features too.
 argon2 = "0.5"
@@ -169,21 +193,26 @@ zip = { version = "4", default-features = false, features = ["deflate"] }
 # Chinese word segmentation for the word-level search index (search/tokenize.rs). The bundled default
 # dictionary is embedded compressed; no runtime download or external service is involved.
 jieba-rs = "0.10.3"
-# RS256 verification of Cloudflare Access JWTs (web/cloudflare_access.rs). 10.3+ fixes GHSA-h395-gr6q-cpjc;
-# aws-lc-rs is the crypto backend rustls already links.
-jsonwebtoken = { version = "10.4", default-features = false, features = ["aws_lc_rs", "use_pem"] }
 
 # Unix-only rlimit support raises open-file soft limits for inherited agent sessions, avoiding macOS's
 # default 256-descriptor failures. Windows has no equivalent.
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10"
 # Kill the separate process group when canceling Git clone so git-remote children cannot retain pipes.
-libc = "0.2"
+libc = { workspace = true }
 
 # The GTK version wry already uses; only the GUI connects to the WebKitGTK drag signal (native_drop.rs), so the
 # headless vela-server build keeps no GTK dependency.
+[target.'cfg(all(target_arch = "aarch64", not(windows)))'.dependencies]
+# sha2 0.10 uses the ARMv8 SHA-256 instructions only with `asm`; without it every history scan hashes the
+# whole recording in software, about a quarter of a long Codex session's indexing time. The feature also
+# builds sha2-asm with the C toolchain, so Windows on ARM keeps the portable backend.
+sha2 = { version = "0.10", features = ["asm"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", optional = true }
+# Clickable desktop notifications over the freedesktop D-Bus service; the official plugin reports no clicks.
+zbus = { version = "5", optional = true, default-features = false, features = ["async-io", "blocking-api"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # Change notification for the Files and Git tabs (FSEvents on macOS, ReadDirectoryChangesW on Windows). Linux keeps
@@ -230,7 +259,7 @@ windows-registry = "0.6"
 # Catch native exceptions in the spike so unbundled development builds cannot crash the application.
 objc2 = { version = "0.6", features = ["exception"] }
 block2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSError"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSError", "NSGeometry", "objc2-core-foundation"] }
 objc2-user-notifications = { version = "0.3", features = [
     "block2",
     "UNUserNotificationCenter",

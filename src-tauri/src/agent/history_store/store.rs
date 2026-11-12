@@ -21,7 +21,11 @@ use super::projection::{Checkpoint,Projector,Record};
 use super::source::{self,Segment};
 
 pub(super) fn digest(value:&[u8]) -> String {
-    Sha256::digest(value).iter().map(|byte|format!("{byte:02x}")).collect()
+    // A scan names every field this way; formatting each byte separately allocated per byte.
+    const HEX:&[u8;16]=b"0123456789abcdef";
+    let mut text=String::with_capacity(64);
+    for byte in Sha256::digest(value) {text.push(HEX[(byte>>4) as usize] as char);text.push(HEX[(byte&15) as usize] as char);}
+    text
 }
 
 /// How long an index nobody holds stays in memory.
@@ -230,13 +234,16 @@ impl State {
     /// can never loop. Claude breaks this when a compaction keeps messages that arrive while it runs:
     /// they are written after the boundary, and the boundary's `logicalParentUuid` names the last of
     /// them. The conversation the boundary summarized then ends at the record written just before it.
+    /// Claude also names a parent it never writes: when a reply fails to produce a valid tool call,
+    /// the reply is dropped but the retry prompt after it still names it. Such a record continues
+    /// from the record written just before it, and is a root when nothing was written before it.
     pub(super) fn parent_of(&self,start:u64,record:&Rec) -> Option<Box<str>> {
         let parent=record.parent.as_ref()?;
+        let earlier=||self.records.range(..start).rev().find_map(|(_,earlier)|earlier.native.clone());
         match self.identities.get(parent) {
-            Some(starts) if !starts.iter().any(|at|*at<start) =>
-                if record.logical {self.records.range(..start).rev().find_map(|(_,earlier)|earlier.native.clone())} else {None},
-            // An identity never written is a missing ancestor, which the caller reports.
-            _=>Some(parent.clone()),
+            Some(starts) if starts.iter().any(|at|*at<start) =>Some(parent.clone()),
+            Some(_) =>if record.logical {earlier()} else {None},
+            None=>earlier(),
         }
     }
 }
