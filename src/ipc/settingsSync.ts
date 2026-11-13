@@ -37,6 +37,26 @@ export const SYNCED_KEYS = [
 ] as const;
 const SYNCED = new Set<string>(SYNCED_KEYS);
 
+/** Backend key holding the interface language this shell resolved and shows, never "auto". It is derived,
+ *  not a preference, so it is not in SYNCED_KEYS: planning and execution workflows read it to ask their
+ *  agents to write in the user's language (src-tauri/src/agent/plan_execute/review.rs). */
+export const UI_LOCALE_KEY = "vlx-ui-locale";
+/** Last locale this shell published, so the broadcast its own write causes does not write again. */
+let publishedLocale: string | null = null;
+
+/** Tell the backend which language the interface shows. Only the frontend can resolve "auto" from the
+ *  system languages, so the backend cannot derive this from `vlx-lang`. A failed write is retried on the
+ *  next call. */
+export async function publishUiLocale(locale: string): Promise<void> {
+  if (publishedLocale === locale) return;
+  publishedLocale = locale;
+  try {
+    await invoke("set_app_settings", { entries: { [UI_LOCALE_KEY]: locale } });
+  } catch {
+    publishedLocale = null;
+  }
+}
+
 /** Do not propagate before reconciliation completes; see the module's race-gate note. */
 let syncEnabled = false;
 /** Pending debounced propagation buffer (key → value, last write wins). */

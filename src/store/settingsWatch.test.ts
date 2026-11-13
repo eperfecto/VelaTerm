@@ -19,11 +19,15 @@ vi.mock("../ipc/transport", () => ({
 const { onSettingsChanged } = vi.hoisted(() => ({ onSettingsChanged: vi.fn() }));
 vi.mock("../ipc/events", () => ({ onSettingsChanged }));
 
-const { setLang, loadLangChoice } = vi.hoisted(() => ({
+const { setLang, loadLangChoice, getLocale } = vi.hoisted(() => ({
   setLang: vi.fn(),
   loadLangChoice: vi.fn(() => "ja"),
+  getLocale: vi.fn(() => "en"),
 }));
-vi.mock("../i18n", () => ({ setLang, loadLangChoice }));
+vi.mock("../i18n", () => ({ setLang, loadLangChoice, getLocale }));
+
+const { env } = vi.hoisted(() => ({ env: { hasNativeHost: true } }));
+vi.mock("../platform", () => ({ env }));
 
 const { hydrateSettingsFromCache } = vi.hoisted(() => ({
   hydrateSettingsFromCache: vi.fn(),
@@ -46,6 +50,9 @@ beforeEach(() => {
   invoke.mockReset();
   onSettingsChanged.mockReset();
   setLang.mockReset();
+  getLocale.mockReset();
+  getLocale.mockReturnValue("en");
+  env.hasNativeHost = true;
   hydrateSettingsFromCache.mockReset();
   localStorage.clear();
 });
@@ -209,5 +216,56 @@ describe("theme choices during startup", () => {
     await refresh;
 
     expect(choose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("interface language for agents", () => {
+  // Workflow prompts ask agents to write in the language the interface shows. Only the frontend can resolve
+  // "auto", so each refresh publishes the resolved locale. The module remembers what it last published, so
+  // each case uses a locale no other case publishes.
+  const published = () =>
+    invoke.mock.calls
+      .filter(([cmd, args]) => cmd === "set_app_settings" && "vlx-ui-locale" in (args?.entries ?? {}))
+      .map(([, args]) => args.entries["vlx-ui-locale"]);
+
+  it("publishes the resolved interface language, never auto", async () => {
+    getLocale.mockReturnValue("es");
+    invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === "get_app_settings" ? { "vlx-lang": "auto" } : undefined));
+    localStorage.setItem("vlx-lang", "auto");
+
+    await refreshSettingsFromBackend();
+
+    expect(published()).toEqual(["es"]);
+  });
+
+  it("does not publish again while the language is unchanged", async () => {
+    getLocale.mockReturnValue("ko");
+    invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === "get_app_settings" ? {} : undefined));
+
+    await refreshSettingsFromBackend();
+    await refreshSettingsFromBackend();
+
+    expect(published()).toEqual(["ko"]);
+  });
+
+  it("leaves the language to the desktop app on a phone or browser", async () => {
+    env.hasNativeHost = false;
+    getLocale.mockReturnValue("de");
+    invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === "get_app_settings" ? {} : undefined));
+
+    await refreshSettingsFromBackend();
+
+    expect(published()).toEqual([]);
+  });
+
+  it("publishes the new language after another shell changes it", async () => {
+    localStorage.setItem("vlx-lang", "es");
+    setLang.mockImplementation(() => getLocale.mockReturnValue("ja"));
+    invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === "get_app_settings" ? { "vlx-lang": "ja" } : undefined));
+
+    await refreshSettingsFromBackend();
+
+    expect(setLang).toHaveBeenCalledWith("ja");
+    expect(published()).toEqual(["ja"]);
   });
 });

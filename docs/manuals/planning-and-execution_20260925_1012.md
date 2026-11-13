@@ -17,6 +17,8 @@ Both roles need an agent that supports the conversation view: Claude Code, Codex
 
 You can read, answer or interrupt either session at any time. Permission requests from either role still wait for your answer.
 
+The roles write in the interface language chosen under Settings → Language (with "Auto (system)", the language the interface is showing): plans, assignments, questions, reports, reviews and summaries. Code, commands and file paths stay as they are. With English, the roles get no language instruction. Choose the language before starting a workflow: the roles receive the instruction when they start, so changing it during a workflow can leave the roles writing in different languages. Only the desktop app sets this language; a phone or browser connection does not change it.
+
 ## 2. Starting from the menu
 
 Open the context menu of a project, group or session, or its "New Child Session" submenu, and choose "New Plan/Execute Session…". The dialog contains:

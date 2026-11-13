@@ -214,6 +214,8 @@ pub fn start(app: &AppCtx, req: &Request) -> Result<Value, String> {
     }
     let id = &req.request_id;
     let inherited = placement.inherited_worktree.as_deref().filter(|w| *w == cwd);
+    // Read before create_role_bound: its callback runs inside a transaction that holds the connection.
+    let language = review::ui_language(app);
     let planner = create_role_bound(app, &role_id(id, "planner"), &req.context.project_id,
         placement.group_id.as_deref(), placement.parent.as_ref(), "Plan · Execute", &config.plan, Some(&cwd),
         config.worktree_mode(req.worktree) != WorktreeMode::None, inherited,
@@ -221,7 +223,7 @@ pub fn start(app: &AppCtx, req: &Request) -> Result<Value, String> {
             let message_id = format!("msg-{id}");
             let directory = planner.cwd.as_deref().unwrap_or("");
             let task=format!("{}\n\nWorkflow ID: {id}\nRole: planner\nWorking directory: {directory}\nThis workflow was created by the user from the New Session menu. There is no initiating conversation; present the final delivery summary here.\n\nUser task:\n{}",
-                review::protocol(&config),req.prompt);
+                review::protocol(&config, language),req.prompt);
             let origin = json!({"role":"user"});
             let wire = format!("[VelaTerm message {message_id}]\n{origin}\n\n{task}").trim_end().to_owned();
             tx.execute("INSERT INTO plan_execute_runs(id,owner_id,planner_id,config,task,state,review_status) VALUES (?1,?2,?2,?3,?4,'planning',?5)",
