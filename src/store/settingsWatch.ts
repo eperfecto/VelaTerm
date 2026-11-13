@@ -14,6 +14,7 @@ import { onSettingsChanged } from "../ipc/events";
 import { flushNow, publishUiLocale, reconcileSettings } from "../ipc/settingsSync";
 import type { UnlistenFn } from "../ipc/transport";
 import { getLocale, loadLangChoice, setLang } from "../i18n";
+import { env } from "../platform";
 import { useTermStore } from "./termStore";
 
 /** Cap on the wait for pending writes; see the flush note in `refresh`. */
@@ -49,9 +50,11 @@ export async function refreshSettingsFromBackend(): Promise<void> {
     const changed = await reconcileSettings();
     if (changed.has("vlx-lang")) setLang(loadLangChoice());
     // Startup and every language change pass through here, so the backend always knows the language the
-    // interface resolved, including "auto", which only this shell can resolve. Not awaited: applying
-    // settings does not depend on this write.
-    void publishUiLocale(getLocale());
+    // interface resolved, including "auto", which only this shell can resolve. Only the desktop app and its
+    // connection windows publish: a phone or browser resolving "auto" to another system language would
+    // otherwise overwrite the desktop's value, and the desktop would not publish again until it restarts.
+    // Not awaited: applying settings does not depend on this write.
+    if (env.hasNativeHost) void publishUiLocale(getLocale());
     if (changed.size === 0) return;
     if (
       changed.has("vlx-theme") ||

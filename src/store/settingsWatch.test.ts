@@ -26,6 +26,9 @@ const { setLang, loadLangChoice, getLocale } = vi.hoisted(() => ({
 }));
 vi.mock("../i18n", () => ({ setLang, loadLangChoice, getLocale }));
 
+const { env } = vi.hoisted(() => ({ env: { hasNativeHost: true } }));
+vi.mock("../platform", () => ({ env }));
+
 const { hydrateSettingsFromCache } = vi.hoisted(() => ({
   hydrateSettingsFromCache: vi.fn(),
 }));
@@ -47,6 +50,9 @@ beforeEach(() => {
   invoke.mockReset();
   onSettingsChanged.mockReset();
   setLang.mockReset();
+  getLocale.mockReset();
+  getLocale.mockReturnValue("en");
+  env.hasNativeHost = true;
   hydrateSettingsFromCache.mockReset();
   localStorage.clear();
 });
@@ -215,8 +221,8 @@ describe("theme choices during startup", () => {
 
 describe("interface language for agents", () => {
   // Workflow prompts ask agents to write in the language the interface shows. Only the frontend can resolve
-  // "auto", so each refresh publishes the resolved locale. These steps share the module's record of what
-  // was last published, so they run in order.
+  // "auto", so each refresh publishes the resolved locale. The module remembers what it last published, so
+  // each case uses a locale no other case publishes.
   const published = () =>
     invoke.mock.calls
       .filter(([cmd, args]) => cmd === "set_app_settings" && "vlx-ui-locale" in (args?.entries ?? {}))
@@ -233,7 +239,18 @@ describe("interface language for agents", () => {
   });
 
   it("does not publish again while the language is unchanged", async () => {
-    getLocale.mockReturnValue("es");
+    getLocale.mockReturnValue("ko");
+    invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === "get_app_settings" ? {} : undefined));
+
+    await refreshSettingsFromBackend();
+    await refreshSettingsFromBackend();
+
+    expect(published()).toEqual(["ko"]);
+  });
+
+  it("leaves the language to the desktop app on a phone or browser", async () => {
+    env.hasNativeHost = false;
+    getLocale.mockReturnValue("de");
     invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === "get_app_settings" ? {} : undefined));
 
     await refreshSettingsFromBackend();
