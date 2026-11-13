@@ -2,13 +2,49 @@
 
 use super::*;
 
-pub(super) fn protocol(config: &Config) -> String {
-    if config.review_enabled.is_none() {
-        return include_str!("../../../../skills/vspawn/references/plan-execute-legacy.md").into();
+/// App setting holding the interface language the frontend resolved and is showing. Unlike `vlx-lang` it is
+/// never "auto": only the frontend can resolve "auto" from the system languages.
+pub(crate) const UI_LOCALE_KEY: &str = "vlx-ui-locale";
+
+/// English name of a non-English interface locale. English, unknown and missing locales give no language
+/// rule, so English interfaces keep the protocol exactly as it was.
+fn language_name(locale: &str) -> Option<&'static str> {
+    Some(match locale {
+        "es" => "Spanish",
+        "fr" => "French",
+        "de" => "German",
+        "pt-BR" => "Brazilian Portuguese",
+        "ja" => "Japanese",
+        "ko" => "Korean",
+        "ru" => "Russian",
+        "vi" => "Vietnamese",
+        "zh-CN" => "Simplified Chinese",
+        "zh-TW" => "Traditional Chinese",
+        _ => return None,
+    })
+}
+
+/// The language workflow roles write in: the user's interface language. Read it before taking a database
+/// lock, since it locks the connection itself.
+pub(super) fn ui_language(app: &AppCtx) -> Option<&'static str> {
+    let settings = app.db().conn.lock().ok().and_then(|conn| repo::get_app_settings(&conn).ok())?;
+    language_name(settings.get(UI_LOCALE_KEY)?)
+}
+
+/// The role protocol every workflow message starts with. The protocol is written in English, so without a
+/// language rule the roles answer in English whatever language the user writes in.
+pub(super) fn protocol(config: &Config, language: Option<&str>) -> String {
+    let base = if config.review_enabled.is_none() {
+        include_str!("../../../../skills/vspawn/references/plan-execute-legacy.md").to_owned()
+    } else {
+        format!("{}\n\nIndependent review: {}. This selection is fixed for this workflow.",
+            include_str!("../../../../skills/vspawn/references/plan-execute.md"),
+            if config.review_enabled == Some(true) { "enabled" } else { "disabled; Plan must not perform technical review" })
+    };
+    match language {
+        Some(language) => format!("{base}\n\nLanguage: write everything you produce in this workflow in {language}, the user's interface language, although these instructions are in English. That covers plans, assignments, questions, reports, reviews, summaries and messages to the user. Keep code, identifiers, commands, file paths and vflow arguments unchanged."),
+        None => base,
     }
-    format!("{}\n\nIndependent review: {}. This selection is fixed for this workflow.",
-        include_str!("../../../../skills/vspawn/references/plan-execute.md"),
-        if config.review_enabled == Some(true) { "enabled" } else { "disabled; Plan must not perform technical review" })
 }
 
 pub(super) fn has_report(app: &AppCtx, run: &Run) -> Result<bool, String> {
@@ -110,7 +146,7 @@ pub(super) fn integrated(app: &AppCtx, run: &mut Run) -> Result<(), String> {
         let origin = json!({"name":"VelaTerm","agent":"terminal","role":"system","runId":run.id,"round":run.round});
         let task_list = split::tasks(app,&run.id)?;
         let text = format!("{}\n\nWorkflow ID: {}\nRole: reviewer\nRound: {}\nAll task summaries are complete. Review the complete original request, integration evidence and actual delivery directories. Task approval alone does not prove integrated delivery. Use vflow accept for this overall workflow only after full delivery passes; otherwise vflow block and notify Plan of the precise remaining work. Plan can coordinate a correction by dispatching the appropriate task workflow. Do not edit implementation files.\n\nOriginal task:\n{}\n\nTasks:\n{}",
-            protocol(&run.config),run.id,run.round,run.task,serde_json::to_string_pretty(&task_list).unwrap());
+            protocol(&run.config, ui_language(app)),run.id,run.round,run.task,serde_json::to_string_pretty(&task_list).unwrap());
         let wire = format!("[VelaTerm message {id}]\n{origin}\n\n{text}");
         let mut conn = app.db().conn.lock().unwrap();
         let tx = conn.transaction().map_err(|e|e.to_string())?;
@@ -124,4 +160,46 @@ pub(super) fn integrated(app: &AppCtx, run: &mut Run) -> Result<(), String> {
         deliver(app,&get(app,&run.id)?,run.reviewer_id.as_deref().unwrap(),&wire,&id)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::session_query::tests::{cleanup, fixture};
+
+    fn reviewed() -> Config {
+        Config { review_enabled: Some(true), ..Config::default() }
+    }
+
+    #[test]
+    fn protocol_without_a_language_is_unchanged() {
+        let config = reviewed();
+        let text = protocol(&config, None);
+        assert!(text.ends_with("Independent review: enabled. This selection is fixed for this workflow."));
+        assert!(!text.contains("\n\nLanguage:"));
+        let legacy = protocol(&Config::default(), None);
+        assert_eq!(legacy, include_str!("../../../../skills/vspawn/references/plan-execute-legacy.md"));
+    }
+
+    #[test]
+    fn protocol_asks_for_the_interface_language_in_both_protocols() {
+        for config in [reviewed(), Config::default()] {
+            let text = protocol(&config, Some("Spanish"));
+            assert!(text.ends_with("Keep code, identifiers, commands, file paths and vflow arguments unchanged."));
+            assert!(text.contains("write everything you produce in this workflow in Spanish"));
+        }
+    }
+
+    #[test]
+    fn ui_language_follows_the_resolved_interface_locale() {
+        let app = fixture();
+        assert_eq!(ui_language(&app), None);
+        for (locale, expected) in [("es", Some("Spanish")), ("pt-BR", Some("Brazilian Portuguese")),
+            ("en", None), ("auto", None), ("xx", None)] {
+            let entries = std::collections::HashMap::from([(UI_LOCALE_KEY.to_string(), locale.to_string())]);
+            repo::set_app_settings(&app.db().conn.lock().unwrap(), &entries).unwrap();
+            assert_eq!(ui_language(&app), expected, "locale {locale}");
+        }
+        cleanup(app);
+    }
 }

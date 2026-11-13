@@ -12,7 +12,7 @@ Updated: 2026-11-05 19:23
 
 | Item | Description |
 |------|-------------|
-| Language | Interface language. "Auto (system)" follows the system language; eleven languages are available |
+| Language | Interface language. "Auto (system)" follows the system language; eleven languages are available. Planning and execution workflows also ask their agents to write in this language |
 | Notification sound | Sound for notifications (on by default) |
 | System notifications | Turns system notifications on or off (on by default). If the system has not allowed notifications yet, "Allow notifications" asks for permission; if they are blocked, the steps for your system are shown |
 | Shell command | macOS desktop app only: "Install 'vela' command" adds `vela <project-path>` to your shell, which opens a project in VelaTerm. "Uninstall 'vela' command" removes it |

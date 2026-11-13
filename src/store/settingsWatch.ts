@@ -11,9 +11,9 @@
 //! authority and the code path stay identical; only the trigger is new.
 
 import { onSettingsChanged } from "../ipc/events";
-import { flushNow, reconcileSettings } from "../ipc/settingsSync";
+import { flushNow, publishUiLocale, reconcileSettings } from "../ipc/settingsSync";
 import type { UnlistenFn } from "../ipc/transport";
-import { loadLangChoice, setLang } from "../i18n";
+import { getLocale, loadLangChoice, setLang } from "../i18n";
 import { useTermStore } from "./termStore";
 
 /** Cap on the wait for pending writes; see the flush note in `refresh`. */
@@ -47,8 +47,12 @@ export async function refreshSettingsFromBackend(): Promise<void> {
   try {
     await flushNow(FLUSH_TIMEOUT_MS);
     const changed = await reconcileSettings();
-    if (changed.size === 0) return;
     if (changed.has("vlx-lang")) setLang(loadLangChoice());
+    // Startup and every language change pass through here, so the backend always knows the language the
+    // interface resolved, including "auto", which only this shell can resolve. Not awaited: applying
+    // settings does not depend on this write.
+    void publishUiLocale(getLocale());
+    if (changed.size === 0) return;
     if (
       changed.has("vlx-theme") ||
       changed.has("vlx-sound") ||

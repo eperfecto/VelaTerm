@@ -380,12 +380,14 @@ pub fn start(app: &AppCtx, request: &super::server::SpawnRequest) -> Result<Valu
     }
     let root = repo::get_project_root(&app.db().conn.lock().unwrap(), &parent.project_id)?;
     let cwd = request.cwd.clone().or(parent.cwd.clone()).or(root);
+    // Read before create_role_bound: its callback runs inside a transaction that holds the connection.
+    let language = review::ui_language(app);
     let planner = create_role_bound(app, &role_id(&id, "planner"), &parent.project_id,
         parent.group_id.as_deref(), Some(&parent), "Plan · Execute", &config.plan, cwd.as_deref(),
         config.worktree_mode(request.worktree == Some(true)) != WorktreeMode::None, None, None,
         |tx, planner| {
             let task = format!("{}\n\nWorkflow ID: {id}\nRole: planner\nWorking directory: {}\n\nUser task:\n{}",
-                review::protocol(&config), planner.cwd.as_deref().unwrap_or(""), request.prompt);
+                review::protocol(&config, language), planner.cwd.as_deref().unwrap_or(""), request.prompt);
             let message_id = format!("msg-{id}");
             let origin = json!({"sessionId":parent.id,"name":parent.name,"agent":parent.kind,"role":"initiator","runId":id,"round":0});
             let wire = format!("[VelaTerm message {message_id}]\n{origin}\n\n{task}").trim_end().to_owned();
@@ -736,7 +738,7 @@ fn apply_action(app: &AppCtx, req: &Request) -> Result<Value, String> {
     let text = if req.action == "dispatch" && run.round == 0 {
         format!(
             "{}\n\nWorkflow ID: {}\nRole: executor\nRound: {}\nWorking directory: {}\n\nImplementation task:\n{}",
-            review::protocol(&run.config),
+            review::protocol(&run.config, review::ui_language(app)),
             run.id,
             req.round,
             session(app, &target)?.cwd.as_deref().unwrap_or(""),
@@ -744,7 +746,7 @@ fn apply_action(app: &AppCtx, req: &Request) -> Result<Value, String> {
         )
     } else if req.action == "report" && run.config.review_enabled == Some(true) {
         format!("{}\n\nWorkflow ID: {}\nRole: reviewer\nRound: {}\nExecutor directory: {}\nOriginal task:\n{}\n\nExecution report:\n{}",
-            review::protocol(&run.config),run.id,req.round,session(app,run.executor_id.as_deref().unwrap())?.cwd.as_deref().unwrap_or(""),run.task,req.text)
+            review::protocol(&run.config, review::ui_language(app)),run.id,req.round,session(app,run.executor_id.as_deref().unwrap())?.cwd.as_deref().unwrap_or(""),run.task,req.text)
     } else if req.action == "finish" && run.config.review_enabled == Some(false) {
         format!("No independent review was performed. Verification results are reported by Execute.\n\n{}",req.text)
     } else {
