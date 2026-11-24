@@ -132,10 +132,60 @@ describe("sidebar section groups", () => {
     }
   });
 
+  it("opens on the default view, and on Projects when none was chosen", async () => {
+    vi.useFakeTimers();
+    try {
+      // Tasks was the last section shown when the application was closed.
+      useTermStore.getState().pickSidebarSection("tasks");
+      vi.advanceTimersByTime(250);
+
+      vi.resetModules();
+      let restarted = (await import("./termStore")).useTermStore.getState();
+      expect(sidebarTabSection(sidebarTabOfView(restarted.sidebarTreeTabs, restarted.activeSidebarTreeViewId))).toBe("projects");
+
+      // A chosen default wins over the section used last, and a section never opened gets its own group.
+      localStorage.setItem("vlx-settings", JSON.stringify({ defaultSidebarSection: "chat" }));
+      vi.resetModules();
+      restarted = (await import("./termStore")).useTermStore.getState();
+      expect(sidebarTabSection(sidebarTabOfView(restarted.sidebarTreeTabs, restarted.activeSidebarTreeViewId))).toBe("chat");
+      const chatTab = restarted.sidebarTreeTabs.find((tab) => sidebarTabSection(tab) === "chat");
+      expect(chatTab && collectSidebarViewIds(chatTab.root)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      localStorage.removeItem("vlx-settings");
+    }
+  });
+
   it("toggles the sidebar when the shown section is picked again", () => {
     useTermStore.getState().pickSidebarSection("projects");
     expect(useTermStore.getState().leftCollapsed).toBe(true);
     useTermStore.getState().pickSidebarSection("projects");
+    expect(useTermStore.getState().leftCollapsed).toBe(false);
+  });
+
+  it("shows the section a revealed session belongs to and never hides the sidebar", () => {
+    const project = (id: string, collectionId: string | null) =>
+      ({ id, name: id, rootPath: "", collapsed: false, collectionId }) as never;
+    const session = (id: string, projectId: string) => ({ id, name: id, projectId, groupId: null }) as never;
+    useTermStore.setState({
+      projects: [
+        project("vlx-system-projects", null), project("vlx-system-tasks", null), project("vlx-system-chat", null),
+        project("app", "vlx-system-projects"), project("inbox", "vlx-system-tasks"),
+      ],
+      sessions: [session("s-chat", "vlx-system-chat"), session("s-task", "inbox"), session("s-app", "app")],
+    });
+    useTermStore.getState().revealSession("s-chat");
+    expect(shown()).toBe("chat");
+    expect(useTermStore.getState().revealSessionId).toBe("s-chat");
+    // A task session inside a nested collection still opens Tasks.
+    useTermStore.getState().revealSession("s-task");
+    expect(shown()).toBe("tasks");
+    // Revealing into the section already shown keeps the sidebar open, and reopens it when hidden.
+    useTermStore.getState().revealSession("s-task");
+    expect(useTermStore.getState().leftCollapsed).toBe(false);
+    useTermStore.setState({ leftCollapsed: true });
+    useTermStore.getState().revealSession("s-app");
+    expect(shown()).toBe("projects");
     expect(useTermStore.getState().leftCollapsed).toBe(false);
   });
 

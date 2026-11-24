@@ -10,7 +10,7 @@ vi.mock("../i18n", () => ({
   t: (key: string, ...args: unknown[]) => [key, ...args].join("|"),
 }));
 
-import { handshakeFailureReason, isAgentNotInstalledError, mapBackendError } from "./backendError";
+import { formatSubmissionError, handshakeFailureReason, isAgentNotInstalledError, mapBackendError, stripAnsi } from "./backendError";
 
 describe("mapBackendError", () => {
   it("localizes history errors while retaining the code used for revision recovery", () => {
@@ -28,7 +28,7 @@ describe("mapBackendError", () => {
     expect(mapBackendError("agent_sign_in_required:future")).toBe("chat.signInRequired|future");
   });
 
-  it("explains where DeepSeek Harness reads its API key from", () => {
+  it("explains how to give DeepSeek an API key", () => {
     expect(mapBackendError("agent_api_key_required:deepseek")).toBe("chat.apiKeyRequired");
   });
 
@@ -57,13 +57,6 @@ describe("mapBackendError", () => {
     );
   });
 
-  it("maps the data-dir path ACL code and keeps colons inside the detail intact", () => {
-    // Windows-style paths contain a colon of their own; only the first colon splits code/detail.
-    expect(mapBackendError("remote_path_forbidden:C:\\data\\vlx-web-access.json")).toBe(
-      "transport.remotePathForbidden|C:\\data\\vlx-web-access.json",
-    );
-  });
-
   it("maps the port forwarding codes to their i18n keys with the detail as parameter", () => {
     expect(mapBackendError("ports_invalid_port:70000")).toBe("ports.invalidPort|70000");
     expect(mapBackendError("ports_missing_port:")).toBe("ports.missingPort");
@@ -79,12 +72,51 @@ describe("mapBackendError", () => {
     expect(mapBackendError("ssh exited with status 255")).toBe("ssh exited with status 255");
   });
 
-  it("passes unknown backend errors through unchanged", () => {
+  it("maps the data-dir path ACL code and keeps colons inside the detail intact", () => {
+    // Windows-style paths contain a colon of their own; only the first colon splits code/detail.
+    expect(mapBackendError("remote_path_forbidden:C:\\data\\vlx-web-access.json")).toBe(
+      "transport.remotePathForbidden|C:\\data\\vlx-web-access.json",
+    );
+  });
+
+  it("maps the listen-address codes to their i18n keys with the value as detail", () => {
+    expect(mapBackendError("remote_bind_invalid:host.example")).toBe(
+      "remote.bindInvalid|host.example",
+    );
+    expect(mapBackendError("remote_bind_unavailable:192.0.2.10")).toBe(
+      "remote.bindUnavailable|192.0.2.10",
+    );
+    expect(mapBackendError("remote_pairing_host_invalid:x:8799")).toBe(
+      "remote.pairingHostInvalid|x:8799",
+    );
+  });
+
+  it("maps Codex active-writer lock conflicts from both stable codes and raw ANSI stderr", () => {
+    expect(mapBackendError("codex_thread_active_writer:01a1d769-830a-75a1-a110-67e01b00387e")).toBe("chat.codex.activeWriter");
+    expect(mapBackendError("codex_thread_active_writer")).toBe("chat.codex.activeWriter");
+    const ansiStderr =
+      "\x1b[2m2026-11-22T06:13:11.211255Z\x1b[0m \x1b[31mERROR\x1b[0m \x1b[2mcodex_core::session::session\x1b[0m\x1b[2m:\x1b[0m failed to initialize thread persistence: thread-store conflict: thread 01a1d769-830a-75a1-a110-67e01b00387e already has an active writer";
+    expect(mapBackendError(ansiStderr)).toBe("chat.codex.activeWriter");
+  });
+
+  it("strips ANSI escape codes from unknown errors without rewriting plain prose", () => {
+    expect(stripAnsi("\x1b[2m2026-11-22\x1b[0m \x1b[31mERROR\x1b[0m boom")).toBe("2026-11-22 ERROR boom");
+    expect(mapBackendError("\x1b[31mUnexpected CLI failure\x1b[0m")).toBe("Unexpected CLI failure");
     expect(mapBackendError("Session has been deleted")).toBe("Session has been deleted");
     expect(mapBackendError("Failed to open file: no such file")).toBe(
       "Failed to open file: no such file",
     );
     expect(mapBackendError("")).toBe("");
+  });
+});
+
+describe("formatSubmissionError", () => {
+  it("drops the Error prefix for mapped codes and strips ANSI from unrecognized failures", () => {
+    expect(formatSubmissionError("Error: codex_thread_active_writer:01a1d769")).toBe("chat.codex.activeWriter");
+    expect(formatSubmissionError("Error: \x1b[31mthread-store conflict: thread 01a1 already has an active writer\x1b[0m"))
+      .toBe("chat.codex.activeWriter");
+    expect(formatSubmissionError("Error: \x1b[31mSomething broke\x1b[0m")).toBe("Error: Something broke");
+    expect(formatSubmissionError("Error: Submission failed")).toBe("Error: Submission failed");
   });
 });
 

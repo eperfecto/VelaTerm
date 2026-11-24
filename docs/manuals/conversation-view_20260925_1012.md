@@ -62,13 +62,13 @@ The row under the message box holds controls for the next message. Which control
 | Tone | Codex, on models that support it | "Default tone", "Neutral", "Friendly" or "Pragmatic" |
 | MCP servers | Claude, Codex | Show configured MCP servers and their state; reconnect, disable or enable a server. For Codex, enabling or disabling a server changes your Codex user configuration, which other Codex conversations also use |
 | Attach project | Claude | Let the agent also work in another project's folder (`--add-dir`). Lists the other projects that have a folder, marking the attached ones. The folder is saved in the session's launch arguments, where Edit Session can remove it, and applies from the next message, which restarts the agent and resumes the same conversation. While the agent is busy it refuses: "Wait for the agent to finish, then attach the project." |
-| Background tasks | Claude | See §9 |
+| Background tasks | Claude, OpenCode | See §9 |
 | Account | Claude, Codex | Sign in again or sign out; see §12 |
 | Codex reset credits | Codex | Show and use Codex rate-limit reset credits |
 
 The Model, Thinking effort and Permission mode menus offer "Set as default", which makes the current choice the default for new conversations of that agent. An effort default belongs to the model it was chosen for.
 
-Settings ▸ Conversation view ▸ "Composer toolbar" decides which controls sit beside the message box and in which order. Model, Thinking effort, Collaboration mode and Permission mode are on by default. Controls that are off, or that do not fit, move to the **More** menu, so every supported control stays reachable. MCP servers and Background tasks are disabled while the agent process is not running ("The agent process is not running. Send a message to start it.").
+Settings ▸ Conversation view ▸ "Composer toolbar" decides which controls sit beside the message box and in which order. Model, Thinking effort, Collaboration mode and Permission mode are on by default. A control that is switched off is not shown anywhere; turn it on here to use it. Controls that are on but do not fit beside the message box move to the **More** menu, which appears only then. MCP servers and Background tasks are disabled while the agent process is not running ("The agent process is not running. Send a message to start it.").
 
 Claude and Codex conversations also show a small context meter next to the send button once the agent reports its first figures. Its color changes as the context fills up or a rate limit approaches. Hover it to see the context usage ("Context: … of … tokens"), the session cost when the agent reports one, and rate-limit warnings.
 
@@ -127,9 +127,11 @@ Rewinding removes the chosen message and everything after it. It is available on
 
 Claude and Codex messages also have an "Edit" button. Change the text or images, choose "Review and resend", and confirm with "Delete and resend". The original message and everything after it are permanently deleted, and your edited message is sent from that point. File changes are not restored.
 
-## 9. Background tasks (Claude)
+## 9. Background tasks (Claude and OpenCode)
 
-Claude can run subagents and commands in the background. The **Background tasks** control lists them with their state ("Running", "Completed", "Failed", "Stopped"). Use "Stop" to end a task, or open it in its own tab to see its elapsed time, token count, tool calls, prompt and result. While a turn is running, "Move the running work to the background" sends the current work to the background so you can continue the conversation.
+Claude and OpenCode can run subagents and commands in the background. The **Background tasks** control lists them with their state ("Running", "Completed", "Failed", "Stopped"). Use "Stop" to end a task, or open it in its own tab to see its elapsed time, token count, tool calls, prompt and result. While a turn is running, "Move the running work to the background" sends the current work to the background so you can continue the conversation.
+
+OpenCode lists both background subagents and background shell commands. Opening a subagent task shows its own conversation; opening a shell task shows the command and its output.
 
 While background tasks run, the session keeps its "working" status.
 
@@ -153,7 +155,7 @@ Archived conversations open read-only in the knowledge base; see [Interface & Se
 
 ## 12. Signing in and out (Claude and Codex)
 
-The **Account** control ("Claude account" or "Codex account") is off in the toolbar by default. Open it from **More**, or turn it on in Settings ▸ Conversation view ▸ "Composer toolbar". It offers "Sign in again" and "Sign out". Account changes wait until the current turn finishes; Claude also waits for background tasks and permission requests.
+The **Account** control ("Claude account" or "Codex account") is off in the toolbar by default and then not shown; turn it on in Settings ▸ Conversation view ▸ "Composer toolbar" to use it. It offers "Sign in again" and "Sign out". Account changes wait until the current turn finishes; Claude also waits for background tasks and permission requests.
 
 **Codex.** When a Codex request reports that the sign-in is no longer valid, the conversation offers "Sign in again". Open the authorization page and enter the code shown in the conversation. The view updates when sign-in finishes, and you can continue the same conversation. Device code sign-in must be enabled for your ChatGPT account or workspace, and your Codex CLI must support it. "Cancel" stops a pending sign-in.
 

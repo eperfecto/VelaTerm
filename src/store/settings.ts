@@ -2,16 +2,20 @@
 //! types. Extracted from termStore because settings I/O and defaults are self-contained. This lets
 //! SettingsModal and the store share types while reducing the size of the main store.
 
+import { parseDefaultViewSection, type DefaultViewSection } from "../layout/LeftSidebar/systemCollections";
+import { sanitizeDarkStyle, sanitizeLightStyle } from "../themes";
 import { pushSetting } from "../ipc/settingsSync";
-import { DEFAULT_CONVERSATION_FONT_SIZE, DEFAULT_TERMINAL_FONT_SIZE, DEFAULT_TERMINAL_LINE_HEIGHT, normalizeTextSize, normalizeTextLineHeight } from "../theme";
+import { DEFAULT_CONVERSATION_FONT_SIZE, DEFAULT_TERMINAL_FONT_SIZE, DEFAULT_TERMINAL_LINE_HEIGHT, SETTINGS_TABS, normalizeFontFamily, normalizeLetterSpacing, normalizeTextSize, normalizeTextLineHeight } from "../theme";
 import type {
   AccentChoice,
   DarkStyle,
+  LightStyle,
   Density,
   DividerStyle,
   InspectorTab,
   NavLayout,
   PaneStyle,
+  SettingsTab,
   VisualSettings,
 } from "../theme";
 import { hasTerminalInterface, type SessionEngine, type SessionKind } from "../types";
@@ -52,7 +56,7 @@ export interface AgentDefaultConfig {
    * user enters in the card's path field. */
   path?: string;
   /** View a new session of this agent opens in. Missing uses the agent's built-in default
-   * (`defaultEngineFor`): conversation for Claude/Codex, terminal for other agents. */
+   * (`defaultEngineFor`): conversation for Claude/Codex/Antigravity, terminal for other agents. */
   engine?: SessionEngine;
 }
 
@@ -63,7 +67,7 @@ export function defaultEngineFor(
   agentDefaults: Record<string, AgentDefaultConfig>,
 ): SessionEngine {
   if (!hasTerminalInterface(kind)) return "chat";
-  return agentDefaults[kind]?.engine ?? (kind === "claude" || kind === "codex" ? "chat" : "tui");
+  return agentDefaults[kind]?.engine ?? (kind === "claude" || kind === "codex" || kind === "antigravity" ? "chat" : "tui");
 }
 
 /** The permission a session launches with: its own choice, or the agent kind's global default when it has
@@ -117,12 +121,15 @@ export type ImagePasteMode = "upload" | "agent";
 export const SETTINGS_KEY = "vlx-settings";
 export interface PersistedSettings {
   darkStyle: DarkStyle;
+  lightStyle: LightStyle;
   accent: AccentChoice;
   density: Density;
   paneStyle: PaneStyle;
   dividerStyle: DividerStyle;
   navLayout: NavLayout;
   inspectorTab: InspectorTab;
+  /** Settings dialog section to reopen on, remembered from the last one viewed. */
+  settingsTab: SettingsTab;
   /** Single-tab mode reuses the current tab and keeps the previous tree alive in the background. */
   singleTabMode: boolean;
   /** Tab bar shows only the active project's tabs plus global terminals. Off keeps every tab visible. */
@@ -149,6 +156,10 @@ export interface PersistedSettings {
   defaultShell: string;
   /** UI font size in pixels; null follows density without an inline `--ui-fs`. */
   uiFontSize: number | null;
+  /** Interface font family; null uses the bundled Inter stack. */
+  uiFontFamily: string | null;
+  /** Monospace font for code, paths and diffs outside the terminal; null uses the default stack. */
+  uiMonoFontFamily: string | null;
   /** Primary terminal monospace font; null uses the default stack. */
   termFontFamily: string | null;
   /** Terminal font size in pixels, defaulting to 13. */
@@ -157,8 +168,14 @@ export interface PersistedSettings {
   termLineHeight: number;
   /** Conversation typography is saved independently of terminal preferences. */
   chatFontFamily: string | null;
+  /** Conversation code and tool-output font; null follows uiMonoFontFamily. */
+  chatCodeFontFamily: string | null;
   chatFontSize: number;
   chatLineHeight: number;
+  /** Conversation letter spacing in pixels; null is automatic. */
+  chatLetterSpacing: number | null;
+  /** Maximum size in MB that pasted or dropped conversation images are compressed down to before sending. */
+  chatImageMaxMb: ChatImageMaxMb;
   /** Global shortcut overrides from action ID to chord; missing entries use shortcutRegistry defaults. */
   shortcutOverrides: Record<string, string>;
   /** Defaults by agent type, serving as global templates for new local-agent sessions. Explicit
@@ -179,6 +196,9 @@ export interface PersistedSettings {
   /** Whether a Claude or Codex conversation stopped by a five-hour or weekly usage limit continues on its own
    * once the limit resets. The backend scheduler reads this key from the shared settings block. */
   autoContinueAtUsageLimit: boolean;
+  /** Whether the Antigravity quota section in the Info panel expands non-Gemini buckets (such as
+   * `claude/gpt`). Hidden by default so only Gemini quotas appear until the user clicks to show them. */
+  usageAntigravityShowOther: boolean;
   /** Image paste mode: upload writes a file path, while agent lets the agent read the clipboard and show
    * `[Image #x]`. Configurable only on local desktop clients; browser and remote clients always upload. */
   imagePasteMode: ImagePasteMode;
@@ -205,6 +225,9 @@ export interface PersistedSettings {
   memoryPrefs: MemoryPrefs;
   /** Last model and reasoning effort chosen for each agent in the AI rename dialog. */
   sessionTitlePrefs: SessionTitlePrefs;
+  /** Last agent explicitly chosen in the AI rename dialog. Empty falls back to the session's own
+   * agent, which is the default before the user ever picks one there. */
+  sessionTitleAgent: SessionKind | "";
   /** Optional pre-summary used by `vrefer --ask`; there is one choice for every caller and target. */
   referSummary: ReferSummaryConfig;
   /** Whether the Info panel's Resources section shows the whole-machine group. Off hides those rows and
@@ -228,6 +251,8 @@ export interface PersistedSettings {
   /** Sidebar worktree level: on gathers sibling sessions sharing a Git worktree under one display-only
    * worktree row, off lists them as plain siblings. On by default. */
   groupByWorktree: boolean;
+  /** Sidebar section a fresh launch opens on, chosen from the activity bar. `null` opens Projects. */
+  defaultSidebarSection: DefaultViewSection | null;
 }
 
 /** Every composer chip the toolbar can show, in the order the toolbar used before the list became
@@ -258,19 +283,32 @@ export function normalizeInputLatencyThreshold(value: unknown): number {
     ? (value as number) : DEFAULT_INPUT_LATENCY_THRESHOLD_MS;
 }
 
+/** Maximum attachment size choices for compressed conversation images, in megabytes. */
+export const CHAT_IMAGE_MAX_MB_CHOICES = [1, 2, 4] as const;
+export type ChatImageMaxMb = (typeof CHAT_IMAGE_MAX_MB_CHOICES)[number];
+export const DEFAULT_CHAT_IMAGE_MAX_MB: ChatImageMaxMb = 2;
+
+/** Keeps a stored conversation image size limit within the offered choices, falling back to the default. */
+export function normalizeChatImageMaxMb(value: unknown): ChatImageMaxMb {
+  return (CHAT_IMAGE_MAX_MB_CHOICES as readonly number[]).includes(value as number)
+    ? (value as ChatImageMaxMb) : DEFAULT_CHAT_IMAGE_MAX_MB;
+}
+
 /** The chips that sat beside the message before the list became configurable, plus Tasks. */
 export const DEFAULT_COMPOSER_INLINE_CHIPS: ComposerChipId[] = ["model", "effort", "collaboration", "permission", "tasks"];
 /** Revision 1 made Tasks an inline chip by default. */
 export const COMPOSER_INLINE_CHIPS_REVISION = 1;
 
-const SETTINGS_DEFAULTS: PersistedSettings = {
+export const SETTINGS_DEFAULTS: PersistedSettings = {
   darkStyle: "classic",
+  lightStyle: "classic",
   accent: "auto",
   density: "regular",
   paneStyle: "flush",
   dividerStyle: "subtle",
   navLayout: "tree",
   inspectorTab: "info",
+  settingsTab: "appearance",
   singleTabMode: true,
   scopeTabsToProject: false,
   termRenderer: "dom",
@@ -282,12 +320,17 @@ const SETTINGS_DEFAULTS: PersistedSettings = {
   maxLiveTabs: DEFAULT_MAX_LIVE_TABS,
   defaultShell: "",
   uiFontSize: null,
+  uiFontFamily: null,
+  uiMonoFontFamily: null,
   termFontFamily: null,
   termFontSize: DEFAULT_TERMINAL_FONT_SIZE,
   termLineHeight: DEFAULT_TERMINAL_LINE_HEIGHT,
   chatFontFamily: null,
+  chatCodeFontFamily: null,
   chatFontSize: DEFAULT_CONVERSATION_FONT_SIZE,
   chatLineHeight: DEFAULT_TERMINAL_LINE_HEIGHT,
+  chatLetterSpacing: null,
+  chatImageMaxMb: DEFAULT_CHAT_IMAGE_MAX_MB,
   shortcutOverrides: {},
   agentDefaults: {},
   spawnConfirm: true,
@@ -295,6 +338,7 @@ const SETTINGS_DEFAULTS: PersistedSettings = {
   usageAutoRefresh: true,
   usageRefreshSec: 300,
   autoContinueAtUsageLimit: true,
+  usageAntigravityShowOther: false,
   imagePasteMode: "upload",
   chatModel: "",
   chatModelByKind: {},
@@ -304,6 +348,7 @@ const SETTINGS_DEFAULTS: PersistedSettings = {
   planExecutePrefs: { plan: {}, exec: {}, review: {} },
   memoryPrefs: {},
   sessionTitlePrefs: {},
+  sessionTitleAgent: "",
   referSummary: { enabled: false, agent: "claude", model: "", effort: "" },
   showSystemResources: true,
   turnFilesView: false,
@@ -312,6 +357,7 @@ const SETTINGS_DEFAULTS: PersistedSettings = {
   composerInlineChipsRevision: COMPOSER_INLINE_CHIPS_REVISION,
   sortByActivity: false,
   groupByWorktree: true,
+  defaultSidebarSection: null,
 };
 
 /** Keeps only known chip ids, once each and in the saved order. A missing or malformed value falls back
@@ -381,12 +427,24 @@ export function loadSettings(): PersistedSettings {
       defaultSessionEngine?: SessionEngine;
     };
     const merged = { ...SETTINGS_DEFAULTS, ...parsed };
-    // Retired comparison styles and missing preferences use the single supported dark palette.
-    merged.darkStyle = "classic";
-    merged.chatFontFamily = typeof merged.chatFontFamily === "string" ? merged.chatFontFamily.trim() || null : null;
+    // Retired comparison styles, unknown themes and missing preferences use the classic palettes.
+    merged.darkStyle = sanitizeDarkStyle(parsed.darkStyle);
+    merged.lightStyle = sanitizeLightStyle(parsed.lightStyle);
+    // Before v0.3.0, uiFontFamily held the retired monospace interface face, and v0.3.0 fixed the interface to Inter.
+    // Saves without uiMonoFontFamily predate the current interface font settings, so a leftover value there would
+    // turn the whole interface monospace. Drop it to keep the Inter default.
+    if (!("uiMonoFontFamily" in parsed)) merged.uiFontFamily = null;
+    merged.chatFontFamily = normalizeFontFamily(merged.chatFontFamily);
+    merged.chatCodeFontFamily = normalizeFontFamily(merged.chatCodeFontFamily);
+    merged.uiFontFamily = normalizeFontFamily(merged.uiFontFamily);
+    merged.uiMonoFontFamily = normalizeFontFamily(merged.uiMonoFontFamily);
+    merged.chatLetterSpacing = normalizeLetterSpacing(merged.chatLetterSpacing);
     merged.chatFontSize = normalizeTextSize(merged.chatFontSize, DEFAULT_CONVERSATION_FONT_SIZE);
     merged.chatLineHeight = normalizeTextLineHeight(merged.chatLineHeight);
+    merged.chatImageMaxMb = normalizeChatImageMaxMb(parsed.chatImageMaxMb);
     merged.termLineHeight = normalizeTextLineHeight(merged.termLineHeight);
+    // A section that no longer exists would open Settings on an empty panel.
+    if (!SETTINGS_TABS.includes(merged.settingsTab)) merged.settingsTab = "appearance";
     if (
       !parsed.chatModelByKind ||
       typeof parsed.chatModelByKind !== "object" ||
@@ -401,11 +459,15 @@ export function loadSettings(): PersistedSettings {
         ? Object.fromEntries(Object.entries(parsed.infoCollapsed).filter(([, closed]) => closed === true))
         : {};
     merged.turnFilesView = merged.turnFilesView === true;
+    merged.usageAntigravityShowOther = merged.usageAntigravityShowOther === true;
     // The right panel's knowledge tab was removed; a saved value for it, or any unknown value, opens Info.
-    if (!["files", "info", "git"].includes(merged.inspectorTab)) merged.inspectorTab = "info";
+    if (!["files", "info", "git", "ports"].includes(merged.inspectorTab)) merged.inspectorTab = "info";
     merged.planExecutePrefs = sanitizePlanExecutePrefs(parsed.planExecutePrefs);
     merged.memoryPrefs = sanitizeLaunchChoice(parsed.memoryPrefs);
     merged.sessionTitlePrefs = sanitizeSessionTitlePrefs(parsed.sessionTitlePrefs);
+    // The remembered agent is re-validated against the agents a dialog actually offers, so a stale or
+    // corrupted kind is harmless here and simply falls back to the session's own agent.
+    merged.sessionTitleAgent = typeof parsed.sessionTitleAgent === "string" ? parsed.sessionTitleAgent as SessionKind : "";
     merged.referSummary = sanitizeReferSummary(parsed.referSummary);
     merged.composerInlineChips = sanitizeComposerInlineChips(parsed.composerInlineChips);
     merged.inputLatencyLog = merged.inputLatencyLog === true;
@@ -422,6 +484,8 @@ export function loadSettings(): PersistedSettings {
     merged.sortByActivity = parsed.sortByActivity === true;
     // Only an explicit boolean false hides the worktree level; anything else keeps it.
     merged.groupByWorktree = parsed.groupByWorktree !== false;
+    // An unknown or corrupted section name simply means no default was chosen, which opens Projects.
+    merged.defaultSidebarSection = parseDefaultViewSection(parsed.defaultSidebarSection) ?? null;
     // Migrate boolean gpuRender to termRenderer only when the new key is absent, preserving WebGL for
     // existing users. Future saves write only the new structure and naturally discard the old field.
     if (parsed.termRenderer === undefined && typeof parsed.gpuRender === "boolean") {
@@ -463,13 +527,18 @@ export function saveSettings(s: PersistedSettings) {
 }
 export const visualOf = (s: PersistedSettings): VisualSettings => ({
   darkStyle: s.darkStyle,
+  lightStyle: s.lightStyle,
   accent: s.accent,
   density: s.density,
   paneStyle: s.paneStyle,
   dividerStyle: s.dividerStyle,
   navLayout: s.navLayout,
   uiFontSize: s.uiFontSize,
+  uiFontFamily: s.uiFontFamily,
+  uiMonoFontFamily: s.uiMonoFontFamily,
   chatFontFamily: s.chatFontFamily,
+  chatCodeFontFamily: s.chatCodeFontFamily,
   chatFontSize: s.chatFontSize,
   chatLineHeight: s.chatLineHeight,
+  chatLetterSpacing: s.chatLetterSpacing,
 });

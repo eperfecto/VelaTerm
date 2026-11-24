@@ -32,9 +32,13 @@ export function ptySpawn(
   return spawnPty({ ...args, dark }, onOutput);
 }
 
+// Zsh draws the inline history hint into output every client shares, so the host turns it off by who is typing.
+// Only the client can say which it is: SSH windows and the local Electron shell both arrive over loopback WebSocket.
+const REMOTE_INPUT = !isTauri && !isElectronShell;
+
 /** Writes keyboard data. */
 export function ptyWrite(sessionId: string, data: string): Promise<void> {
-  return invoke("pty_write", { sessionId, data });
+  return invoke("pty_write", REMOTE_INPUT ? { sessionId, data, remote: true } : { sessionId, data });
 }
 
 /**
@@ -357,8 +361,13 @@ export type SearchScope = "live" | "all" | "archived";
 export function searchSessionContent(
   query: string,
   scope: SearchScope = "live",
+  projectId?: string,
 ): Promise<SessionSearchHit[]> {
-  return invoke<SessionSearchHit[]>("search_session_content", { query, scope });
+  return invoke<SessionSearchHit[]>("search_session_content", {
+    query,
+    scope,
+    ...(projectId ? { projectId } : {}),
+  });
 }
 
 export interface ContentSearchPage {
@@ -374,8 +383,16 @@ export interface ContentSearchPage {
   nextCursor?: number | null;
   previousCursor?: number | null;
 }
-export function startContentSearch(query: string, scope: SearchScope): Promise<ContentSearchPage> {
-  return invoke("search_content_start", { query, scope });
+export function startContentSearch(
+  query: string,
+  scope: SearchScope,
+  projectId?: string,
+): Promise<ContentSearchPage> {
+  return invoke("search_content_start", {
+    query,
+    scope,
+    ...(projectId ? { projectId } : {}),
+  });
 }
 export function contentSearchPage(jobId: string, cursor?: number, before?: number): Promise<ContentSearchPage> {
   return invoke("search_content_page", { jobId, cursor, before, limit: 10 });
@@ -525,8 +542,23 @@ export interface ZcodeUsage {
   windows: ZcodeWindow[];
 }
 
+/** One Antigravity quota bucket as `agy -p /usage` reports it. */
+export interface AntigravityWindow {
+  /** Row label such as `5h · gemini` or `7d · claude/gpt`. */
+  label: string;
+  /** Used percentage, 0-100. */
+  usedPercent: number;
+  /** RFC 3339 time of the next reset. */
+  resetsAt: string | null;
+}
+
+/** The Antigravity plan quota, in the CLI's model-group order. */
+export interface AntigravityUsage {
+  windows: AntigravityWindow[];
+}
+
 /** Which account a usage row comes from; matches the session kinds that publish a quota. */
-export type UsageProvider = "claude" | "codex" | "grok" | "zcode";
+export type UsageProvider = "claude" | "codex" | "grok" | "zcode" | "antigravity";
 
 /** One provider's stored reading, kept with the reason the last attempt failed. */
 export interface UsageEntry<T> {
@@ -552,6 +584,8 @@ export interface UsageSnapshot {
   grok: UsageEntry<GrokUsage>;
   /** Absent in snapshots from a backend that predates the ZCode quota. */
   zcode?: UsageEntry<ZcodeUsage>;
+  /** Absent in snapshots from a backend that predates the Antigravity quota. */
+  antigravity?: UsageEntry<AntigravityUsage>;
   /** Whether automatic polling is on; the panel hides its countdown when it is off. */
   auto: boolean;
   /** Effective poll interval in seconds, used for the countdown to the next refresh. */
@@ -864,6 +898,10 @@ export interface BranchCompare {
   files: ChangedFile[];
   /** Branches that can be chosen as the base. */
   candidates: string[];
+  /** Suggested pull request title derived from the commit subject or branch name. */
+  suggestedTitle?: string;
+  /** Suggested pull request description derived from the commit body or commit list. */
+  suggestedBody?: string;
 }
 
 /** Compares HEAD with `base`, or the default base; null when there is nothing to compare with. */
@@ -881,11 +919,12 @@ export function gitRangeFileDiff(cwd: string, from: string, to: string, path: st
   return invoke<FileDiff>("git_range_file_diff", { cwd, from, to, path });
 }
 
-/** Whether the Git panel can open a pull request here, and why not when it cannot. */
+/** Whether the Git panel can open a pull or merge request here, and why not when it cannot. */
 export interface GitPrProvider {
-  provider: "gitea" | null;
+  provider: "github" | "gitlab" | "gitea" | null;
   available: boolean;
-  reason: "ok" | "not_gitea" | "no_token" | "unreachable";
+  reason: "ok" | "not_gitea" | "no_token" | "unreachable" | "no_cli" | "no_auth";
+  host?: string | null;
 }
 
 export function gitPrProvider(cwd: string): Promise<GitPrProvider> {
@@ -897,15 +936,42 @@ export function gitRepoWebUrl(cwd: string): Promise<string | null> {
   return invoke<string | null>("git_repo_web_url", { cwd });
 }
 
+/** Current pull or merge request state for the checked-out branch. */
+export interface GitPrStatus {
+  provider: "github" | "gitlab" | "gitea";
+  number: number;
+  title: string;
+  url: string;
+  state: "open" | "draft" | "merged" | "closed";
+  base: string;
+  checks: "passing" | "failing" | "pending" | "none";
+  worktree: { path: string; mainRepo: string } | null;
+}
+
+export function gitPrStatus(cwd: string): Promise<GitPrStatus | null> {
+  return invoke<GitPrStatus | null>("git_pr_status", { cwd });
+}
+
 /** Result of opening a pull request: its URL (empty when the server gave none) and a message. */
 export interface PrOutcome {
   url: string;
   message: string;
 }
 
-/** Pushes the current branch and opens a pull request into `base`. */
-export function gitOpenPullRequest(cwd: string, base: string, title: string, body: string): Promise<PrOutcome> {
-  return invoke<PrOutcome>("git_open_pull_request", { cwd, base, title, body });
+/** Pushes the current branch and opens a pull or merge request into `base`. */
+export function gitOpenPullRequest(
+  cwd: string,
+  base: string,
+  title: string,
+  body: string,
+  draft = false,
+): Promise<PrOutcome> {
+  return invoke<PrOutcome>("git_open_pull_request", { cwd, base, title, body, draft });
+}
+
+/** Force-deletes a local branch from `repo`. */
+export function deleteBranch(repo: string, branch: string): Promise<void> {
+  return invoke<void>("delete_branch", { repo, branch });
 }
 
 /** Change-notification lease for the repository containing `cwd`, keyed by its top level. */
@@ -941,6 +1007,31 @@ export function gitCommitFiles(cwd: string, hash: string): Promise<ChangedFile[]
 /** Both sides of one file's diff inside a commit: the parent's content versus the commit's. */
 export function gitCommitFileDiff(cwd: string, hash: string, path: string): Promise<FileDiff> {
   return invoke<FileDiff>("git_commit_file_diff", { cwd, hash, path });
+}
+
+// DeepSeek API credentials, set from the conversation's composer.
+
+/** DeepSeek endpoint and whether a key is stored; the key itself is never returned. */
+export interface DeepSeekApiStatus {
+  /** Configured endpoint, or null for the provider's official address. */
+  baseUrl: string | null;
+  hasKey: boolean;
+  /** Whether this client may change the configuration; remote clients can only read it. */
+  editable: boolean;
+}
+
+/** Reads the DeepSeek endpoint and key status for the conversation's API panel. */
+export function deepseekGetStatus(): Promise<DeepSeekApiStatus> {
+  return invoke<DeepSeekApiStatus>("deepseek_get_status");
+}
+
+/** Saves the DeepSeek endpoint and key. An empty key keeps the stored one unless `clearKey` is set. */
+export function deepseekSetConfig(
+  baseUrl: string,
+  apiKey: string,
+  clearKey = false,
+): Promise<DeepSeekApiStatus> {
+  return invoke<DeepSeekApiStatus>("deepseek_set_config", { baseUrl, apiKey, clearKey });
 }
 
 // Gitea integration, phase two.

@@ -23,6 +23,8 @@ use std::time::Duration;
 const PROBE_LIMIT: Duration = Duration::from_secs(8);
 /// The request id of Codex's `account/read`, which marks the answer in its output.
 const CODEX_ACCOUNT_REQUEST: i64 = 2;
+/// The request id of Antigravity's `session/list` probe, which marks the answer in its output.
+const ANTIGRAVITY_LIST_REQUEST: &str = "2";
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +57,9 @@ pub(in crate::agent::chat::engine) fn check(app: &AppCtx, session_id: &str) -> R
         }
         agent_environment(app, session_id, &mut cmd);
         executable::prepare_command(&mut cmd, bin);
+        if kind == SessionKind::Antigravity {
+            crate::agent::antigravity::prepare_command_env(&mut cmd);
+        }
         cmd
     };
     let bin = match executable::resolve_launch_binary(app, session_id, kind)? {
@@ -82,6 +87,13 @@ pub(in crate::agent::chat::engine) fn check(app: &AppCtx, session_id: &str) -> R
     let args = crate::agent::inject::split_extra_args(Some(&session_settings::without_selection_args(kind, session.agent_args.as_deref())));
     let cmd = prepared(&bin);
     let signed_in = match kind {
+        // Passive pane-open checks consult live ACP state only; spawning a cold ~2.7s `agy acp`
+        // subprocess on open contends with the user's first message, and `chat_start` itself opens
+        // the inline sign-in panel if credentials are missing.
+        SessionKind::Antigravity => {
+            let settings_args = super::antigravity::settings_args(&args);
+            app.chat().antigravity_live_signed_in(&bin, &settings_args)
+        }
         SessionKind::Zcode => zcode(&cmd, &bin, cwd.as_deref()),
         SessionKind::Claude => claude(cmd, &args),
         SessionKind::Codex => codex(cmd, &args),
@@ -212,6 +224,75 @@ fn cursor_signed_in(output: &str) -> Option<bool> {
     }
 }
 
+/// Explicitly probe `agy acp` via `session/list` after an HTTP 401 failure to distinguish an expired
+/// access token (which `agy` refreshes) from a signed-out Google account, without holding `auth_gate`.
+pub(in crate::agent::chat::engine) fn probe_antigravity(app: &AppCtx, session_id: &str) -> Option<bool> {
+    let (session, root) = {
+        let conn = app.db().conn.lock().unwrap();
+        let session = crate::db::repo::get_session(&conn, session_id).ok().flatten()?;
+        let root = crate::db::repo::get_project_root(&conn, &session.project_id).ok()?;
+        (session, root)
+    };
+    if session.kind != SessionKind::Antigravity || session.engine != "chat" {
+        return None;
+    }
+    let bin = match executable::resolve_launch_binary(app, session_id, SessionKind::Antigravity).ok()? {
+        LaunchBinary::Broken => return None,
+        LaunchBinary::Path(path) => path,
+        LaunchBinary::Unresolved => executable::command_name(SessionKind::Antigravity).to_string(),
+    };
+    let cwd = crate::host::spawn_dir(
+        session.cwd.as_deref().filter(|c| !c.trim().is_empty()).or(root.as_deref()),
+    );
+    let mut cmd = crate::host::command(&bin);
+    if let Some(cwd) = &cwd {
+        cmd.current_dir(cwd);
+    }
+    agent_environment(app, session_id, &mut cmd);
+    executable::prepare_command(&mut cmd, &bin);
+    crate::agent::antigravity::prepare_command_env(&mut cmd);
+    let args = crate::agent::inject::split_extra_args(Some(&session_settings::without_selection_args(
+        SessionKind::Antigravity,
+        session.agent_args.as_deref(),
+    )));
+    antigravity(app, &bin, cmd, &args)
+}
+
+/// Ask `agy acp` for `session/list` without creating a conversation.
+///
+/// `session/list` runs through the same auth check as `session/new`, returning JSON-RPC `-32000` when no
+/// credentials are active and a session list when signed in via OAuth, an API key, or ADC.
+fn antigravity(app: &AppCtx, bin: &str, mut cmd: Command, args: &[String]) -> Option<bool> {
+    let settings_args = super::antigravity::settings_args(args);
+    if let Some(live) = app.chat().antigravity_live_signed_in(bin, &settings_args) {
+        return Some(live);
+    }
+    let launch = crate::agent::chat::acp_protocol::launch_args(SessionKind::Antigravity, None, None, args).ok()?;
+    cmd.args(launch);
+    let input = [
+        crate::agent::chat::acp_protocol::initialize("1"),
+        crate::agent::chat::acp_protocol::session_list(ANTIGRAVITY_LIST_REQUEST),
+    ];
+    crate::agent::antigravity::cached_or_probe_readiness(bin, &settings_args, move || {
+        let text = output(cmd, &input, is_antigravity_list_answer)?;
+        antigravity_signed_in(&text)
+    })
+}
+
+fn is_antigravity_list_answer(line: &str) -> bool {
+    serde_json::from_str::<Value>(line)
+        .is_ok_and(|value| value.get("id").and_then(Value::as_str) == Some(ANTIGRAVITY_LIST_REQUEST))
+}
+
+fn antigravity_signed_in(output: &str) -> Option<bool> {
+    let line = output.lines().find(|line| is_antigravity_list_answer(line))?;
+    let answer: Value = serde_json::from_str(line).ok()?;
+    if let Some(error) = answer.get("error").filter(|value| !value.is_null()) {
+        return crate::agent::chat::acp_protocol::auth_required(error).then_some(false);
+    }
+    answer.get("result").filter(|value| !value.is_null()).map(|_| true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +319,23 @@ mod tests {
         assert_eq!(cursor_signed_in("Not logged in\n"), Some(false));
         assert_eq!(cursor_signed_in("Logged in as someone\n"), Some(true));
         assert_eq!(cursor_signed_in("Checking...\n"), None);
+    }
+
+    #[test]
+    fn antigravity_session_list_probe_distinguishes_auth_required_from_other_errors() {
+        let answer = |payload: Value| format!("{}\n{}\n", json!({"id":"1","result":{}}), payload);
+        assert_eq!(
+            antigravity_signed_in(&answer(json!({"id":"2","error":{"code":-32000,"message":"Authentication required"}}))),
+            Some(false)
+        );
+        assert_eq!(
+            antigravity_signed_in(&answer(json!({"id":"2","result":{"sessions":[]}}))),
+            Some(true)
+        );
+        assert_eq!(
+            antigravity_signed_in(&answer(json!({"id":"2","error":{"code":-32603,"message":"Failed to start"}}))),
+            None
+        );
+        assert_eq!(antigravity_signed_in(&json!({"id":"1","result":{}}).to_string()), None);
     }
 }

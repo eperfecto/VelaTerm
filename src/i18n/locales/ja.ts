@@ -1,6 +1,7 @@
 //! Japanese dictionary. Each entry includes its English source in a trailing review comment; en.ts enforces the complete key set.
 
 import type en from "./en";
+import assist from "../assist/ja";
 
 const ja: typeof en = {
   "panel.turnStats": "ターンの統計",
@@ -8,6 +9,8 @@ const ja: typeof en = {
   "panel.showChangedFiles": "このターンで変更したファイルを表示",
   "panel.noFilesChanged": "このターンで編集したファイルはありません。",
   "panel.shellEditsNotListed": "シェルコマンドによる変更は一覧に含まれません。",
+  "panel.usageShowScope": (scope: string) => `${scope} を表示`,
+  "panel.usageHideScope": (scope: string) => `${scope} を非表示`,
   "translation.swap": "言語を入れ替え",
   "translation.openai": "OpenAI 互換",
   "translation.bing": "Bing 翻訳（API キー不要）",
@@ -373,6 +376,7 @@ const ja: typeof en = {
   "common.create": "作成", // Create
   "common.close": "閉じる", // Close
   "chat.copyAsMarkdown": "Markdown 形式でコピー",
+  "chat.copyEntireMessage": "メッセージ全体をコピー",
   "chat.imageViewOriginal": "元の画像を表示",
   "chat.imageCopy": "画像をコピー",
   "chat.imageSave": "画像を保存",
@@ -490,6 +494,7 @@ const ja: typeof en = {
   "settings.catTerminal": "ターミナル", // Terminal
   "settings.catBehavior": "動作", // Behavior
   "settings.catAgents": "エージェント", // Agents
+  "settings.catPlugins": "プラグイン",
   "settings.agentDefaultsTitle": "新規セッションの既定値",
   "settings.referSummaryTitle": "セッション参照のコンテキスト",
   "settings.referSummaryMode": "コンテキスト方式",
@@ -525,7 +530,23 @@ const ja: typeof en = {
   "settings.agentDefaultView": "既定のビュー", // Default view
   "settings.agentDefaultViewHint":
     "このエージェントの新しいセッションを開くときのビューです。既存のセッションは作成時のビューのままです。", // Agent default view hint
+  "settings.deepseekApiTitle": "DeepSeek API",
+  "settings.deepseekApiDesc":
+    "DeepSeek の会話は OpenCode 経由で実行されます。ここに API アドレスとキーを入力すると、すべての会話で同じ認証情報を使用できます。",
+  "settings.deepseekBaseUrl": "API アドレス",
+  "settings.deepseekEndpointHint":
+    "アドレスを空欄にすると公式エンドポイントを使用します。変更は次のメッセージから反映されます。",
+  "settings.deepseekApiKey": "API キー",
+  "settings.deepseekKeySaved": "保存済み（空欄のままにすると維持）",
+  "settings.deepseekKeyPlaceholder": "DeepSeek API キーを入力",
+  "settings.deepseekRemoveKey": "キーを削除",
+  "settings.deepseekSaved": "保存しました。",
+  "settings.deepseekInvalid": "有効な http(s) API アドレスと 1 行の API キーを入力してください。",
+  "settings.deepseekLocalOnly": "この認証情報は実行ホストに保存されるため、変更できるのはホスト上のみです。",
   "settings.appearance": "外観", // Appearance
+  "settings.darkTheme": "ダークテーマ", // Dark theme
+  "settings.lightTheme": "ライトテーマ", // Light theme
+  "settings.themeClassic": "クラシック", // Classic
   "settings.accent": "アクセント", // Accent
   "settings.accentAuto": "テーマに従う", // Follow theme
   "settings.density": "密度", // Density
@@ -542,12 +563,16 @@ const ja: typeof en = {
   "settings.navTree": "標準", // Tree
   "settings.navCompact": "コンパクト", // Compact
   "settings.tabs": "タブ", // Tabs
+  "settings.tabsHint": "「シングル」は開いたセッションごとに同じタブを再利用し、他はバックグラウンドで実行し続けます。「マルチ」は各セッションに専用のタブを与えます。", // Single reuses one tab for every session you open, keeping the others running in the background. Multi gives each session its own tab.
   "settings.dynamicStatusFilter": "状態フィルターへの動的追加",
+  "settings.dynamicStatusFilterHint": "状態フィルターは、適用した時点で一致していたセッションを保持します。オンにすると、後から一致し始めたセッションも追加されます。状態が変わってもセッションが除外されることはありません。", // A status filter keeps the sessions that matched when you applied it. When on, sessions that begin matching later are added as well. Sessions are never removed as their status changes.
   "settings.tabSingle": "シングル", // Single
   "settings.tabMulti": "マルチ", // Multi
   "settings.maxLiveTabs": "Background limit", // Background limit
+  "settings.maxLiveTabsHint": "単一タブモードでバックグラウンド実行を維持するセッション数です。上限を超えると最も古いアイドル状態のセッションが閉じられます。作業中・応答待ち・未読通知のあるセッションは保持されます。", // How many sessions keep running in the background in single-tab mode. Beyond the limit the oldest idle session is closed; ones that are working, waiting for you, or holding an unread notification are kept.
   "settings.defaultShell": "既定のシェル", // Default shell
   "settings.spawnConfirm": "Confirm before spawn", // Confirm before spawn
+  "settings.spawnConfirmHint": "自分で開くタブではなく、エージェントが vspawn で派生させるセッションに適用されます。オンにすると、セッション開始前にプロンプトを確認・編集できます。", // Applies to sessions an agent derives with vspawn, not to tabs you open yourself. When on, you can review and edit the prompt before the session starts.
   "settings.scopeTabsToProject": "アクティブなプロジェクトのタブのみ表示", // Show only the active project's tabs
   "settings.scopeTabsToProjectHint": "サイドバーでプロジェクトを選択すると、そのプロジェクトのタブとグローバルターミナルのみが表示されます。非表示のタブは実行を続けます。", // Selecting a project in the sidebar shows only its tabs plus global terminals. Hidden tabs keep running.
   "settings.usageAuto": "Usage auto-refresh", // Usage auto-refresh
@@ -662,6 +687,31 @@ const ja: typeof en = {
   "changes.ignoreWhitespace": "空白を無視",
   "changes.collapseUnchanged": "変更のない行を折りたたむ",
   "changes.tooLarge": "このファイルはプレビューの上限（2 MiB）を超えています。",
+  "changes.review.addLine": (range: string) => `${range} にコメント`,
+  "changes.review.addFile": "コメントを追加",
+  "changes.review.gutterHint": (line: number) => `${line} 行目にレビューコメントを追加`,
+  "changes.review.sideOriginal": "変更前",
+  "changes.review.sideModified": "変更後",
+  "changes.review.fieldLabel": "レビューコメント",
+  "changes.review.placeholder": "エージェントへの修正指示を入力（Enter で保存、Shift+Enter で改行）…",
+  "changes.review.save": "コメントを保存",
+  "changes.review.cancel": "キャンセル",
+  "changes.review.edit": "編集",
+  "changes.review.remove": "削除",
+  "changes.review.count": (count: number, files: number) =>
+    count === 1 ? "1 件のレビューコメント" : `${files} 個のファイルに ${count} 件のレビューコメント`,
+  "changes.review.showList": "コメント一覧",
+  "changes.review.hideList": "一覧を閉じる",
+  "changes.review.clearAll": "すべて消去",
+  "changes.review.targetAgent": "送信先セッション",
+  "changes.review.sendTo": (agent: string) => `${agent} に送信`,
+  "changes.review.pasteTo": (agent: string) => `${agent} に貼り付け`,
+  "changes.review.sending": "送信中…",
+  "changes.review.copy": "レビューをコピー",
+  "changes.review.copied": "コピーしました",
+  "changes.review.noAgent": "コメントを直接送信するには、このリポジトリでエージェントのセッションを開くか開始してください。",
+  "changes.review.promptHeader": "現在の変更に対する以下のレビューコメントに対応してください：",
+  "changes.review.promptComment": "コメント：",
   "git.fileStatus.modified": "変更済み",
   "git.fileStatus.added": "追加済み",
   "git.fileStatus.deleted": "削除済み",
@@ -709,6 +759,39 @@ const ja: typeof en = {
   "git.pr.noToken": "ここでプルリクエストを作成するには、設定で Gitea トークンを追加してください。",
   "git.pr.unreachable": "現在 Gitea サーバーに接続できません。",
   "git.pr.opened": "プルリクエストを作成しました",
+  "git.pr.openMr": "マージリクエストを作成",
+  "git.pr.openedMr": "マージリクエストを作成しました",
+  "git.pr.formTitleProvider": (provider: string) =>
+    provider === "gitlab"
+      ? "GitLab のマージリクエストを作成"
+      : provider === "github"
+        ? "GitHub のプルリクエストを作成"
+        : "Gitea のプルリクエストを作成",
+  "git.pr.formDescriptionMr": (branch: string, base: string) =>
+    `${branch} を origin にプッシュし、${base} へのマージリクエストを作成します。`,
+  "git.pr.draftField": "ドラフトとして作成",
+  "git.pr.noGhCli": "ここでプルリクエストを作成するには、GitHub CLI（gh）をインストールしてください。",
+  "git.pr.noGhAuth": "GitHub に接続するには、ターミナルで gh auth login を実行してください。",
+  "git.pr.noGlabCli": "ここでマージリクエストを作成するには、GitLab CLI（glab）をインストールしてください。",
+  "git.pr.noGlabAuth": "GitLab に接続するには、ターミナルで glab auth login を実行してください。",
+  "git.pr.state.open": "オープン",
+  "git.pr.state.draft": "ドラフト",
+  "git.pr.state.merged": "マージ済み",
+  "git.pr.state.closed": "クローズ",
+  "git.pr.checks.passing": "チェック通過",
+  "git.pr.checks.failing": "チェック失敗",
+  "git.pr.checks.pending": "チェック実行中",
+  "git.pr.refreshStatus": "状態を更新",
+  "git.pr.cleanupWorktree": "ワークツリーを整理…",
+  "git.pr.cleanupTitle": "マージ済みワークツリーの整理",
+  "git.pr.cleanupDescription": (branch: string, path: string) =>
+    `ブランチ ${branch} はマージされました。ワークツリー ${path} を削除しますか？`,
+  "git.pr.cleanupDeleteBranch": (branch: string) => `ローカルブランチ ${branch} も削除`,
+  "git.pr.cleanupArchiveSession": "このセッションをアーカイブ",
+  "git.pr.cleanupArchiveHint": "オフのままにすると、メインのリポジトリディレクトリでセッションを継続します。",
+  "git.pr.cleanupForce": "未コミットの変更を強制削除",
+  "git.pr.cleanupSubmit": "整理を実行",
+  "git.pr.cleanupSubmitting": "整理中…",
   "git.push": "プッシュ",
   "git.pushTitle": (u: string) => `${u} へプッシュ`,
   "git.publish": "ブランチを公開",
@@ -826,18 +909,32 @@ const ja: typeof en = {
   "settings.recordSessions": "セッションログを記録", // Record session logs
   "settings.recordSessionsHint":
     "既定はオフ。オンにするとターミナル出力をログファイルに保存し、アーカイブ再生と検索に使います。通常のターミナルセッションは記録しません。エージェントセッションは独自の会話記録を読み込みます。", // Record session logs hint
-  "settings.fonts": "Fonts", // TODO translate
+  "settings.fonts": "フォント",
   "settings.uiFontSize": "インターフェースの文字サイズ",
   "settings.termFont": "ターミナルのフォント",
   "settings.termFontSize": "ターミナルの文字サイズ",
   "settings.termLineHeight": "ターミナルの行の高さ",
   "settings.chatTypography": "会話ビュー",
-  "settings.chatTypographyHint": "フォント設定はターミナルとは別に保存され、変更はすぐに反映されます。",
+  "settings.chatTypographyHint": "これらの設定はターミナルとは別に保存され、変更はすぐに反映されます。デフォルトでは、本文にはインターフェースのフォント、コードにはインターフェースの等幅フォントが使われます。",
   "settings.chatFont": "会話のフォント",
   "settings.chatFontSize": "会話の文字サイズ",
   "settings.chatLineHeight": "会話の行の高さ",
+  "settings.chatCodeFont": "会話のコードフォント",
+  "settings.chatLetterSpacing": "会話の文字間隔",
+  "settings.uiTypography": "インターフェースのフォント",
+  "settings.uiTypographyHint": "メニュー、リスト、ダイアログ、ドキュメントに適用されます。等幅フォントはコード、パス、差分の表示に使われます。ターミナルのフォントは別に設定します。",
+  "settings.uiFont": "標準フォント",
+  "settings.uiMonoFont": "等幅フォント",
+  "settings.fontPreview": "プレビュー",
+  "settings.fontPreviewText": "いろはにほへと ちりぬるを。The quick brown fox 0123456789",
+  "settings.fontPreviewChat": "設定画面を更新しました。各フォント設定はすぐに反映され、いつでもデフォルトに戻せます。",
+  "settings.fontResetGroup": "フォントをデフォルトに戻す",
+  "settings.chatImages": "画像",
+  "settings.chatImageMaxMb": "画像サイズの上限",
+  "settings.chatImageMaxMbHint": "送信前に、長辺が 1568 ピクセルを超える画像やこの上限を超える画像は自動的に縮小・圧縮されます。デコードできない場合や、圧縮後も上限を超える場合のみ添付されません。",
+  "settings.chatImageSizeMb": (mb: number) => `${mb} MB`,
   "settings.composerChips": "メッセージ入力ツールバー",
-  "settings.composerChipsHint": "有効にした項目は、この順序でメッセージの横に表示されます。エージェントが起動していない、バックグラウンドタスクがない、ログインが未完了など、機能が一時的に利用できない場合も、項目は空または無効の状態で表示されます。現在のエージェントが対応していない機能は表示されません。収まらない項目は「その他」メニューに移動します。ここでオフにした項目は、そのメニューにのみ表示され、設定は引き続きここで変更できます。",
+  "settings.composerChipsHint": "有効にした項目は、この順序でメッセージの横に表示されます。エージェントが起動していない、バックグラウンドタスクがない、ログインが未完了など、機能が一時的に利用できない場合も、項目は空または無効の状態で表示されます。現在のエージェントが対応していない機能は表示されません。収まらない項目は「その他」メニューに移動します。ここでオフにした項目は、再びオンにするまでどこにも表示されません。",
   "settings.composerChipUp": (chip: string) => `${chip}を上へ移動`,
   "settings.composerChipDown": (chip: string) => `${chip}を下へ移動`,
   "settings.composerChip.model": "モデル",
@@ -854,15 +951,21 @@ const ja: typeof en = {
   "settings.composerChip.account": "アカウント",
   "settings.composerChip.codexCredits": "Codex リセット券",
   "settings.fontDefault": "デフォルト",
-  "settings.fontCustom": "Custom…", // TODO translate
+  "settings.fontSearch": "フォントを検索…",
+  "settings.fontUseCustom": (query: string) => `「${query}」を使用`,
   "settings.fontListUnavailable": "システムフォントの一覧を取得できません。フォント名を手動で入力できます。",
   "settings.fontUnconfirmed": "このフォントが利用可能か確認できません。",
-  "settings.fontAuto": "Auto", // TODO translate
-  "settings.fontSmaller": "Smaller", // TODO translate
-  "settings.fontLarger": "Larger", // TODO translate
-  "settings.fontReset": "Reset", // TODO translate
+  "settings.fontAuto": "自動",
+  "settings.fontSmaller": "小さく",
+  "settings.fontLarger": "大きく",
+  "settings.fontReset": "リセット",
   "settings.sound": "通知音", // Notification sound
   "settings.language": "言語", // Language
+  "settings.serverRegion": "サーバー", // Server
+  "settings.serverRegionGlobal": "国際", // International
+  "settings.serverRegionChina": "中国本土", // Mainland China
+  "settings.serverRegionHint":
+    "公式サイトへのリンクとモデルカタログに使用します。「中国本土」を選ぶと velaterm.cn を使用し、中国国内からの接続が速くなります。アップデートと vela-server は常にこのビルドの GitHub リリースから取得します。アカウント関連の機能は常に velaterm.com を使用します。",
   "settings.langAuto": "自動（システム）", // Auto (system)
   "settings.skillLabel": "Vela Skills",
   "settings.skillInstall": "Install", // Install
@@ -901,6 +1004,7 @@ const ja: typeof en = {
   "settings.scCopyTerminal": "ターミナルの選択内容をコピー", // Copy terminal selection
   "settings.scSelectAllTerminal": "ターミナル内をすべて選択", // Select all in terminal
   "settings.scSaveDoc": "ドキュメントを保存", // Save document
+  "settings.scFocusSidebar": "サイドバーにフォーカス", // Focus sidebar
   "settings.scRecording": "キーを押してください…", // Press keys…
   "settings.scHint":
     "ショートカットをクリックし、新しい組み合わせを押します（Cmd/Ctrl が必要）。", // hint
@@ -1002,6 +1106,19 @@ const ja: typeof en = {
   "remote.cloudflareHelpEmail": "Zero Trust › Integrations › Identity providers › One-time PIN。アプリのポリシーでは Allow › Include › Emails を使います。", // Zero Trust › Integrations › Identity providers › One-time PIN. In the app policy, use Allow › Include › Emails.
   "remote.cloudflareHelpDashboard": "ダッシュボード", // Dashboard
   "remote.cloudflareHelpDocs": "ドキュメント", // Docs
+  "remote.listenLabel": "待ち受け先", // Listen on
+  "remote.listenAll": "すべてのネットワーク", // All networks
+  "remote.listenLoopback": "このコンピューターのみ（トンネル）", // This computer only (tunnel)
+  "remote.listenUnavailable": (ip: string) => `${ip}（利用不可）`, // ${ip} (not available)
+  "remote.reachAll": "このコンピューターが接続しているすべてのネットワークからアクセスできます。", // Reachable from every network this computer is connected to.
+  "remote.reachOnly": (addr: string) => `${addr} からのみアクセスできます。`, // Reachable only at ${addr}.
+  "remote.reachTunnel": "このコンピューター上のトンネルまたはプロキシ経由でのみアクセスできます（tailscale serve や ssh -L など）。", // Reachable only through a tunnel or proxy on this computer, for example tailscale serve or ssh -L.
+  "remote.pairingHostLabel": "ペアリングリンクのアドレス", // Address for pairing links
+  "remote.pairingHostPlaceholder": "host.tailnet.ts.net", // host.tailnet.ts.net
+  "remote.pairingHostNeeded": "クライアントはトンネル経由でこのコンピューターに接続します。クライアントが使うホスト名または IP を入力してください。未入力の場合、ペアリングリンクは 127.0.0.1 を指し、ssh -L でのみ機能します。", // Clients reach this computer through a tunnel. Enter the host name or IP they use. Without it, pairing links point to 127.0.0.1, which only works with ssh -L.
+  "remote.bindInvalid": (value: string) => `「${value}」は有効な待ち受けアドレスではありません。すべてのネットワーク、このコンピューターのみ、またはこのコンピューターの IPv4 アドレスを選択してください。`, // "${value}" is not a valid listen address. Choose all networks, this computer only, or an IPv4 address of this computer.
+  "remote.bindUnavailable": (ip: string) => `アドレス ${ip} はこのコンピューターでは利用できません。ネットワークまたは VPN に接続するか、別のアドレスを選択してください。リモートアクセスがすべてのネットワークに切り替わることはありません。`, // The address ${ip} is not available on this computer. Connect the network or VPN, or choose another address. Remote access never falls back to all networks.
+  "remote.pairingHostInvalid": (value: string) => `「${value}」は有効なペアリングリンクのアドレスではありません。スキーム、ポート、パスを含めず、ホスト名または IPv4 アドレスを入力してください。`, // "${value}" is not a valid address for pairing links. Enter a host name or an IPv4 address, without scheme, port, or path.
 
   // ── Remote connection panel ──
   "connect.wslUpgrade": "このワークスペースでは別のバージョンのサーバーが動作しています。サーバーを再起動すると、この WSL ワークスペースで実行中のすべてのセッションが終了します。",
@@ -1076,6 +1193,7 @@ const ja: typeof en = {
   "tree.deleteGroup": "グループを削除", // Delete Group
   "tree.deleteSession": "セッションを削除", // Delete Session
   "tree.projectRoot": "プロジェクトルート（グループなし）", // Project root (no group)
+  "tree.collectionRoot": (name: string) => `${name}（グループなし）`,
   "tree.moveToSession": "セッションの下へ移動（子にする）", // Move under a session (as child)
   "tree.moveTo": "移動先…", // Move to…
   "tree.openNewTab": "新しいタブで開く", // Open in New Tab
@@ -1183,6 +1301,7 @@ const ja: typeof en = {
   "tree.filterStatus": "ステータスで絞り込み", // Filter by status
   "tree.refreshStatusFilter": "ステータスフィルターを更新",
   "tree.refreshStatusMatch": "ステータスを更新",
+  "tree.setStatus": "ステータスを設定", // Set Status
   "tree.filterStatusSection": "ステータス", // Status
   "tree.filterMarkSection": "マーク", // Mark
   "tree.sortSection": "並び順", // Order
@@ -1380,6 +1499,9 @@ const ja: typeof en = {
 
   // ── Global session-content search ──
   "search.allPlaceholder": "すべてのセッション内容を検索…", // Search across all session content…
+  "search.inLocationPlaceholder": (name) => `${name} 内を検索…`, // Search in {name}…
+  "search.allLocations": "すべてのプロジェクトとコレクション", // All projects & collections
+  "search.filterLocation": "プロジェクトまたはコレクションで絞り込む", // Filter by project or collection
   "search.hint":
     "セッション内容を検索します。アーカイブ済みは既定で除外され、「アーカイブも検索」で追加できます。", // Search session content. Archived sessions are excluded by default.
   "search.includeArchived": "アーカイブも検索", // Include archived
@@ -1404,10 +1526,9 @@ const ja: typeof en = {
 
   // ── Center pane ──
   "center.noSession": "セッションなし", // No session
-  "center.noSessionHintPre": "サイドバーからセッションを選ぶか、", // Pick a session from the sidebar, or press
-  "center.noSessionHintPost": " でターミナルを作成", // to create a terminal
   "center.createTerminal": "ターミナルを作成", // Create Terminal
-  "center.splitHint": "セッションを開くと、次のショートカットで画面を分割できます：",
+  "center.startTitle": "セッションを開始", // Start a session
+  "center.startHint": "サイドバーからセッションを選ぶか、新しく始めてください。", // Pick one from the sidebar, or start something new.
   "tab.unsavedDot": "未保存の変更あり", // Unsaved changes
   "tab.newTerminal": "新規ターミナル", // New terminal
   "tab.newGlobalTerminal": "新規グローバルターミナル", // New global terminal
@@ -1618,13 +1739,25 @@ const ja: typeof en = {
   "files.nameLabel": "名前", // Name
   "files.newTooltip": "新規ファイル / フォルダ", // New file or folder
   "files.openInTerminal": "Open in Terminal",
+  "files.collapseAll": "すべて折りたたむ", // Collapse All
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "パスをコピー", // Copy Path
   "files.copyRelPath": "相対パスをコピー", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
+  "files.filterTruncated": "先頭の一致結果のみ表示しています。さらに文字を入力して絞り込んでください。",
   "files.dblClickOpen": "ダブルクリックで開く",
   "files.deleteConfirm": (name) =>
     `「${name}」を削除しますか？この操作は元に戻せません。`, // Delete "{name}"? This can't be undone.
+  "files.deleteManyConfirm": (count) =>
+    `${count} 件の項目を削除しますか？この操作は元に戻せません。`, // Delete {count} items? This can't be undone.
+  "files.pasteConflictTitle": "同名の項目が既に存在します", // Item already exists
+  "files.pasteConflictBody": (name) =>
+    `貼り付け先のフォルダーには「${name}」という名前の項目が既に存在します。`, // An item named "{name}" already exists in the destination folder.
+  "files.pasteConflictProgress": (current, total) => `${current} / ${total}`, // {current} of {total}
+  "files.pasteConflictApplyAll": "残りの競合すべてに適用", // Apply to all remaining conflicts
+  "files.pasteReplace": "置き換える", // Replace
+  "files.pasteSkip": "スキップ", // Skip
+  "files.pasteKeepBoth": "両方とも残す", // Keep Both
 
   // ── File transfer (remote access) ──
   "transfer.title": "転送", // Transfers
@@ -1638,6 +1771,9 @@ const ja: typeof en = {
   "transfer.downloading": "ダウンロード中…", // Downloading…
   "transfer.savedToDownloads": "ダウンロードフォルダに保存しました", // Saved to Downloads
   "transfer.foldersUnsupported": "フォルダーはアップロードできません。", // Folders can't be uploaded.
+  "drop.browserFilesHint": "ブラウザでは、ここにドロップできるのは画像だけです。その他のファイルは、先にプロジェクトへアップロードしてください。", // In the browser, only images can be dropped here. To use other files, upload them to the project first.
+  "files.copyFailed": "一部のファイルをコピーできませんでした。ファイルがまだ存在するか、このフォルダーへの書き込み権限があるかを確認してください。", // Some files could not be copied. Check that they still exist and that you can write to this folder.
+  "files.pasteFailed": "一部の項目を貼り付けできませんでした。元の項目が存在するか、貼り付け先フォルダーへの書き込み権限があるかを確認してください。", // Some items could not be pasted. Check that the sources exist and that you can write to this folder.
 
   // ── Status bar ──
   "statusbar.sessions": (n) => `${n} セッション`, // {n} sessions
@@ -1653,6 +1789,11 @@ const ja: typeof en = {
   "statusbar.permSkip": "権限：スキップ", // Perms: Skip
   "statusbar.notifyOn": "Notify: On", // TODO translate
   "statusbar.notifyOff": "Notify: Off", // TODO translate
+  "statusbar.zoomGroup": "表示倍率",
+  "statusbar.zoomOut": "縮小",
+  "statusbar.zoomIn": "拡大",
+  "statusbar.zoomEdit": "表示倍率 · クリックして倍率を入力（80〜200%）",
+  "statusbar.zoomInput": "表示倍率（80〜200）",
   "statusbar.permTooltip":
     "このセッションの権限モード · クリックで切り替え（このセッションのみ）", // This session's permission mode · click to change (this session only)
   "statusbar.permMenuTitle": "このセッションの権限", // This session's permissions
@@ -2012,10 +2153,12 @@ const ja: typeof en = {
   "updater.hide": "Hide", // TODO translate
   "updater.hideHint":
     "Keep downloading in the background. Progress stays in the status bar.", // TODO translate
-  "updater.downloadManually": "Download manually", // TODO translate
-  "updater.downloadManuallyHint": "Open the download page in your browser.", // TODO translate
+  "updater.downloadManually": "手動でダウンロード",
+  "updater.downloadManuallyHint": "ブラウザでダウンロードページを開きます。",
   "updater.windowsNotice":
     "VelaTerm will close while the installer runs, then reopen on its own.", // TODO translate
+  "updater.portableNotice":
+    "このポータブル版は自動では更新されません。新しいバージョンをダウンロードし、このフォルダと置き換えてください。設定とセッションはそのまま引き継がれます。",
   "updater.installingWindows":
     "Installing… VelaTerm is about to close. The installer will finish the update and reopen it.", // TODO translate
   "statusbar.updateAvailable": (version) => `Update ${version}`, // TODO translate
@@ -2037,6 +2180,7 @@ const ja: typeof en = {
   "skills.vstat": "作業中または入力待ちのセッションを確認します。",
   "skills.vtell": "ほかのセッションにメッセージを送信します。",
   "skills.vkb": "プロジェクトの CodeGraph とナレッジベースを照会します。",
+  "skills.vapp": "エージェントに VelaTerm を操作させます。各操作はユーザーの確認後に実行されます。",
   "skills.settingsHint": "後から「設定 > 詳細設定」でもインストールできます。",
   "skills.installFailed": (err) => `インストールに失敗しました: ${err}`,
   "skills.dontRemind": "今後表示しない",
@@ -2154,6 +2298,7 @@ const ja: typeof en = {
   "chat.question.submit": "送信",
   "chat.question.next": "次へ",
   "chat.question.dismiss": "閉じる",
+  "chat.question.skip": "スキップ",
   "chat.question.answerPlaceholder": "回答を入力",
   "chat.question.otherPlaceholder": "その他の回答",
   "chat.question.answeredHeading": (n: number) => `${n} 件の質問に回答済み`,
@@ -2207,6 +2352,8 @@ const ja: typeof en = {
   "chat.rewind.editWarning": "元のメッセージとそれ以降のすべてのメッセージが完全に削除され、編集した内容がこの位置から送信されます。ファイルの変更は元に戻りません。",
   "chat.rewind.inactive": "会話のプロセスが起動していません。起動後にこれらの操作を利用できます。",
   "chat.rewind.unsupported": "接続中のエージェントは現在この操作に対応していません。",
+  "chat.rewind.latestOnly": "接続中のエージェントは最新のメッセージからのみ巻き戻せます。",
+  "chat.rewind.appliesOnSend": "巻き戻しは次のメッセージを送信した時点で反映されます。それまで会話とファイルは変更されません。",
   "chat.rewind.title": "ここから巻き戻す",
   "chat.rewind.warning": "この操作は元に戻せません。",
   "chat.rewind.conversation": "会話を巻き戻す",
@@ -2303,6 +2450,10 @@ const ja: typeof en = {
   "chat.auth.claude.submit": "コードを送信",
   "chat.auth.claude.invalidCode": "今回の認証ページに表示されたコードを、# 以降も含めて貼り付けてください。",
   "chat.auth.claude.externalAuth": "API キーやその他の設定済みの認証方法は変更されません。",
+  "chat.auth.antigravity.pending": "認証ページを開いて Google アカウントでログインし、表示された認証コードまたはコールバック URL を貼り付けてください。",
+  "chat.auth.antigravity.failed": "ログインを完了できませんでした。Antigravity CLI がアカウント認証に対応していることを確認し、もう一度お試しください。",
+  "chat.auth.antigravity.code": "認証コードまたはコールバック URL",
+  "chat.auth.antigravity.invalidCode": "今回のログインで取得した認証コードまたはコールバック URL を、空白を含めずに貼り付けてください。",
   "chat.auth.open": "認証ページを開く",
   "chat.auth.zcode.required": "この会話を使うには、Z.ai または BigModel のアカウントで ZCode にログインしてください。",
   "chat.auth.zcode.pending": "認証ページを開き、アクセスを許可してください。ログインが完了すると、この画面が自動的に更新されます。",
@@ -2397,7 +2548,7 @@ const ja: typeof en = {
   "settings.completionTab": "Tab のみ",
   "settings.completionOff": "オフ",
   "settings.completionUnavailable": "設定を読み込めないか、保存できませんでした。",
-  "settings.completionHint": "Zsh で入力していると、履歴の中で一致する最新のコマンドがカーソルの後ろに薄く表示され、→ または End で確定できます。Tab はシェル本来の動作と同じで、候補が 1 つならそのまま入力し、候補に共通する部分があれば先に補完し、複数の候補が残るときに一覧を表示します。新しい Zsh、Bash 4+、Fish、PowerShell のターミナルに適用されます。",
+  "settings.completionHint": "Zsh で入力していると、履歴の中で一致する最新のコマンドがカーソルの後ろに薄く表示され、→ または End で確定できます。リモート接続から入力しているときは表示されません。Tab はシェル本来の動作と同じで、候補が 1 つならそのまま入力し、候補に共通する部分があれば先に補完し、複数の候補が残るときに一覧を表示します。新しい Zsh、Bash 4+、Fish、PowerShell のターミナルに適用されます。",
   "settings.completionTabOnlyHint": "入力中に候補は表示されません。Tab を押すとシェル本来の動作と同じように補完し、候補が 1 つならそのまま入力し、候補に共通する部分があれば先に補完し、複数の候補が残るときに一覧を表示します。新しい Zsh、Bash 4+、Fish、PowerShell のターミナルに適用されます。",
   "settings.completionTabKey": "Tab キー",
   "settings.completionTabAccept": "候補を確定",
@@ -2514,29 +2665,17 @@ const ja: typeof en = {
   "chat.antigravity.placeholder": "Antigravity にメッセージを送信。@ファイル でファイルを参照できます",
   "chat.antigravity.textOnly": "Antigravity の会話ビューは現在、テキストメッセージのみに対応しています。",
   "chat.textOnly": (agent: string) => `${agent} の会話ビューはテキストメッセージのみに対応しています。`,
+  "chat.attach.modelTextOnly": "選択中のモデルは画像に対応していません。",
   "chat.signInRequired": (agent: string) => `会話ビューを使うには ${agent} へのログインが必要です。ターミナルビューに切り替えてログインしてから、メッセージをもう一度送信してください。`,
-  "chat.apiKeyRequired": "DeepSeek Harness には API キーが必要です。環境変数 DEEPSEEK_API_KEY を設定するか、`dsh web` を実行して Models ページでキーを保存してから、メッセージをもう一度送信してください。",
+  "chat.apiKeyRequired": "DeepSeek には API キーが必要です。メッセージ入力欄の「API」を開いて入力するか、環境変数 `DEEPSEEK_API_KEY` を設定してから、もう一度メッセージを送信してください。",
+  "chat.codex.activeWriter": "別の Codex プロセスがこの会話を使用中です。この会話を開いている他のターミナルタブや Codex プロセスを閉じるか、しばらく待ってからもう一度お試しください。",
   "chat.antigravity.permissionsHint": "承認が必要なツールは、Antigravity の設定で事前に許可するか、ターミナルビューで使用してください。",
   "chat.antigravity.settingsHint": "モデル、推論の強度、権限はターンの合間に変更してください。",
-  "ports.title": "ポート", // Ports
-  "ports.active": "転送中", // Forwarded
-  "ports.activeEmpty": "転送中のポートはありません", // No forwarded ports
-  "ports.detected": "検出済み", // Detected
-  "ports.detectedEmpty": "待ち受け中のポートが見つかりません", // No listening ports found
-  "ports.detectionUnavailable": "このホストではポート検出を利用できません", // Port detection is not available on this host
-  "ports.manual": "ポートを転送", // Forward a port
-  "ports.portPlaceholder": "リモートポート", // Remote port
-  "ports.forward": "転送", // Forward
-  "ports.open": "ブラウザで開く", // Open in browser
-  "ports.stop": "停止", // Stop
-  "ports.localChanged": (port) => `ローカルポート ${port} は使用中のため、別のローカルポートを使用しています`, // Local port {port} was busy, so another local port is used
-  "ports.unavailable": "利用できません — VelaTerm を更新してください", // Unavailable — update VelaTerm
-  "ports.invalidPort": (port) => `無効なポート: ${port}`, // Invalid port: {port}
-  "ports.missingPort": "ポートを入力してください", // Enter a port
-  "ports.unknownAction": (action) => `不明な操作: ${action}`, // Unknown action: {action}
-  "ports.limit": (max) => `1 つの接続で転送できるポートは最大 ${max} 個です`, // At most {max} ports can be forwarded per connection
-  "ports.notForwarded": (port) => `ポート ${port} は転送されていません`, // Port {port} is not forwarded
-  "statusbar.ports": (n) => `${n} 個のポートを転送中`, // {n} forwarded ports
+  "chat.antigravity.rewindTitle": "ターミナルビューで巻き戻す",
+  "chat.antigravity.rewindHint": "Antigravity の会話ビューでは、送信済みメッセージの巻き戻しや編集にまだ対応していません。ターミナルビューに切り替えて /rewind を実行すると、戻った際に自動で反映されます。",
+  "chat.antigravity.rewindGuide": "Antigravity の会話ビューでは、送信済みメッセージの巻き戻しや編集を直接行えません。ターミナルビューに切り替えて /rewind で会話の巻き戻しやファイルの復元を行ってください。会話ビューに戻ると最新の状態が自動的に反映されます。",
+  "chat.antigravity.rewindCommandDescription": "ターミナルビューに切り替えて /rewind で巻き戻す",
+  "chat.antigravity.switchToTerminal": "ターミナルビューに切り替える",
   "chat.history.imageDownloadRequired": "この画像はここでは開けません。元の画像をダウンロードしてご確認ください。",
   "chat.history.readBody": "全文を読む",
   "chat.history.selectDetail": "ファイルまたは項目を選択",
@@ -2648,6 +2787,8 @@ const ja: typeof en = {
   "sidebarSection.nav": "サイドバーのセクション",
   "sidebarSection.noTasks": "タスクセッションはまだありません。",
   "sidebarSection.noChats": "チャットセッションはまだありません。",
+  "sidebarSection.setDefaultView": "既定のビューに設定",
+  "sidebarSection.clearDefaultView": "既定のビューを解除",
   "artifact.comment": "コメント", // Comment
   "artifact.commentTitle": "ページの要素を選んで、エージェントへのコメントを残します", // Click elements in the page to leave comments for the agent
   "artifact.pickHint": "ページ内の要素をクリックしてコメントします。Esc で終了します。", // Click an element in the page to comment on it. Press Esc to stop.
@@ -2712,6 +2853,50 @@ const ja: typeof en = {
   "kb.searchEntries": "記事を検索…",
   "kb.updatedOn": (date: string) => `${date} に更新`,
   "archive.sessionsCount": (count: string) => `${count} セッション`,
+
+
+  ...assist,
+  "plugins.title": "プラグイン",
+  "plugins.subtitle": "外部の VelaTerm プラグインをインストール、リンク、有効化、または再読み込みします。各プラグインは独立したバックエンドプロセスで動作し、UI を動的に読み込みます。",
+  "plugins.installArchive": "アーカイブからインストール…",
+  "plugins.linkDev": "ローカルプラグインをリンク…",
+  "plugins.localOnlyHint": "プラグインのインストール、リンク、有効・無効の切り替えはローカルホストでのみ実行できます。",
+  "plugins.archivePathPrompt": ".vlxplugin または .zip アーカイブのフルパスを入力してください:",
+  "plugins.devPathPrompt": "manifest.json を含むローカルプラグインディレクトリのフルパスを入力してください:",
+  "plugins.empty": "インストールされているプラグインはまだありません。.vlxplugin アーカイブをインストールするか、ローカルプラグインディレクトリをリンクしてください。",
+  "plugins.sourceInstalled": "インストール済み",
+  "plugins.sourceDev": "ローカル開発",
+  "plugins.statusRunning": "実行中",
+  "plugins.statusStarting": "起動中…",
+  "plugins.statusDisabled": "無効",
+  "plugins.statusStopped": "停止",
+  "plugins.statusError": "エラー",
+  "plugins.enable": "有効化",
+  "plugins.disable": "無効化",
+  "plugins.reload": "再読み込み",
+  "plugins.uninstall": "アンインストール",
+  "plugins.uninstallConfirm": (name: string) => `プラグイン「${name}」をアンインストールしますか？`,
+  "plugins.removeData": "このプラグインのローカルデータディレクトリも削除する",
+  "plugins.loadFailed": "プラグイン UI の読み込みに失敗しました",
+  "ports.title": "ポート", // Ports
+  "ports.active": "転送中", // Forwarded
+  "ports.activeEmpty": "転送中のポートはありません", // No forwarded ports
+  "ports.detected": "検出済み", // Detected
+  "ports.detectedEmpty": "待ち受け中のポートが見つかりません", // No listening ports found
+  "ports.detectionUnavailable": "このホストではポート検出を利用できません", // Port detection is not available on this host
+  "ports.manual": "ポートを転送", // Forward a port
+  "ports.portPlaceholder": "リモートポート", // Remote port
+  "ports.forward": "転送", // Forward
+  "ports.open": "ブラウザで開く", // Open in browser
+  "ports.stop": "停止", // Stop
+  "ports.localChanged": (port) => `ローカルポート ${port} は使用中のため、別のローカルポートを使用しています`, // Local port {port} was busy, so another local port is used
+  "ports.unavailable": "利用できません — VelaTerm を更新してください", // Unavailable — update VelaTerm
+  "ports.invalidPort": (port) => `無効なポート: ${port}`, // Invalid port: {port}
+  "ports.missingPort": "ポートを入力してください", // Enter a port
+  "ports.unknownAction": (action) => `不明な操作: ${action}`, // Unknown action: {action}
+  "ports.limit": (max) => `1 つの接続で転送できるポートは最大 ${max} 個です`, // At most {max} ports can be forwarded per connection
+  "ports.notForwarded": (port) => `ポート ${port} は転送されていません`, // Port {port} is not forwarded
+  "statusbar.ports": (n) => `${n} 個のポートを転送中`, // {n} forwarded ports
 };
 
 export default ja;

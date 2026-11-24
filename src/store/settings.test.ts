@@ -3,7 +3,7 @@
 //! saved per-agent choices can still override it.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { COMPOSER_CHIP_IDS, DEFAULT_COMPOSER_INLINE_CHIPS, SETTINGS_KEY, defaultEngineFor, loadSettings, sanitizeComposerInlineChips } from "./settings";
+import { COMPOSER_CHIP_IDS, DEFAULT_COMPOSER_INLINE_CHIPS, SETTINGS_KEY, defaultEngineFor, loadSettings, sanitizeComposerInlineChips, saveSettings } from "./settings";
 import { useTermStore } from "./termStore";
 
 describe("dark palette preference", () => {
@@ -53,6 +53,20 @@ describe("dark palette preference", () => {
   });
 });
 
+describe("interface font migration", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("drops the retired monospace interface face saved before the current font settings", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ uiFontFamily: "JetBrains Mono" }));
+    expect(loadSettings().uiFontFamily).toBeNull();
+  });
+
+  it("keeps an interface font chosen with the current settings", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ uiFontFamily: "Georgia", uiMonoFontFamily: null }));
+    expect(loadSettings().uiFontFamily).toBe("Georgia");
+  });
+});
+
 describe("terminal renderer migration", () => {
   beforeEach(() => localStorage.clear());
 
@@ -83,7 +97,7 @@ describe("defaultEngineFor", () => {
     expect(defaultEngineFor("opencode", {})).toBe("tui");
     expect(defaultEngineFor("pi", {})).toBe("tui");
     expect(defaultEngineFor("omp", {})).toBe("tui");
-    expect(defaultEngineFor("antigravity", {})).toBe("tui");
+    expect(defaultEngineFor("antigravity", {})).toBe("chat");
   });
 
   it("prefers the saved per-agent choice over the built-in default", () => {
@@ -91,7 +105,7 @@ describe("defaultEngineFor", () => {
     expect(defaultEngineFor("pi", { pi: { engine: "chat" } })).toBe("chat");
   });
 
-  it("always opens DeepSeek Harness in the conversation view, which is the only view it has", () => {
+  it("always opens DeepSeek in the conversation view, which is the only view it has", () => {
     expect(defaultEngineFor("deepseek", {})).toBe("chat");
     expect(defaultEngineFor("deepseek", { deepseek: { engine: "tui" } })).toBe("chat");
   });
@@ -142,6 +156,13 @@ describe("sessionTitlePrefs sanitization", () => {
 
   it("defaults to no remembered choices", () => {
     expect(loadSettings().sessionTitlePrefs).toEqual({});
+  });
+
+  it("keeps a string remembered agent and ignores a malformed one", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sessionTitleAgent: "codex" }));
+    expect(loadSettings().sessionTitleAgent).toBe("codex");
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sessionTitleAgent: 7 }));
+    expect(loadSettings().sessionTitleAgent).toBe("");
   });
 });
 
@@ -273,6 +294,36 @@ describe("project-scoped tabs preference", () => {
   });
 });
 
+describe("default sidebar view preference", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("opens Projects when nothing was chosen and keeps a saved section", () => {
+    expect(loadSettings().defaultSidebarSection).toBeNull();
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ defaultSidebarSection: "tasks" }));
+    expect(loadSettings().defaultSidebarSection).toBe("tasks");
+  });
+
+  it.each([["archive"], ["knowledge"], ["plugin:colab"], ["agents"], ["unknown"], [7], [null]])(
+    "rejects %s because only a section with its own pane group can be opened by default",
+    (candidate) => {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ defaultSidebarSection: candidate }));
+      expect(loadSettings().defaultSidebarSection).toBeNull();
+    },
+  );
+
+  it("round-trips through the store setter", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    try {
+      useTermStore.getState().setDefaultSidebarSection("chat");
+      expect(loadSettings().defaultSidebarSection).toBe("chat");
+      useTermStore.getState().setDefaultSidebarSection(null);
+      expect(loadSettings().defaultSidebarSection).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("sortByActivity", () => {
   beforeEach(() => localStorage.clear());
 
@@ -321,5 +372,84 @@ describe("groupByWorktree", () => {
     expect(useTermStore.getState().groupByWorktree).toBe(false);
     useTermStore.getState().setGroupByWorktree(true);
     expect(loadSettings().groupByWorktree).toBe(true);
+  });
+});
+
+describe("Antigravity other-scope disclosure preference", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("defaults to false, sanitizes malformed values, and round-trips through store hydration", () => {
+    expect(loadSettings().usageAntigravityShowOther).toBe(false);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ usageAntigravityShowOther: "yes" }));
+    expect(loadSettings().usageAntigravityShowOther).toBe(false);
+
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    const prev = useTermStore.getState().usageAntigravityShowOther;
+    try {
+      useTermStore.getState().setUsageAntigravityShowOther(true);
+      expect(loadSettings().usageAntigravityShowOther).toBe(true);
+      useTermStore.setState({ usageAntigravityShowOther: false });
+      useTermStore.getState().hydrateSettingsFromCache();
+      expect(useTermStore.getState().usageAntigravityShowOther).toBe(true);
+    } finally {
+      useTermStore.setState({ usageAntigravityShowOther: prev });
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("settings dialog section", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("opens on appearance with nothing stored", () => {
+    expect(loadSettings().settingsTab).toBe("appearance");
+  });
+
+  it("falls back to appearance for settings saved before the field existed", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ accent: "blue", inspectorTab: "git" }));
+    const s = loadSettings();
+    expect(s.settingsTab).toBe("appearance");
+    expect(s.accent).toBe("blue");
+  });
+
+  it("falls back to appearance for a section that no longer exists", () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ settingsTab: "weather" }));
+    expect(loadSettings().settingsTab).toBe("appearance");
+  });
+
+  it("round-trips the chosen section", () => {
+    saveSettings({ ...loadSettings(), settingsTab: "behavior" });
+    expect(loadSettings().settingsTab).toBe("behavior");
+  });
+});
+
+describe("conversation image size limit preference", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("defaults to 2 MB, keeps valid choices, and normalizes unknown values", () => {
+    expect(loadSettings().chatImageMaxMb).toBe(2);
+    for (const mb of [1, 2, 4] as const) {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ chatImageMaxMb: mb }));
+      expect(loadSettings().chatImageMaxMb).toBe(mb);
+    }
+    for (const bad of [0, 3, 5, "2", null]) {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ chatImageMaxMb: bad }));
+      expect(loadSettings().chatImageMaxMb).toBe(2);
+    }
+  });
+
+  it("round-trips through the store setter and cache hydration", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    const prev = useTermStore.getState().chatImageMaxMb;
+    try {
+      useTermStore.getState().setChatImageMaxMb(4);
+      expect(loadSettings().chatImageMaxMb).toBe(4);
+      useTermStore.setState({ chatImageMaxMb: 1 });
+      useTermStore.getState().hydrateSettingsFromCache();
+      expect(useTermStore.getState().chatImageMaxMb).toBe(4);
+    } finally {
+      useTermStore.setState({ chatImageMaxMb: prev });
+      vi.unstubAllGlobals();
+    }
   });
 });

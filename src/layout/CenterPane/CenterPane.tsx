@@ -5,6 +5,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useMemoryTab } from "../Memory/useMemoryTab";
+import { usePluginTab } from "../../plugins/navigation";
+import { PluginCenterRoute } from "../../plugins/PluginViews";
 import Icons from "../../components/Icons";
 import { useT } from "../../i18n";
 import { effectiveCombo, formatCombo } from "../../hooks/shortcutRegistry";
@@ -162,6 +164,7 @@ function Divider({
 
 export function CenterPane() {
   useMemoryTab();
+  usePluginTab();
   useEffect(preloadPaneViews, []);
   const t = useT();
   const projects = useTermStore((s) => s.projects);
@@ -335,33 +338,37 @@ export function CenterPane() {
       >
         <Suspense fallback={null}>
           <MemoryRoute />
+          <PluginCenterRoute />
         </Suspense>
         {searchOpen && activeSessionId && (sessionsById.get(activeSessionId) ?? ephemeralSessions[activeSessionId])?.engine !== "chat" && <SearchBar />}
 
         {visibleTabs.length === 0 && (
           <div className="empty">
             <div className="inner">
-              <div className="glyph">
-                <Icons.terminal size={34} />
+              {isShareSurface ? <>
+                <div className="glyph">
+                  <Icons.terminal size={34} />
+                </div>
+                <div>{t("center.noSession")}</div>
+                <div style={{color:"var(--text-faint)"}}>{remoteText("remote.select")}</div>
+              </> : <>
+              <div className="empty-tile">
+                <Icons.sparkle size={22} />
               </div>
-              <div>{t("center.noSession")}</div>
-              {isShareSurface ? <div style={{color:"var(--text-faint)"}}>{remoteText("remote.select")}</div> : <><div style={{ color: "var(--text-faint)" }}>
-                {t("center.noSessionHintPre")}
-                <kbd>{formatCombo(effectiveCombo("newTab", shortcutOverrides))}</kbd>
-                {t("center.noSessionHintPost")}
-              </div>
+              <div className="empty-title">{t("center.startTitle")}</div>
+              <div className="empty-sub">{t("center.startHint")}</div>
               <div className="empty-actions">
-                <button className="empty-action" onClick={() => void newScratchTab()}>
-                  <Icons.terminal size={14} />
-                  {t("center.createTerminal")}
-                </button>
-                <button className="empty-action" onClick={openNewSessionHere}>
+                <button className="empty-action primary" onClick={openNewSessionHere}>
                   <Icons.sparkle size={14} />
                   {t("tree.newSession")}
                 </button>
+                <button className="empty-action" onClick={() => void newScratchTab()}>
+                  <Icons.terminal size={14} />
+                  {t("center.createTerminal")}
+                  <kbd>{formatCombo(effectiveCombo("newTab", shortcutOverrides))}</kbd>
+                </button>
               </div>
               <div className="empty-split-hints">
-                <div>{t("center.splitHint")}</div>
                 <div className="empty-split-keys">
                   <span>
                     {t("term.splitRight")}

@@ -32,16 +32,16 @@ fn now_ms() -> i64 {
 /// Reads a session's `(kind, captured agent-native session ID)`, returning a specific error if either is absent.
 /// Shared by the four transcript/usage commands for consistent lookup and error messages.
 fn session_kind_and_agent(ctx: &AppCtx, session_id: &str) -> Result<(SessionKind, String), String> {
-    let (kind, agent_id) = {
+    let session = {
         let conn = ctx.db().conn.lock().unwrap();
-        (
-            repo::get_session_kind(&conn, session_id)?,
-            repo::get_agent_session_id(&conn, session_id)?,
-        )
-    };
-    let kind = kind.ok_or("Session not found")?;
-    let agent_id = agent_id.ok_or("No agent session id captured for this session yet")?;
-    Ok((kind, agent_id))
+        repo::get_session(&conn, session_id)?
+    }
+    .ok_or("Session not found")?;
+    // A parked DeepSeek conversation still has its retired harness recording while the new OpenCode
+    // conversation has not reported an id yet.
+    let agent_id = session.agent_session_id.or(session.legacy_agent_session_id)
+        .ok_or("No agent session id captured for this session yet")?;
+    Ok((session.kind, agent_id))
 }
 
 /// Normalizes empty strings to None so blank values are not persisted.
@@ -60,9 +60,16 @@ fn next_chat_session_name(
         SessionKind::Claude => "Claude",
         SessionKind::Codex => "Codex",
         SessionKind::Opencode => "OpenCode",
-        _ => {
-            return Err("Only Claude, Codex, and OpenCode chat sessions can be cleared".to_string())
-        }
+        SessionKind::Antigravity => "Antigravity",
+        SessionKind::Pi => "Pi",
+        SessionKind::Omp => "OMP",
+        SessionKind::Zcode => "ZCode",
+        SessionKind::Deepseek => "DeepSeek",
+        SessionKind::Copilot => "Copilot",
+        SessionKind::Cursor => "Cursor",
+        SessionKind::Kimi => "Kimi Code",
+        SessionKind::Grok => "Grok Build",
+        _ => return Err("Only chat sessions can be cleared".to_string()),
     };
     let prefix = format!("{label} ");
     let max_suffix = repo::list_all_sessions(conn)?
@@ -308,11 +315,9 @@ pub fn create_session(
         let seeded_agent_id = agent_session_id
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            // Zoo and Grok accept caller-provided UUIDs. Reuse the VelaTerm session ID so parallel sessions in
-            // one directory never attach to each other's most recent conversation; first launch creates it.
-            .or_else(|| {
-                matches!(kind, SessionKind::Zoo | SessionKind::Grok).then(|| session.id.clone())
-            });
+            // Only the terminal engine can seed a caller-provided id; the chat engine lets the agent assign
+            // it (see `SessionKind::accepts_caller_session_id`).
+            .or_else(|| kind.accepts_caller_session_id(&session.engine).then(|| session.id.clone()));
         if let Some(aid) = seeded_agent_id {
             // Reuse the kind-guarded update so only the newly created matching session is persisted.
             repo::set_agent_session_id(&conn, &session.id, &aid, kind)?;
@@ -382,6 +387,8 @@ pub fn update_session(
 ) -> Result<(), String> {
     {
         let conn = ctx.db().conn.lock().unwrap();
+        let kind = repo::get_session_kind(&conn, id)?;
+        let normalized_perm = empty_to_none(permission_mode);
         repo::update_session(
             &conn,
             id,
@@ -390,8 +397,19 @@ pub fn update_session(
             empty_to_none(cwd),
             empty_to_none(init_cmd),
             empty_to_none(agent_args),
-            empty_to_none(permission_mode),
+            normalized_perm,
         )?;
+        if kind == Some(SessionKind::Antigravity) {
+            let effective = crate::agent::permission_catalog::effective(
+                &conn,
+                SessionKind::Antigravity,
+                normalized_perm,
+            )?
+            .unwrap_or_else(|| "default".to_string());
+            let acp_mode =
+                crate::agent::chat::antigravity_protocol::acp_mode_for_permission(&effective);
+            repo::set_collaboration_mode(&conn, id, acp_mode)?;
+        }
     }
     ctx.emit(TREE_CHANGED, ());
     Ok(())
@@ -402,6 +420,10 @@ pub fn rename_node(ctx: &AppCtx, kind: NodeKind, id: &str, name: &str) -> Result
     {
         let conn = ctx.db().conn.lock().unwrap();
         repo::rename_node(&conn, kind, id, name)?;
+    }
+    // The person chose this name; stop an agent-written title from replacing it later.
+    if matches!(kind, NodeKind::Session) {
+        crate::agent::server::forget_adopted_title(ctx, id);
     }
     ctx.emit(TREE_CHANGED, ());
     Ok(())
@@ -660,7 +682,7 @@ pub fn install_id(ctx: &AppCtx) -> Result<String, String> {
 /// exactly like `TREE_CHANGED`: client-side reconciliation is idempotent, so the extra pass is harmless.
 pub fn set_app_settings(
     ctx: &AppCtx,
-    entries: std::collections::HashMap<String, String>,
+    mut entries: std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
     if let Some(mode) = entries.get(crate::pty::completion::MODE_KEY) {
         if !matches!(mode.as_str(), "auto" | "tab" | "off") {
@@ -672,9 +694,27 @@ pub fn set_app_settings(
             return Err("Invalid terminal Tab behavior".into());
         }
     }
+    let region = match entries.get(crate::server_region::SETTING_KEY) {
+        Some(value) => Some(crate::server_region::Region::parse(value).ok_or("Invalid server region")?),
+        None => None,
+    };
+    // The remote-access listen settings are validated and stored canonically, whoever writes them; an
+    // invalid value rejects the whole batch (error codes are mapped to localized text by the frontend).
+    if let Some(bind) = entries.get_mut(REMOTE_BIND_KEY) {
+        *bind = crate::web::BindChoice::parse(bind)?.as_setting();
+    }
+    if let Some(host) = entries.get_mut(REMOTE_PAIRING_HOST_KEY) {
+        *host = crate::web::validate_pairing_host(host)?.unwrap_or_default();
+    }
     {
         let conn = ctx.db().conn.lock().unwrap();
         repo::set_app_settings(&conn, &entries)?;
+    }
+    if entries.contains_key("vlx-settings") {
+        crate::agent::install::forget_shell_discovery();
+    }
+    if let Some(region) = region {
+        crate::server_region::set(region);
     }
     if let Some(mode) = entries.get(crate::pty::completion::MODE_KEY) {
         // Running shells pick up the new mode at their next prompt.
@@ -716,12 +756,37 @@ fn session_worktree(ctx: &AppCtx, session_id: &str) -> Result<(Option<String>, S
 
 /// Current shell identifier, also the data-directory suffix. It isolates development and release Gitea Keychain
 /// services. A fixed fallback keeps the service name stable if detection fails.
-fn app_identifier(ctx: &AppCtx) -> String {
+pub(crate) fn app_identifier(ctx: &AppCtx) -> String {
     ctx.data_dir()
         .ok()
         .and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_string()))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "io.vlinx.vlxterm".to_string())
+}
+
+/// Returns the DeepSeek endpoint and whether a key is stored, never the key itself.
+pub fn deepseek_get_status(ctx: &AppCtx) -> crate::agent::deepseek_config::Status {
+    crate::agent::deepseek_config::status(ctx.db(), &app_identifier(ctx))
+}
+
+/// Saves the DeepSeek endpoint and key. An empty key preserves the stored one unless `clear_key` is set.
+pub fn deepseek_set_config(
+    ctx: &AppCtx,
+    base_url: &str,
+    api_key: &str,
+    clear_key: bool,
+) -> Result<crate::agent::deepseek_config::Status, String> {
+    let status = crate::agent::deepseek_config::set_config(
+        ctx.db(),
+        &app_identifier(ctx),
+        base_url,
+        api_key,
+        clear_key,
+    )?;
+    // Running DeepSeek servers hold the configuration they started with, so idle ones are ended here and
+    // restart with the new credentials on the next message.
+    ctx.chat().refresh_deepseek(ctx);
+    Ok(status)
 }
 
 /// Returns Gitea integration status for settings without exposing the token.
@@ -762,21 +827,17 @@ pub fn land_gitea_pr(
         &targets.base_ref,
         title,
         body,
+        false,
     )
 }
 
-/// Whether the Git panel can open a pull request for the repository at `cwd`: Gitea must be
-/// configured on the same host as `origin`, hold a token, and answer. `reason` is `ok`,
-/// `not_gitea`, `no_token`, or `unreachable` for the panel to explain.
-pub fn git_pr_provider(ctx: &AppCtx, cwd: &str) -> serde_json::Value {
-    if !crate::gitea::relevant(ctx.db(), cwd) {
-        return serde_json::json!({ "provider": null, "available": false, "reason": "not_gitea" });
-    }
-    let (available, reason) = crate::gitea::land_provider_check(ctx.db(), &app_identifier(ctx));
-    serde_json::json!({ "provider": "gitea", "available": available, "reason": reason })
+/// Detect whether the Git panel can open pull or merge requests for `cwd` (GitHub via `gh`, GitLab
+/// via `glab`, or configured Gitea) and explain missing prerequisites.
+pub fn git_pr_provider(ctx: &AppCtx, cwd: &str) -> crate::git::pr::PrProviderStatus {
+    crate::git::pr::detect_provider(ctx.db(), &app_identifier(ctx), cwd)
 }
 
-/// Push the current branch and open a Gitea pull request into `base`, the branch the Git panel
+/// Push the current branch and open a pull or merge request into `base`, the branch the Git panel
 /// compares against.
 pub fn git_open_pull_request(
     ctx: &AppCtx,
@@ -784,11 +845,26 @@ pub fn git_open_pull_request(
     base: &str,
     title: &str,
     body: &str,
+    draft: bool,
 ) -> Result<crate::gitea::PrOutcome, String> {
     // `status().branch` is None on a detached HEAD, where there is no branch to push.
     let head = crate::git::status(cwd).branch.ok_or("Check out a branch before opening a pull request")?;
     let base_ref = crate::git::compare::full_ref(cwd, base)?;
-    crate::gitea::open_pr(ctx.db(), &app_identifier(ctx), cwd, &head, &base_ref, title, body)
+    crate::git::pr::open_pull_request(
+        ctx.db(),
+        &app_identifier(ctx),
+        cwd,
+        &head,
+        &base_ref,
+        title,
+        body,
+        draft,
+    )
+}
+
+/// Inspect the current branch's open, draft, merged, or closed pull/merge request when supported.
+pub fn git_pr_status(ctx: &AppCtx, cwd: &str) -> Result<Option<crate::git::pr::PrStatusInfo>, String> {
+    crate::git::pr::current_pr_status(ctx.db(), &app_identifier(ctx), cwd)
 }
 
 // SSH host history and remembered passwords. These commands are **desktop-only** because Connect Remote is hidden
@@ -906,9 +982,10 @@ pub fn search_session_content(
     ctx: &AppCtx,
     query: &str,
     scope: Option<&str>,
+    project_id: Option<&str>,
 ) -> Result<Vec<crate::search::SessionSearchHit>, String> {
     let scope = crate::search::SearchScope::from_arg(scope.unwrap_or("live"));
-    crate::search::jobs::legacy(ctx, query, scope, None)
+    crate::search::jobs::legacy(ctx, query, scope, None, project_id)
 }
 
 /// Session-content search optionally restricted to one already resolved session ID.
@@ -919,7 +996,7 @@ pub fn search_session_content_in(
     session_id: Option<&str>,
 ) -> Result<Vec<crate::search::SessionSearchHit>, String> {
     let scope = crate::search::SearchScope::from_arg(scope.unwrap_or("live"));
-    crate::search::jobs::legacy(ctx, query, scope, session_id)
+    crate::search::jobs::legacy(ctx, query, scope, session_id, None)
 }
 
 /// Reads an agent transcript for the archive-panel viewer.
@@ -1057,12 +1134,32 @@ pub fn chat_start(
     effort: Option<&str>,
     fast_mode: bool,
 ) -> Result<(), String> {
-    let (session, project_root) = {
+    let (mut session, project_root) = {
         let conn = ctx.db().conn.lock().unwrap();
         let session = repo::get_session(&conn, session_id)?.ok_or("Session not found")?;
         let root = repo::get_project_root(&conn, &session.project_id)?;
         (session, root)
     };
+    // A DeepSeek conversation recorded by the retired harness cannot be resumed in OpenCode. Park its id
+    // in `legacy_agent_session_id` first: that both lets the new conversation claim `agent_session_id` and
+    // keeps the old recording visible above it in the history view.
+    if session.kind == SessionKind::Deepseek {
+        if let Some(legacy) = session
+            .agent_session_id
+            .clone()
+            .filter(|id| {
+                crate::agent::history_store::deepseek_legacy::is_legacy(id)
+                    // A saved id neither store knows can still block startup through the identity
+                    // check; park it the same way so a fresh conversation may begin.
+                    || crate::agent::resume::confirmed_missing(SessionKind::Deepseek, id)
+            })
+        {
+            let conn = ctx.db().conn.lock().unwrap();
+            repo::park_legacy_agent_session_id(&conn, session_id, &legacy, SessionKind::Deepseek)?;
+            session.agent_session_id = None;
+            session.legacy_agent_session_id = Some(legacy);
+        }
+    }
     if session.archived_at.is_some() { return Err("Restore this conversation before restarting its agent.".into()); }
     if session.engine!="chat" { return Err("Open this conversation in the chat view before starting its agent.".into()); }
     if ctx.chat().is_alive(session_id) { return Ok(()); }
@@ -1093,6 +1190,14 @@ pub fn chat_start(
     if effort.is_some() {
         selection.effort = session_settings::clean(effort);
     }
+    // DeepSeek is driven by OpenCode but only offers the official DeepSeek provider. Older conversations
+    // saved DeepSeek Harness's opaque route pair, so normalize it to OpenCode's `deepseek/<model>` spelling.
+    if session.kind == SessionKind::Deepseek {
+        selection.model = Some(crate::agent::chat::deepseek_models::normalize_model(selection.model.as_deref()));
+        selection.effort = crate::agent::chat::deepseek_models::normalize_effort(selection.effort.as_deref());
+    } else if session.kind == SessionKind::Antigravity {
+        crate::agent::antigravity_models::normalize_selection(ctx, &mut selection);
+    }
     session_settings::persist(ctx, &session, &selection)?;
     let extra_args =
         session_settings::without_selection_args(session.kind, session.agent_args.as_deref());
@@ -1100,13 +1205,38 @@ pub fn chat_start(
         let conn = ctx.db().conn.lock().unwrap();
         crate::agent::permission_catalog::effective(&conn, session.kind, session.permission_mode.as_deref())?
     };
+    // A Grok session seeded with its own VelaTerm session id (see `create_session`/`insert_session`) has no
+    // agent conversation until first launch. If that id was never created — a row written before chat
+    // sessions stopped pre-seeding, or a tui session switched to chat before it ran — clear it in the
+    // database before starting: ACP assigns the id via `session/new`, and `ChatManager::start` re-reads
+    // the row under its writer lease and rejects any mismatch against `resume`.
+    if session.kind == SessionKind::Grok {
+        if let Some(seeded) = session.agent_session_id.clone().filter(|id| {
+            id == &session.id && crate::agent::resume::confirmed_missing(SessionKind::Grok, id)
+        }) {
+            let cleared = {
+                let conn = ctx.db().conn.lock().unwrap();
+                repo::forget_agent_session_id(&conn, session_id, &seeded, SessionKind::Grok)?
+            };
+            session.agent_session_id = None;
+            if cleared {
+                ctx.emit(TREE_CHANGED, ());
+            }
+        }
+    }
+    // A DeepSeek conversation used to be recorded by DeepSeek Harness, so its saved id is not an
+    // OpenCode session. Start a new OpenCode conversation instead of failing to resume a foreign id.
+    let resume = session.agent_session_id.as_deref().filter(|id| {
+        session.kind != SessionKind::Deepseek
+            || !crate::agent::resume::confirmed_missing(session.kind, id)
+    });
     ctx.chat().start(
         ctx,
         session_id,
         session.kind,
         cwd.as_deref(),
         &bin,
-        session.agent_session_id.as_deref(),
+        resume,
         selection.model.as_deref(),
         selection.effort.as_deref(),
         permission_mode.as_deref(),
@@ -1203,11 +1333,11 @@ fn prepare_chat_account(ctx: &AppCtx, session_id: &str) -> Result<(), String> {
     {
         let conn = ctx.db().conn.lock().unwrap();
         let session = repo::get_session(&conn, session_id)?.ok_or("Session not found")?;
-        if !matches!(session.kind, SessionKind::Codex | SessionKind::Claude | SessionKind::Zcode)
+        if !matches!(session.kind, SessionKind::Codex | SessionKind::Claude | SessionKind::Zcode | SessionKind::Antigravity)
             || session.engine != "chat"
         {
             return Err(
-                "Account operations are available only in Claude, Codex or ZCode chat sessions.".into(),
+                "Account operations are available only in Claude, Codex, ZCode or Antigravity chat sessions.".into(),
             );
         }
     }
@@ -1256,9 +1386,9 @@ pub fn chat_mcp_reconnect(
     ctx.chat().mcp_reconnect(session_id, server)
 }
 
-/// Stop one of Claude's background tasks.
+/// Stop one of a conversation's background tasks.
 pub fn chat_stop_task(ctx: &AppCtx, session_id: &str, task_id: &str) -> Result<(), String> {
-    ctx.chat().stop_task(session_id, task_id)
+    ctx.chat().stop_task(ctx, session_id, task_id)
 }
 
 /// The command and recent output of one background shell task, for its task tab.
@@ -1270,22 +1400,26 @@ pub fn chat_task_output(
     ctx.chat().task_output(session_id, task_id)
 }
 
-/// What one of a Claude conversation's subagents has done so far, read from its own recording.
+/// What one of a session's subagents has done so far, read from its own recording.
 pub fn chat_subagent_rows(
     ctx: &AppCtx,
     session_id: &str,
     task_id: &str,
 ) -> Result<Vec<crate::agent::chat::engine::ChatRow>, String> {
     let (kind, agent_id) = session_kind_and_agent(ctx, session_id)?;
-    if kind != SessionKind::Claude {
-        return Err("Subagent conversations are available only for Claude".into());
+    match kind {
+        SessionKind::Claude => crate::agent::chat::history::replay_claude_subagent(&agent_id, task_id),
+        SessionKind::Antigravity => {
+            let content = crate::agent::antigravity::read_transcript(task_id)?;
+            Ok(crate::agent::chat::antigravity_protocol::history_rows(&content))
+        }
+        _ => Err("Subagent conversations are available only for Claude and Antigravity".into()),
     }
-    crate::agent::chat::history::replay_claude_subagent(&agent_id, task_id)
 }
 
 /// Move every foreground task of the running turn to the background.
 pub fn chat_background_tasks(ctx: &AppCtx, session_id: &str) -> Result<(), String> {
-    ctx.chat().background_tasks(session_id)
+    ctx.chat().background_tasks(ctx, session_id)
 }
 
 /// How many images one message may carry, and how large each may be once decoded.
@@ -1309,6 +1443,11 @@ pub fn chat_send(
     behavior: Option<&str>,
     message_id: Option<&str>,
 ) -> Result<&'static str, String> {
+    let _slow = crate::diagnostics::Slow::new(
+        "agent_submission",
+        std::time::Duration::from_millis(200),
+        serde_json::json!({"command":"chat_send","sessionId":session_id,"status":"slow"}),
+    );
     if crate::security::session_active(session_id) {
         return Err("security_audit_owns_conversation".into());
     }
@@ -1518,15 +1657,6 @@ pub fn chat_permission(
 pub fn chat_set_mode(ctx: &AppCtx, session_id: &str, mode: &str) -> Result<(), String> {
     let session = session_settings::session(ctx, session_id)?;
     let mode = crate::agent::permission_catalog::normalize(session.kind, Some(mode))?;
-    if session.kind == SessionKind::Antigravity {
-        return ctx.chat().update_launch_settings(ctx, session_id, ANTIGRAVITY_BUSY, || {
-            let stored = if mode == "bypassPermissions" { "skip" } else { mode };
-            repo::set_permission_mode(&ctx.db().conn.lock().unwrap(), session_id, stored)?;
-            ctx.emit(TREE_CHANGED, ());
-            ctx.emit(&crate::agent::chat::engine::event_name(session_id), serde_json::json!({"type":"settingsChanged","mode":mode}));
-            Ok(())
-        });
-    }
     // The agent starts with the first message, so a mode chosen before that has nobody to tell yet; the
     // stored value below is what that launch reads.
     let restart_required = if ctx.chat().is_alive(session_id) {
@@ -1548,6 +1678,10 @@ pub fn chat_set_mode(ctx: &AppCtx, session_id: &str, mode: &str) -> Result<(), S
     {
         let conn = ctx.db().conn.lock().unwrap();
         repo::set_permission_mode(&conn, session_id, stored)?;
+        if session.kind == SessionKind::Antigravity {
+            let acp_mode = crate::agent::chat::antigravity_protocol::acp_mode_for_permission(mode);
+            repo::set_collaboration_mode(&conn, session_id, acp_mode)?;
+        }
     }
     ctx.emit(TREE_CHANGED, ());
     // Keep a deferred choice in the database without claiming the running process adopted it.
@@ -1572,6 +1706,10 @@ pub fn chat_set_collaboration_mode(
     session_id: &str,
     mode: &str,
 ) -> Result<(), String> {
+    let session = session_settings::session(ctx, session_id)?;
+    if session.kind == SessionKind::Antigravity {
+        return Err("antigravity does not support collaboration modes".into());
+    }
     if ctx.chat().is_alive(session_id) {
         ctx.chat().set_collaboration_mode(ctx, session_id, mode)?;
     }
@@ -1583,8 +1721,7 @@ pub fn chat_set_collaboration_mode(
     Ok(())
 }
 
-/// Antigravity refuses a launch-setting change while it is busy.
-const ANTIGRAVITY_BUSY: &str = "Wait for Antigravity to finish before changing its launch settings";
+/// A launch-only setting change is refused while the agent is busy.
 const AGENT_BUSY: &str = "Wait for the agent to finish before changing its launch settings";
 /// A Claude chat refuses to attach a project while it is busy; the UI words this code.
 const ATTACH_BUSY: &str = "CHAT_ATTACH_BUSY";
@@ -1663,27 +1800,58 @@ pub fn chat_set_model(ctx: &AppCtx, session_id: &str, model: Option<&str>) -> Re
     let session = session_settings::session(ctx, session_id)?;
     let mut selection = session_settings::resolve(ctx, &session)?;
     selection.model = session_settings::clean(model);
-    // A model the running process cannot switch to is a launch setting: it applies when the process restarts.
-    let launch_only = crate::agent::chat::acp_protocol::supported(session.kind) && ctx.chat().is_alive(session_id)
+    if session.kind == SessionKind::Deepseek {
+        selection.model = crate::agent::chat::deepseek_models::normalize_model(selection.model.as_deref()).into();
+        selection.effort = crate::agent::chat::deepseek_models::normalize_effort(selection.effort.as_deref());
+    } else if session.kind == SessionKind::Antigravity {
+        crate::agent::antigravity_models::normalize_selection(ctx, &mut selection);
+    }
+    // Only Copilot passes `--model` exclusively at ACP launch; other ACP agents switch live over
+    // the protocol once their handshake settles.
+    let launch_only = session.kind == SessionKind::Copilot && ctx.chat().is_alive(session_id)
         && !ctx.chat().acp_switchable(session_id).0;
-    if session.kind == SessionKind::Antigravity || launch_only {
-        let busy = if session.kind == SessionKind::Antigravity { ANTIGRAVITY_BUSY } else { AGENT_BUSY };
-        return ctx.chat().update_launch_settings(ctx, session_id, busy, || {
+    if launch_only {
+        return ctx.chat().update_launch_settings(ctx, session_id, AGENT_BUSY, || {
             session_settings::persist(ctx, &session, &selection)?;
-            ctx.emit(&crate::agent::chat::engine::event_name(session_id), serde_json::json!({"type":"settingsChanged","model":selection.model}));
+            ctx.emit(&crate::agent::chat::engine::event_name(session_id), serde_json::json!({
+                "type":"settingsChanged","model":selection.model,"images":ctx.chat().image_support(session_id)
+            }));
             Ok(())
         });
     }
     if ctx.chat().is_alive(session_id) {
         ctx.chat()
-            .set_model(session_id, selection.model.as_deref())?;
-        selection.model = ctx.chat().snapshot(session_id).model;
+            .set_model_with_app(ctx, session_id, selection.model.as_deref())?;
+        if ctx.chat().is_alive(session_id) {
+            let snap = ctx.chat().snapshot(session_id);
+            selection.model = snap.model;
+            if session.kind == SessionKind::Antigravity {
+                ctx.chat().sync_antigravity_catalog(ctx, session_id);
+                if snap.running {
+                    selection.effort = snap.effort;
+                }
+                crate::agent::antigravity_models::normalize_selection(ctx, &mut selection);
+            }
+        } else if session.kind == SessionKind::Antigravity {
+            crate::agent::antigravity_models::normalize_selection(ctx, &mut selection);
+        }
     }
     session_settings::persist(ctx, &session, &selection)?;
-    ctx.emit(
-        &crate::agent::chat::engine::event_name(session_id),
-        serde_json::json!({"type":"settingsChanged","model":selection.model}),
-    );
+    let payload = if session.kind == SessionKind::Antigravity {
+        serde_json::json!({
+            "type":"settingsChanged",
+            "model":selection.model,
+            "effort":selection.effort,
+            "images":ctx.chat().image_support(session_id)
+        })
+    } else {
+        serde_json::json!({
+            "type":"settingsChanged",
+            "model":selection.model,
+            "images":ctx.chat().image_support(session_id)
+        })
+    };
+    ctx.emit(&crate::agent::chat::engine::event_name(session_id), payload);
     Ok(())
 }
 
@@ -1692,13 +1860,15 @@ pub fn chat_set_effort(ctx: &AppCtx, session_id: &str, effort: Option<&str>) -> 
     let session = session_settings::session(ctx, session_id)?;
     let mut selection = session_settings::resolve(ctx, &session)?;
     selection.effort = session_settings::clean(effort);
-    let launch_only = crate::agent::chat::acp_protocol::supported(session.kind) && ctx.chat().is_alive(session_id)
+    if session.kind == SessionKind::Deepseek {
+        selection.effort = crate::agent::chat::deepseek_models::normalize_effort(selection.effort.as_deref());
+    } else if session.kind == SessionKind::Antigravity {
+        crate::agent::antigravity_models::normalize_selection(ctx, &mut selection);
+    }
+    let launch_only = session.kind == SessionKind::Copilot && ctx.chat().is_alive(session_id)
         && !ctx.chat().acp_switchable(session_id).1;
-    if session.kind == SessionKind::Antigravity || launch_only {
-        if selection.effort.as_deref().is_some_and(|value| !crate::agent::chat::antigravity_protocol::EFFORTS.contains(&value)) {
-            return Err("Antigravity effort must be low, medium, high, max, or automatic".into());
-        }
-        return ctx.chat().update_launch_settings(ctx, session_id, ANTIGRAVITY_BUSY, || {
+    if launch_only {
+        return ctx.chat().update_launch_settings(ctx, session_id, AGENT_BUSY, || {
             session_settings::persist(ctx, &session, &selection)?;
             ctx.emit(&crate::agent::chat::engine::event_name(session_id), serde_json::json!({"type":"settingsChanged","effort":selection.effort}));
             Ok(())
@@ -1716,23 +1886,94 @@ pub fn chat_set_effort(ctx: &AppCtx, session_id: &str, effort: Option<&str>) -> 
     Ok(())
 }
 
-/// Models reported by the agent behind this session.
-/// DeepSeek's model picker while its agent is not running: the catalogue the last session reported, or the
-/// models dsh 0.2.1 ships with until one has. dsh names a model by its provider route and model id as a
-/// JSON pair, the same opaque value its ACP selector takes.
-fn deepseek_idle_models(ctx: &AppCtx) -> serde_json::Value {
-    let saved = ctx.db().conn.lock().ok()
-        .and_then(|conn| crate::db::repo::get_app_settings(&conn).ok())
-        .and_then(|settings| settings.get(crate::agent::chat::engine::DEEPSEEK_MODELS_SETTING).cloned())
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .filter(|models| models.as_array().is_some_and(|models| !models.is_empty()));
-    saved.unwrap_or_else(|| {
-        let efforts = ["off", "low", "high", "max"];
-        serde_json::json!([
-            {"id":"[\"deepseek-official\",\"deepseek-v4-flash\"]","label":"deepseek-v4-flash","description":"","effortLevels":efforts},
-            {"id":"[\"deepseek-official\",\"deepseek-v4-pro\"]","label":"DeepSeek-V4-Pro","description":"","effortLevels":efforts},
-        ])
-    })
+/// Grok's model picker: what the running session offers first, then every model the CLI names, then any
+/// model only the config file describes. Each entry carries that model's own reasoning ladder.
+fn grok_chat_models(ctx: &AppCtx, session_id: &str, bin: &str) -> serde_json::Value {
+    let live = ctx.chat().acp_models(ctx, session_id).unwrap_or_default();
+    let ids = grok_cli_models(bin);
+    let config = crate::agent::grok_models::load();
+    serde_json::Value::Array(assemble_grok_catalog(&live, &ids, &config))
+}
+
+/// Merge the live session's choices with the CLI listing and Grok's config file.
+///
+/// A running Grok session reports only the model it started with, while `grok models` names every model
+/// the account can switch to and `config.toml` says which reasoning levels each one offers. A live
+/// ladder wins over the config, since it describes the session that is actually running.
+fn assemble_grok_catalog(
+    live: &[serde_json::Value],
+    ids: &[String],
+    config: &std::collections::HashMap<String, crate::agent::grok_models::ConfigModel>,
+) -> Vec<serde_json::Value> {
+    let mut order: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for model in live {
+        if let Some(id) = model.get("id").and_then(serde_json::Value::as_str) {
+            if !id.is_empty() && seen.insert(id.to_string()) { order.push(id.to_string()); }
+        }
+    }
+    for id in ids {
+        if !id.is_empty() && seen.insert(id.clone()) { order.push(id.clone()); }
+    }
+    // Config-only models go last, in a stable order so the menu does not shuffle between reads.
+    let mut config_only: Vec<&String> = config.keys().filter(|id| !seen.contains(*id)).collect();
+    config_only.sort();
+    order.extend(config_only.into_iter().cloned());
+    let live_by: std::collections::HashMap<&str, &serde_json::Value> = live.iter()
+        .filter_map(|model| model.get("id").and_then(serde_json::Value::as_str).map(|id| (id, model)))
+        .collect();
+    order.into_iter().map(|id| {
+        let live_model = live_by.get(id.as_str()).copied();
+        let configured = config.get(&id);
+        let live_levels = levels_of(live_model, "effortLevels");
+        let effort_levels = if !live_levels.is_empty() {
+            live_levels
+        } else {
+            configured.map(|model| model.effort_levels.clone()).unwrap_or_default()
+        };
+        let label = text_field(live_model, "label")
+            .or_else(|| configured.map(|model| model.label.as_str()))
+            .unwrap_or(id.as_str());
+        let description = text_field(live_model, "description").unwrap_or_default();
+        serde_json::json!({"id":id,"label":label,"description":description,"effortLevels":effort_levels})
+    }).collect()
+}
+
+/// A non-empty string field of one catalogue entry.
+fn text_field<'a>(model: Option<&'a serde_json::Value>, key: &str) -> Option<&'a str> {
+    model
+        .and_then(|model| model.get(key))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+}
+
+/// A catalogue entry's string array field, such as `effortLevels`.
+fn levels_of(model: Option<&serde_json::Value>, key: &str) -> Vec<String> {
+    model
+        .and_then(|model| model.get(key))
+        .and_then(serde_json::Value::as_array)
+        .map(|values| values.iter().filter_map(|value| value.as_str()).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// Asking `grok models` starts a CLI that answers on its own timeout, and the picker re-reads the
+/// catalogue after every model or reasoning change. Keep the last answer briefly so one session does not
+/// pay for the same listing on every refresh.
+fn grok_cli_models(bin: &str) -> Vec<String> {
+    const TTL: std::time::Duration = std::time::Duration::from_secs(300);
+    type Cached = (String, std::time::Instant, Vec<String>);
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Option<Cached>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Ok(cache) = cache.lock() {
+        if let Some((cached_bin, at, models)) = cache.as_ref() {
+            if cached_bin == bin && at.elapsed() < TTL { return models.clone(); }
+        }
+    }
+    let models = crate::agent::model_catalog::list_models_at("grok", bin).unwrap_or_default();
+    if let Ok(mut cache) = cache.lock() {
+        *cache = Some((bin.to_string(), std::time::Instant::now(), models.clone()));
+    }
+    models
 }
 
 pub fn chat_models(ctx: &AppCtx, session_id: &str) -> Result<serde_json::Value, String> {
@@ -1741,13 +1982,6 @@ pub fn chat_models(ctx: &AppCtx, session_id: &str) -> Result<serde_json::Value, 
         repo::get_session(&conn, session_id)?.ok_or("Session not found")?
     };
     match session.kind {
-        SessionKind::Antigravity => {
-            let bin = crate::agent::executable::for_session(ctx, &session);
-            let models = crate::agent::model_catalog::list_models_at("antigravity", &bin)?;
-            serde_json::to_value(models.into_iter().map(|id| serde_json::json!({
-                "label":id,"id":id,"description":"","effortLevels":crate::agent::chat::antigravity_protocol::EFFORTS,
-            })).collect::<Vec<_>>())
-        }
         // Live capabilities enrich the complete catalogue; the CLI picker only lists a subset. What a
         // running conversation reports is kept, so a session that is not running still offers the models
         // only the installed CLI knows about.
@@ -1775,7 +2009,7 @@ pub fn chat_models(ctx: &AppCtx, session_id: &str) -> Result<serde_json::Value, 
             let cwd = session.cwd.as_deref().filter(|c| !c.trim().is_empty()).or(root.as_deref());
             serde_json::to_value(crate::agent::codex_models::list_in_dir(&bin, &args, cwd)?)
         }
-        SessionKind::Opencode => {
+        SessionKind::Opencode | SessionKind::Deepseek => {
             // The running server already knows its providers; without one, a short-lived server answers.
             let bin = crate::agent::executable::for_session(ctx, &session);
             let root = {
@@ -1789,13 +2023,23 @@ pub fn chat_models(ctx: &AppCtx, session_id: &str) -> Result<serde_json::Value, 
                 .map(str::to_string)
                 .or(root);
             let running = ctx.chat().opencode_server(session_id);
-            serde_json::to_value(crate::agent::opencode_models::list(
+            let provider = (session.kind == SessionKind::Deepseek)
+                .then_some(crate::agent::chat::deepseek_models::PROVIDER);
+            let models = match crate::agent::opencode_models::list_provider(
                 ctx,
                 session_id,
                 &bin,
                 cwd.as_deref(),
                 running,
-            )?)
+                provider,
+            ) {
+                Ok(models) if !models.is_empty() => models,
+                Ok(_) if session.kind == SessionKind::Deepseek => crate::agent::chat::deepseek_models::shipped(),
+                Err(_) if session.kind == SessionKind::Deepseek => crate::agent::chat::deepseek_models::shipped(),
+                Ok(models) => models,
+                Err(error) => return Err(error),
+            };
+            serde_json::to_value(models)
         }
         SessionKind::Zcode => {
             if let Some(models) = ctx.chat().zcode_models(session_id) {
@@ -1806,20 +2050,37 @@ pub fn chat_models(ctx: &AppCtx, session_id: &str) -> Result<serde_json::Value, 
                 let conn = ctx.db().conn.lock().unwrap();
                 repo::get_project_root(&conn, &session.project_id)?
             };
-            let cwd = session.cwd.as_deref().filter(|c| !c.trim().is_empty()).map(str::to_string).or(root)
+            // The directory the conversation itself would start in. A session in Chats has neither its own
+            // directory nor a project root, and runs in home.
+            let cwd = crate::host::spawn_dir(session.cwd.as_deref().filter(|c| !c.trim().is_empty()).or(root.as_deref()))
                 .ok_or("ZCode needs a working directory to list its models")?;
             serde_json::to_value(crate::agent::zcode::list_models(&bin, &cwd)?)
         }
         // A running ACP session lists the models it can switch to. Without one, the CLI's own catalogue is
         // what its next launch can be given.
         kind if crate::agent::chat::acp_protocol::supported(kind) => {
-            if let Some(models) = ctx.chat().acp_models(session_id) {
+            // Grok's picker merges three sources, so it answers as one list rather than the live one.
+            if kind == SessionKind::Grok {
+                let bin = crate::agent::executable::for_session(ctx, &session);
+                return Ok(grok_chat_models(ctx, session_id, &bin));
+            }
+            if kind == SessionKind::Antigravity {
+                let bin = crate::agent::executable::for_session(ctx, &session);
+                crate::agent::antigravity_models::schedule_refresh(ctx, &bin);
+                if let Some(models) = ctx.chat().acp_models(ctx, session_id) {
+                    return Ok(serde_json::Value::Array(models));
+                }
+                return serde_json::to_value(crate::agent::antigravity_models::cached(ctx))
+                    .map_err(|e| format!("Failed to serialize model catalogue: {e}"));
+            }
+            if let Some(models) = ctx.chat().acp_models(ctx, session_id) {
                 return Ok(serde_json::Value::Array(models));
             }
-            if kind == SessionKind::Deepseek {
-                return Ok(deepseek_idle_models(ctx));
-            }
-            let efforts: &[&str] = if kind == SessionKind::Copilot { crate::agent::chat::acp_protocol::COPILOT_EFFORTS } else { &[] };
+            let efforts: &[&str] = if kind == SessionKind::Copilot {
+                crate::agent::chat::acp_protocol::COPILOT_EFFORTS
+            } else {
+                &[]
+            };
             let models = if kind == SessionKind::Kimi {
                 crate::agent::model_catalog::list_models(ctx, kind.as_str())?
             } else {
@@ -1877,7 +2138,7 @@ pub fn chat_commands(ctx: &AppCtx, session_id: &str) -> Result<Vec<serde_json::V
         return Ok(commands);
     }
     let session = session_settings::session(ctx, session_id)?;
-    if !matches!(session.kind, SessionKind::Codex | SessionKind::Claude) {
+    if !matches!(session.kind, SessionKind::Codex | SessionKind::Claude | SessionKind::Pi | SessionKind::Omp) {
         return Ok(Vec::new());
     }
     let root = {
@@ -1926,8 +2187,10 @@ pub fn chat_snapshot_control(
     window: Option<&crate::agent::chat::engine::ChatWindow>,
 ) -> Result<crate::agent::chat::engine::ChatSnapshot, String> {
     let mut snapshot = ctx.chat().snapshot_window(session_id, window);
+    let mut session_kind = None;
     if !snapshot.running {
         let session = session_settings::session(ctx, session_id)?;
+        session_kind = Some(session.kind);
         let selection = session_settings::resolve(ctx, &session)?;
         snapshot.model = selection.model.clone();
         snapshot.effort = selection.effort.clone();
@@ -1938,7 +2201,11 @@ pub fn chat_snapshot_control(
         let (tier, personality) = repo::codex_chat_settings(&conn, session_id)?;
         snapshot.service_tier = tier;
         snapshot.personality = personality;
-        if repo::get_session_kind(&conn, session_id)? == Some(SessionKind::Claude) {
+        let kind = match session_kind {
+            Some(kind) => Some(kind),
+            None => repo::get_session_kind(&conn, session_id)?,
+        };
+        if kind == Some(SessionKind::Claude) {
             snapshot.chrome = Some(session_settings::chrome(&conn, session_id)?);
         }
     }
@@ -1960,7 +2227,9 @@ pub fn chat_snapshot_window(
             let conn = ctx.db().conn.lock().unwrap();
             repo::get_session(&conn, session_id)?
         };
-        if let Some((kind, id)) = session.and_then(|s| s.agent_session_id.map(|id| (s.kind, id))) {
+        if let Some((kind, id)) = session.and_then(|s| {
+            s.agent_session_id.or(s.legacy_agent_session_id).map(|id| (s.kind, id))
+        }) {
             let replayed = if crate::agent::chat::acp_protocol::supported(kind) {
                 crate::agent::chat::acp_protocol::replay(ctx.data_dir().ok().as_deref(), kind, &id)
             } else {
@@ -2073,9 +2342,10 @@ pub fn chat_rewind(
     if crate::security::session_active(session_id) {
         return Err("security_audit_owns_conversation".into());
     }
+    // A scheduled continuation would send a message while the rewind stops and restarts the agent.
+    crate::agent::chat::auto_continue::cancel(ctx, session_id);
     let result = if let Some(generation)=history_generation {ctx.chat().rewind_indexed(ctx,session_id,row_id,scope,generation)?}
         else {ctx.chat().rewind(ctx, session_id, row_id, scope)?};
-    crate::agent::chat::auto_continue::cancel(ctx, session_id);
     Ok(result)
 }
 
@@ -2088,6 +2358,19 @@ pub fn chat_auto_continue_cancel(ctx: &AppCtx, session_id: &str) -> Result<(), S
 /// A view started showing this conversation. Cancels a release a closed view asked for; starts nothing.
 pub fn chat_attach(ctx: &AppCtx, session_id: &str) -> Result<(), String> {
     ctx.chat().attach(session_id);
+    // Release the DB lock before resolving the executable, because `executable::for_session`
+    // locks `ctx.db().conn` again; in Rust 2021 an inline `if let` scrutinee holds the guard
+    // across the whole block and self-deadlocks the global SQLite connection.
+    let session = {
+        let conn = ctx.db().conn.lock().unwrap();
+        repo::get_session(&conn, session_id).ok().flatten()
+    };
+    if let Some(session) = session {
+        if session.kind == SessionKind::Antigravity {
+            let bin = crate::agent::executable::for_session(ctx, &session);
+            crate::agent::antigravity_models::schedule_refresh(ctx, &bin);
+        }
+    }
     Ok(())
 }
 
@@ -2119,10 +2402,10 @@ pub fn read_agent_chat(
 ) -> Result<Vec<crate::agent::chat::ChatEvent>, String> {
     let (kind, agent_id) = {
         let conn = ctx.db().conn.lock().unwrap();
-        (
-            repo::get_session_kind(&conn, session_id)?,
-            repo::get_agent_session_id(&conn, session_id)?,
-        )
+        let session = repo::get_session(&conn, session_id)?;
+        let kind = session.as_ref().map(|session| session.kind);
+        let agent_id = session.and_then(|session| session.agent_session_id.or(session.legacy_agent_session_id));
+        (kind, agent_id)
     };
     let kind = kind.ok_or("Session not found")?;
     let Some(agent_id) = agent_id else {
@@ -2131,7 +2414,7 @@ pub fn read_agent_chat(
     crate::agent::chat::read(kind, &agent_id)
 }
 
-/// Queries model/context usage for the Info panel (Claude, Codex, Grok, OpenCode, Pi, OMP).
+/// Queries model/context usage for the Info panel (Claude, Codex, Grok, OpenCode, Pi, OMP, DeepSeek).
 pub fn agent_context_info(
     ctx: &AppCtx,
     session_id: &str,
@@ -2183,19 +2466,31 @@ pub fn export_session_context(
     dest_path: Option<&str>,
     exported_at: Option<&str>,
 ) -> Result<Option<String>, String> {
-    let (kind, agent_id, name) = {
+    let (kind, agent_id, legacy_id, name) = {
         let conn = ctx.db().conn.lock().unwrap();
         (
             repo::get_session_kind(&conn, session_id)?,
             repo::get_agent_session_id(&conn, session_id)?,
+            repo::get_session(&conn, session_id)?.and_then(|session| session.legacy_agent_session_id),
             repo::get_session_name(&conn, session_id)?,
         )
     };
     let kind = kind.ok_or("Session not found")?;
-    let agent_id =
-        agent_id.ok_or("No agent session id captured for this session yet; nothing to export")?;
     let name = name.unwrap_or_else(|| "Session".to_string());
-    let md = crate::agent::export::export_markdown(kind, &agent_id, &name, exported_at)?;
+    // DeepSeek can have two native recordings: the retired harness log and the OpenCode session that
+    // followed it. The bounded markdown writer reads the whole branch, so the export is one document
+    // instead of whichever half a single native id names.
+    let md = if kind == SessionKind::Deepseek {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let branch = crate::agent::history_store::event_stream::complete(ctx, session_id, &cancel)?;
+        let mut bytes = Vec::new();
+        crate::agent::history_store::markdown::write_markdown(branch, &name, exported_at, &cancel, &mut bytes)?;
+        String::from_utf8(bytes).map_err(|e| format!("Failed to build the context export: {e}"))?
+    } else {
+        let agent_id = agent_id.or(legacy_id)
+            .ok_or("No agent session id captured for this session yet; nothing to export")?;
+        crate::agent::export::export_markdown(kind, &agent_id, &name, exported_at)?
+    };
     match dest_path {
         Some(p) => {
             std::fs::write(p, md).map_err(|e| format!("Failed to write export file: {e}"))?;
@@ -2206,12 +2501,13 @@ pub fn export_session_context(
 }
 
 // Remote-access web service. WS/headless dispatch toggles LAN remote mode through `ctx.remote_web()`. Desktop
-// Tauri commands access the same managed WebServer directly. LAN remote mode uses 0.0.0.0 with self-signed TLS,
-// independently of Electron sidecar's persistent plaintext loopback instance.
+// Tauri commands access the same managed WebServer directly. LAN remote mode uses self-signed TLS on every
+// interface by default, or on the one address (or loopback) the owner chose, independently of Electron
+// sidecar's persistent plaintext loopback instance.
 //
 // The run state persists in app_settings so a restart can restore it (GitHub issue #15): enabled flag, port,
-// mode, and an Argon2id PHC hash of the password — never the plaintext. Persistence lives only here in the
-// core; the transport adapters (commands.rs / dispatch.rs) stay thin.
+// mode, listen address, and an Argon2id PHC hash of the password, never the plaintext. Persistence lives only
+// here in the core; the transport adapters (commands.rs / dispatch.rs) stay thin.
 
 /// app_settings key: "1" while remote access should auto-start on launch, "0" after a manual stop.
 const REMOTE_ENABLED_KEY: &str = "remoteAccess.enabled";
@@ -2221,6 +2517,42 @@ const REMOTE_PORT_KEY: &str = "remoteAccess.port";
 const REMOTE_LAN_HTTP_KEY: &str = "remoteAccess.lanHttp";
 /// app_settings key: Argon2id PHC verifier of the access password; the only password-derived value on disk.
 const REMOTE_PASSWORD_HASH_KEY: &str = "remoteAccess.passwordHash";
+
+/// app_settings key: where remote access listens, canonical `all` (absent means all), `loopback`, or an IPv4.
+const REMOTE_BIND_KEY: &str = "remoteAccess.bind";
+/// app_settings key: host name or IP used in pairing links when listening on loopback behind a tunnel.
+const REMOTE_PAIRING_HOST_KEY: &str = "remoteAccess.pairingHost";
+
+/// Pure: the listen configuration from app settings. `bind_override` (the `--bind` flag of the headless CLI)
+/// replaces the stored bind choice, which is then not parsed at all. Invalid stored values are errors, never a
+/// silent fallback to every interface.
+fn listen_config_from(
+    settings: &std::collections::HashMap<String, String>,
+    bind_override: Option<crate::web::BindChoice>,
+) -> Result<crate::web::ListenConfig, String> {
+    let bind = match bind_override {
+        Some(bind) => bind,
+        None => crate::web::BindChoice::parse(
+            settings.get(REMOTE_BIND_KEY).map(String::as_str).unwrap_or(""),
+        )?,
+    };
+    let pairing_host = crate::web::validate_pairing_host(
+        settings
+            .get(REMOTE_PAIRING_HOST_KEY)
+            .map(String::as_str)
+            .unwrap_or(""),
+    )?;
+    Ok(crate::web::ListenConfig { bind, pairing_host })
+}
+
+/// The persisted remote-access listen configuration, optionally with the bind choice overridden for this
+/// process (see [`listen_config_from`]). Used by the desktop start paths and the headless CLI instance.
+pub fn remote_listen_config(
+    ctx: &AppCtx,
+    bind_override: Option<crate::web::BindChoice>,
+) -> Result<crate::web::ListenConfig, String> {
+    listen_config_from(&get_app_settings(ctx)?, bind_override)
+}
 
 /// Persist remote-access settings; failures are logged and never abort the running service.
 fn persist_remote_settings(ctx: &AppCtx, entries: std::collections::HashMap<String, String>) {
@@ -2240,11 +2572,12 @@ fn lan_http_guard(ctx: &AppCtx, lan_http: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Starts LAN remote access with password login and session gating. `lan_http=false` binds 0.0.0.0 with TLS;
+/// Starts LAN remote access with password login and session gating. `lan_http=false` uses TLS;
 /// `lan_http=true` provides plaintext for native mobile shells that cannot bypass self-signed certificates in RN
-/// WebView (architecture section 20). Runtime stops any old instance before starting so changes take effect.
-/// After a successful start, the enabled flag, port, mode, and password hash persist so the next launch
-/// auto-starts the same configuration.
+/// WebView (architecture section 20). The listen address comes from the persisted setting (every interface by
+/// default); an invalid or absent address fails the start. Runtime stops any old instance before starting so
+/// changes take effect. After a successful start, the enabled flag, port, mode, and password hash persist so
+/// the next launch auto-starts the same configuration.
 pub fn web_server_start(
     ctx: &AppCtx,
     password: &str,
@@ -2261,13 +2594,15 @@ pub fn web_server_start(
     if password.trim().is_empty() {
         return Err("Please set an access password first".into());
     }
+    let listen = remote_listen_config(ctx, None)?;
     // Hash here in the core so the same PHC string both starts the server and gets persisted for auto-start.
     let phc = crate::web::hash_password(password)?;
-    let status = ctx.remote_web().start(
+    let status = ctx.remote_web().start_with_listen(
         ctx.clone(),
         crate::web::StartAuth::PasswordHash(phc.clone()),
         port,
         mode,
+        listen,
     )?;
     persist_remote_settings(
         ctx,
@@ -2284,7 +2619,9 @@ pub fn web_server_start(
             (REMOTE_PASSWORD_HASH_KEY.to_string(), phc),
         ]),
     );
-    Ok(status)
+    // Return the same merged view as web_server_status and web_server_set_listen (saved bind and pairing
+    // host included), so the panel never compares against a status that lacks the saved values.
+    Ok(web_server_status(ctx))
 }
 
 /// Stops LAN remote access and disables auto-start. Port and password hash stay persisted for prefill;
@@ -2296,6 +2633,47 @@ pub fn web_server_stop(ctx: &AppCtx) -> Result<(), String> {
         std::collections::HashMap::from([(REMOTE_ENABLED_KEY.to_string(), "0".to_string())]),
     );
     Ok(())
+}
+
+/// Changes where remote access listens. `bind` is `all`, `loopback`, or an IPv4 address; `pairing_host`
+/// None keeps the stored pairing address, `Some("")` clears it. Both are validated first; nothing changes on
+/// an invalid value. While the service runs, it is restarted on the new address with the same port, mode, and
+/// password verifier (see `WebServer::restart_listen`), so the owner never retypes the password and pairing
+/// credentials survive; an absent address fails and leaves the running instance untouched. A change that does
+/// not affect the listener (same bind, or a pairing address outside loopback mode) is stored without a
+/// restart. The settings are persisted only after success. Returns the merged status for the panel.
+pub fn web_server_set_listen(
+    ctx: &AppCtx,
+    bind: &str,
+    pairing_host: Option<&str>,
+) -> Result<crate::web::WebServerStatus, String> {
+    let bind = crate::web::BindChoice::parse(bind)?;
+    let pairing_host = match pairing_host {
+        Some(raw) => crate::web::validate_pairing_host(raw)?,
+        None => remote_listen_config(ctx, Some(bind.clone()))?.pairing_host,
+    };
+    let listen = crate::web::ListenConfig { bind, pairing_host };
+    let entries = std::collections::HashMap::from([
+        (REMOTE_BIND_KEY.to_string(), listen.bind.as_setting()),
+        (
+            REMOTE_PAIRING_HOST_KEY.to_string(),
+            listen.pairing_host.clone().unwrap_or_default(),
+        ),
+    ]);
+    match ctx.remote_web().listen_config() {
+        Some(current) => {
+            let listener_changes = current.bind != listen.bind
+                || (listen.bind == crate::web::BindChoice::Loopback
+                    && current.pairing_host != listen.pairing_host);
+            if listener_changes {
+                ctx.remote_web().restart_listen(ctx.clone(), listen)?;
+            }
+            persist_remote_settings(ctx, entries);
+        }
+        // Stopped: persisting is the whole effect, so a failed write is reported.
+        None => set_app_settings(ctx, entries)?,
+    }
+    Ok(web_server_status(ctx))
 }
 
 /// app_settings key: "1" (or absent, the default) while mirror mode is on, "0" once the host turns it off.
@@ -2393,6 +2771,8 @@ pub fn web_server_status(ctx: &AppCtx) -> crate::web::WebServerStatus {
             .get(REMOTE_ENABLED_KEY)
             .map(|v| v == "1")
             .unwrap_or(false);
+        status.saved_bind = settings.get(REMOTE_BIND_KEY).cloned();
+        status.saved_pairing_host = settings.get(REMOTE_PAIRING_HOST_KEY).cloned();
     }
     status
 }
@@ -2450,11 +2830,21 @@ pub fn web_server_autostart(ctx: &AppCtx) -> Result<Option<crate::web::WebServer
     } else {
         crate::web::ServeMode::LanTls
     };
-    match ctx.remote_web().start(
+    // An invalid persisted listen address is a visible auto-start failure, never a silent skip and never
+    // a fallback to every interface.
+    let listen = match listen_config_from(&settings, None) {
+        Ok(listen) => listen,
+        Err(e) => {
+            ctx.remote_web().set_autostart_error(Some(e.clone()));
+            return Err(e);
+        }
+    };
+    match ctx.remote_web().start_with_listen(
         ctx.clone(),
         crate::web::StartAuth::PasswordHash(phc),
         Some(port),
         mode,
+        listen,
     ) {
         Ok(status) => Ok(Some(status)),
         Err(e) => {
@@ -2643,9 +3033,10 @@ fn cloudflare_start_from_settings(
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_args_with_add_dir, chat_attach_project, autostart_config, check_images, cloudflare_access_autostart, cloudflare_access_start,
-        cloudflare_access_status, cloudflare_access_stop, get_app_settings, install_id,
-        set_app_settings, touch_session_activity_at, web_server_autostart,
+        agent_args_with_add_dir, assemble_grok_catalog, chat_attach_project, autostart_config, check_images,
+        cloudflare_access_autostart, cloudflare_access_start, cloudflare_access_status, cloudflare_access_stop,
+        get_app_settings, install_id, listen_config_from, set_app_settings, touch_session_activity_at,
+        web_server_autostart, web_server_set_listen,
         web_server_status, web_server_stop, ChatImage, MAX_IMAGES_PER_MESSAGE, MAX_IMAGE_BYTES,
     };
     use std::collections::HashMap;
@@ -2709,6 +3100,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A running Grok session reports one model; the picker must still offer the CLI catalogue, and a
+    /// model the CLI names without levels falls back to the ladder `config.toml` declares for it.
+    #[test]
+    fn grok_picker_keeps_live_choices_and_adds_cli_models() {
+        let live = vec![serde_json::json!({
+            "id":"magpie/workbuddy-ai/deepseek-v4.1-flash-sg","label":"deepseek",
+            "description":"","effortLevels":["none","low","high","max"],
+        })];
+        let config = HashMap::from([("grok-4.6".to_string(), crate::agent::grok_models::ConfigModel {
+            label: "Grok 4.6".into(), effort_levels: vec!["xhigh".into(), "high".into()],
+        })]);
+        let models = assemble_grok_catalog(&live, &["grok-4.6".to_string()], &config);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0]["id"], "magpie/workbuddy-ai/deepseek-v4.1-flash-sg");
+        assert_eq!(models[0]["effortLevels"], serde_json::json!(["none", "low", "high", "max"]));
+        assert_eq!(models[1]["id"], "grok-4.6");
+        assert_eq!(models[1]["label"], "Grok 4.6");
+        assert_eq!(models[1]["effortLevels"], serde_json::json!(["xhigh", "high"]));
+    }
+
+    /// Before Grok has ever opened a conversation, the config file's `reasoning_efforts` fill each
+    /// model's ladder, which is what makes the thinking chip work on first open.
+    #[test]
+    fn grok_config_file_fills_the_ladder_before_the_agent_runs() {
+        let config = HashMap::from([
+            ("magpie/auto/deepseek-v4.1-flash".to_string(), crate::agent::grok_models::ConfigModel {
+                label: "DeepSeek V4.1 Flash".into(),
+                effort_levels: vec!["none".into(), "low".into(), "high".into(), "max".into()],
+            }),
+            ("magpie/group/free".to_string(), crate::agent::grok_models::ConfigModel {
+                label: "free".into(),
+                effort_levels: vec!["high".into()],
+            }),
+        ]);
+        let ids = vec!["magpie/auto/deepseek-v4.1-flash".to_string(), "grok-4.6".to_string()];
+        let models = assemble_grok_catalog(&[], &ids, &config);
+        assert_eq!(models.len(), 3);
+        assert_eq!(models[0]["label"], "DeepSeek V4.1 Flash");
+        assert_eq!(models[0]["effortLevels"], serde_json::json!(["none", "low", "high", "max"]));
+        // A model with neither a live nor a configured ladder keeps an empty list rather than inventing one.
+        assert_eq!(models[1]["id"], "grok-4.6");
+        assert_eq!(models[1]["effortLevels"], serde_json::json!([]));
+        // Models only the config describes come last, so the CLI order is what people see first.
+        assert_eq!(models[2]["id"], "magpie/group/free");
+    }
+
+    /// A live ladder wins over the config file, so switching models shows what the running session
+    /// actually offers.
+    #[test]
+    fn live_grok_levels_win_over_config() {
+        let live = vec![serde_json::json!({
+            "id":"grok-4.6","label":"Grok 4.6","description":"","effortLevels":["xhigh","high","medium","low"],
+        })];
+        let config = HashMap::from([("grok-4.6".to_string(), crate::agent::grok_models::ConfigModel {
+            label: "Config".into(), effort_levels: vec!["low".into()],
+        })]);
+        let models = assemble_grok_catalog(&live, &[], &config);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0]["label"], "Grok 4.6");
+        assert_eq!(models[0]["effortLevels"], serde_json::json!(["xhigh", "high", "medium", "low"]));
+    }
+
     fn image(bytes: usize) -> ChatImage {
         // Four base64 characters per three bytes, which is what the check reads back.
         ChatImage {
@@ -2742,6 +3195,146 @@ mod tests {
         let db = crate::db::Db::open(&dir.join("t.db")).unwrap();
         let host = std::sync::Arc::new(crate::host::HeadlessHost::new(dir.to_path_buf(), db));
         crate::host::AppCtx::Headless(host)
+    }
+
+    /// The Grok terminal engine accepts `--session-id`, so a new terminal session seeds its own id for a
+    /// deterministic first launch. The chat engine (ACP) cannot choose the id — `session/new` assigns it —
+    /// so seeding one there makes the first launch try to reopen a conversation that was never created,
+    /// which surfaced as "could not reopen that conversation; a new one has been started".
+    #[test]
+    fn a_new_grok_chat_session_does_not_seed_a_resume_anchor() {
+        let dir = std::env::temp_dir().join(format!("vlx-create-seed-{}", uuid::Uuid::new_v4()));
+        let ctx = headless_ctx(&dir);
+        ctx.db()
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO projects (id, name, root_path, sort_order, created_at) VALUES ('p','P','/tmp',0,0)",
+                [],
+            )
+            .unwrap();
+
+        let create = |name: &str, engine: &str| {
+            super::create_session(
+                &ctx, "p", None, name, crate::models::SessionKind::Grok, None, None, None, None,
+                None, None, None, None, None, None, None, Some(engine),
+            )
+            .unwrap()
+        };
+
+        let chat = create("grok chat", "chat");
+        assert_eq!(
+            chat.agent_session_id, None,
+            "a new Grok chat session must not pre-seed a resume id"
+        );
+
+        let tui = create("grok tui", "tui");
+        assert_eq!(
+            tui.agent_session_id.as_deref(),
+            Some(tui.id.as_str()),
+            "a Grok terminal session seeds its own id for --session-id"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Seeding a caller-provided session id is a terminal-engine capability, independent of the specific
+    /// session-creation path (`create_session` vs `insert_session`).
+    #[test]
+    fn caller_id_seeding_is_terminal_only_and_grok_specific() {
+        use crate::models::SessionKind::*;
+        assert!(Grok.accepts_caller_session_id("tui"));
+        assert!(!Grok.accepts_caller_session_id("chat"));
+        assert!(Zoo.accepts_caller_session_id("tui"));
+        assert!(!Zoo.accepts_caller_session_id("chat"));
+        assert!(!Claude.accepts_caller_session_id("tui"));
+        assert!(!Claude.accepts_caller_session_id("chat"));
+    }
+
+    /// Dropping an uncreated seeded Grok id in memory alone fails `ChatManager::start`'s database
+    /// identity guard (`session.agent_session_id != resume`). `chat_start` must clear the seeded row in
+    /// SQLite for both legacy chat rows and tui->chat switches, while leaving genuinely distinct native
+    /// ids intact so ACP can report a missing conversation.
+    #[test]
+    fn chat_start_clears_uncreated_seeded_grok_anchor_in_db() {
+        use crate::db::repo;
+        use crate::models::SessionKind;
+        let dir = std::env::temp_dir().join(format!("vlx-grok-chat-start-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = crate::db::Db::open(&dir.join("t.db")).unwrap();
+        let host = std::sync::Arc::new(crate::host::HeadlessHost::new(dir.clone(), db));
+        host.set_hooks(crate::agent::server::HookServer {
+            port: 0,
+            token: "fixture".into(),
+        });
+        let ctx = crate::host::AppCtx::Headless(host);
+        ctx.db()
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO projects (id, name, root_path, sort_order, created_at) VALUES ('p','P','/tmp',0,0)",
+                [],
+            )
+            .unwrap();
+
+        let missing_bin = Some("missing-grok-fixture");
+        // Case 1: legacy pre-seeded Grok chat row written before chat stopped seeding.
+        let legacy = super::create_session(
+            &ctx, "p", None, "legacy", SessionKind::Grok, None, None, None, None, None, None,
+            None, None, None, None, missing_bin, Some("chat"),
+        )
+        .unwrap();
+        {
+            let conn = ctx.db().conn.lock().unwrap();
+            repo::set_agent_session_id(&conn, &legacy.id, &legacy.id, SessionKind::Grok).unwrap();
+        }
+        let err = super::chat_start(&ctx, &legacy.id, None, None, false).unwrap_err();
+        assert!(
+            !err.contains("identity changed"),
+            "legacy seeded Grok chat row must pass the startup identity check; got: {err}"
+        );
+        assert_eq!(
+            repo::get_agent_session_id(&ctx.db().conn.lock().unwrap(), &legacy.id).unwrap(),
+            None
+        );
+
+        // Case 2: Grok tui session switched to chat before its first launch.
+        let switched = super::create_session(
+            &ctx, "p", None, "switched", SessionKind::Grok, None, None, None, None, None, None,
+            None, None, None, None, missing_bin, Some("tui"),
+        )
+        .unwrap();
+        assert_eq!(switched.agent_session_id.as_deref(), Some(switched.id.as_str()));
+        super::set_session_engine(&ctx, &switched.id, "chat").unwrap();
+        let err = super::chat_start(&ctx, &switched.id, None, None, false).unwrap_err();
+        assert!(
+            !err.contains("identity changed"),
+            "tui->chat Grok session must pass the startup identity check; got: {err}"
+        );
+        assert_eq!(
+            repo::get_agent_session_id(&ctx.db().conn.lock().unwrap(), &switched.id).unwrap(),
+            None
+        );
+
+        // Case 3: a non-seeded native id stays persisted so ACP's session/load reports reopen failure.
+        let lost = super::create_session(
+            &ctx, "p", None, "lost", SessionKind::Grok, None, None, None, None, None, None,
+            None, Some("native-from-earlier-chat"), None, None, missing_bin, Some("chat"),
+        )
+        .unwrap();
+        let err = super::chat_start(&ctx, &lost.id, None, None, false).unwrap_err();
+        assert!(
+            !err.contains("identity changed"),
+            "distinct native id must stay aligned with DB; got: {err}"
+        );
+        assert_eq!(
+            repo::get_agent_session_id(&ctx.db().conn.lock().unwrap(), &lost.id).unwrap().as_deref(),
+            Some("native-from-earlier-chat")
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A preference written by one client must reach the others while they run, so the broadcast fires
@@ -3184,6 +3777,401 @@ mod tests {
         let mut lan = full;
         lan.insert("remoteAccess.lanHttp".into(), "1".into());
         assert!(matches!(autostart_config(&lan), Some((_, true, _))));
+    }
+
+    #[test]
+    fn chat_clear_supports_antigravity_and_increments_name() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-agy-clear-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        let (project_id, session_id) = {
+            let conn = ctx.db().conn.lock().unwrap();
+            let project = crate::db::repo::import_project(&conn, tmp.to_str().unwrap()).unwrap();
+            let session = crate::db::repo::create_session_full(
+                &conn,
+                &project.id,
+                None,
+                "Antigravity 1",
+                crate::models::SessionKind::Antigravity,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("chat"),
+            )
+            .unwrap();
+            (project.id, session.id)
+        };
+
+        let fresh = super::chat_clear(&ctx, &session_id).unwrap();
+        assert_eq!(fresh.kind, crate::models::SessionKind::Antigravity);
+        assert_eq!(fresh.name, "Antigravity 2");
+        assert_eq!(fresh.project_id, project_id);
+
+        let conn = ctx.db().conn.lock().unwrap();
+        let archived = crate::db::repo::get_session(&conn, &session_id).unwrap().unwrap();
+        assert!(archived.archived_at.is_some());
+        drop(conn);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn update_session_syncs_antigravity_collaboration_mode() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-agy-update-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        let session_id = {
+            let conn = ctx.db().conn.lock().unwrap();
+            let project = crate::db::repo::import_project(&conn, tmp.to_str().unwrap()).unwrap();
+            let session = crate::db::repo::create_session_full(
+                &conn,
+                &project.id,
+                None,
+                "Antigravity 1",
+                crate::models::SessionKind::Antigravity,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("plan"),
+                None,
+                None,
+                None,
+                Some("chat"),
+            )
+            .unwrap();
+            crate::db::repo::set_collaboration_mode(&conn, &session.id, "plan").unwrap();
+            session.id
+        };
+
+        super::update_session(
+            &ctx,
+            &session_id,
+            "Antigravity 1",
+            None,
+            None,
+            None,
+            None,
+            Some("default"),
+        )
+        .unwrap();
+        {
+            let conn = ctx.db().conn.lock().unwrap();
+            let updated = crate::db::repo::get_session(&conn, &session_id).unwrap().unwrap();
+            assert_eq!(updated.permission_mode.as_deref(), Some("default"));
+            assert_eq!(updated.collaboration_mode.as_deref(), Some("default"));
+        }
+
+        super::update_session(
+            &ctx,
+            &session_id,
+            "Antigravity 1",
+            None,
+            None,
+            None,
+            None,
+            Some("acceptEdits"),
+        )
+        .unwrap();
+        {
+            let conn = ctx.db().conn.lock().unwrap();
+            let updated = crate::db::repo::get_session(&conn, &session_id).unwrap().unwrap();
+            assert_eq!(updated.permission_mode.as_deref(), Some("acceptEdits"));
+            assert_eq!(updated.collaboration_mode.as_deref(), Some("accept-edits"));
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+    #[test]
+    fn listen_config_from_settings() {
+        use crate::web::{BindChoice, ListenConfig};
+        // Absent keys keep the historical default: every interface, no pairing host.
+        assert_eq!(listen_config_from(&HashMap::new(), None), Ok(ListenConfig::default()));
+        let got = listen_config_from(
+            &settings(&[
+                ("remoteAccess.bind", "loopback"),
+                ("remoteAccess.pairingHost", "vela.example.ts.net"),
+            ]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(got.bind, BindChoice::Loopback);
+        assert_eq!(got.pairing_host.as_deref(), Some("vela.example.ts.net"));
+        // Invalid stored values are errors with their code, never a fallback.
+        let err = listen_config_from(&settings(&[("remoteAccess.bind", "bogus")]), None).unwrap_err();
+        assert!(err.starts_with("remote_bind_invalid:"), "{err}");
+        let err = listen_config_from(&settings(&[("remoteAccess.pairingHost", "a/b")]), None).unwrap_err();
+        assert!(err.starts_with("remote_pairing_host_invalid:"), "{err}");
+        // The CLI override replaces the stored bind without parsing it.
+        let got = listen_config_from(&settings(&[("remoteAccess.bind", "bogus")]), Some(BindChoice::All)).unwrap();
+        assert_eq!(got.bind, BindChoice::All);
+    }
+
+    /// Writes of the listen keys are validated for every caller and stored canonically; an invalid value
+    /// rejects the whole batch.
+    #[test]
+    fn set_app_settings_validates_listen_keys() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-listen-keys-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        for (key, bad, code) in [
+            ("remoteAccess.bind", "host.example", "remote_bind_invalid:"),
+            ("remoteAccess.bind", "224.0.0.1", "remote_bind_invalid:"),
+            ("remoteAccess.pairingHost", "evil.example/#", "remote_pairing_host_invalid:"),
+        ] {
+            let err = set_app_settings(
+                &ctx,
+                HashMap::from([
+                    (key.to_string(), bad.to_string()),
+                    ("vlx-theme".to_string(), "dark".to_string()),
+                ]),
+            )
+            .unwrap_err();
+            assert!(err.starts_with(code), "{key}={bad}: {err}");
+            let stored = get_app_settings(&ctx).unwrap();
+            assert!(stored.get(key).is_none() && stored.get("vlx-theme").is_none(), "nothing persisted");
+        }
+        set_app_settings(
+            &ctx,
+            HashMap::from([
+                ("remoteAccess.bind".to_string(), " 127.0.0.1 ".to_string()),
+                ("remoteAccess.pairingHost".to_string(), " vela.example.ts.net ".to_string()),
+            ]),
+        )
+        .unwrap();
+        let stored = get_app_settings(&ctx).unwrap();
+        assert_eq!(stored.get("remoteAccess.bind").map(String::as_str), Some("loopback"));
+        assert_eq!(
+            stored.get("remoteAccess.pairingHost").map(String::as_str),
+            Some("vela.example.ts.net")
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// On a stopped service a listen change persists (canonically) and shows in the status; an invalid
+    /// value changes nothing; a None pairing host keeps the stored one and an empty string clears it.
+    #[test]
+    fn web_server_set_listen_when_stopped_persists_and_validates() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-set-listen-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        let status = web_server_set_listen(&ctx, "loopback", Some("vela.example.ts.net")).unwrap();
+        assert!(!status.running);
+        assert_eq!(status.saved_bind.as_deref(), Some("loopback"));
+        assert_eq!(status.saved_pairing_host.as_deref(), Some("vela.example.ts.net"));
+
+        assert!(web_server_set_listen(&ctx, "bogus", None).unwrap_err().starts_with("remote_bind_invalid:"));
+        assert!(web_server_set_listen(&ctx, "all", Some("x:1"))
+            .unwrap_err()
+            .starts_with("remote_pairing_host_invalid:"));
+        let status = web_server_status(&ctx);
+        assert_eq!(status.saved_bind.as_deref(), Some("loopback"), "invalid input changes nothing");
+
+        // Switching the bind keeps the stored pairing host; an explicit empty string clears it.
+        let status = web_server_set_listen(&ctx, "100.100.83.2", None).unwrap();
+        assert_eq!(status.saved_bind.as_deref(), Some("100.100.83.2"));
+        assert_eq!(status.saved_pairing_host.as_deref(), Some("vela.example.ts.net"));
+        let status = web_server_set_listen(&ctx, "all", Some("")).unwrap();
+        assert_eq!(status.saved_bind.as_deref(), Some("all"));
+        assert_eq!(status.saved_pairing_host.as_deref(), Some(""));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// An invalid persisted listen address makes auto-start fail visibly: an error, the panel's
+    /// autostart_error, and no running server (never a silent skip or a fallback to every interface).
+    #[test]
+    fn autostart_with_invalid_or_absent_bind_fails_visibly() {
+        for (raw, code) in [
+            ("bogus", "remote_bind_invalid:bogus"),
+            ("192.0.2.10", "remote_bind_unavailable:192.0.2.10"),
+        ] {
+            let tmp = std::env::temp_dir().join(format!(
+                "vlx-cc-autostart-bind-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4().simple()
+            ));
+            let ctx = headless_ctx(&tmp);
+            seed_remote_settings(&ctx, "0");
+            // Bypass write validation to simulate a corrupt or foreign database value.
+            {
+                let conn = ctx.db().conn.lock().unwrap();
+                crate::db::repo::set_app_settings(
+                    &conn,
+                    &HashMap::from([("remoteAccess.bind".to_string(), raw.to_string())]),
+                )
+                .unwrap();
+            }
+            let Err(err) = web_server_autostart(&ctx) else {
+                panic!("auto-start must fail for bind={raw}");
+            };
+            assert_eq!(err, code);
+            assert!(!ctx.remote_web().status().running, "no server may bind");
+            assert_eq!(web_server_status(&ctx).autostart_error.as_deref(), Some(code));
+            let _ = std::fs::remove_dir_all(&tmp);
+        }
+    }
+
+    /// The desktop start path reads the persisted listen address: an absent address fails the start with
+    /// its code and binds nothing (no fallback to every interface), and nothing is persisted as enabled.
+    #[test]
+    fn web_server_start_honours_persisted_bind_without_fallback() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-start-bind-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        web_server_set_listen(&ctx, "192.0.2.10", None).unwrap();
+        let err = super::web_server_start(&ctx, "pw", Some(9), false).unwrap_err();
+        assert_eq!(err, "remote_bind_unavailable:192.0.2.10");
+        assert!(!ctx.remote_web().status().running, "no server may bind");
+        assert_ne!(
+            get_app_settings(&ctx).unwrap().get("remoteAccess.enabled").map(String::as_str),
+            Some("1"),
+            "a failed start must not persist the enabled flag"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A listen change on a running desktop instance (loopback only, so no network address is bound)
+    /// restarts it on the same port with the stored verifier, keeps the pairing token, moves the advertised
+    /// host, and persists the new setting; an absent address fails, keeps the instance running, and leaves
+    /// the persisted setting unchanged.
+    #[test]
+    fn web_server_set_listen_restarts_running_instance_and_persists_only_on_success() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-set-listen-running-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        web_server_set_listen(&ctx, "loopback", Some("")).unwrap();
+
+        let mut started = Err("never attempted".to_string());
+        let mut port = 0;
+        for _ in 0..5 {
+            port = std::net::TcpListener::bind(("127.0.0.1", 0))
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            started = super::web_server_start(&ctx, "pw", Some(port), false);
+            if started.is_ok() {
+                break;
+            }
+        }
+        let status = started.expect("failed to start the loopback LanTls server after retries");
+        assert_eq!(status.bind.as_deref(), Some("loopback"));
+        assert_eq!(status.urls, [format!("https://127.0.0.1:{port}")]);
+        // Start returns the merged view like status and set_listen, saved values included, so the panel
+        // compares against what is actually stored.
+        assert_eq!(status.saved_bind.as_deref(), Some("loopback"), "start returns the saved bind");
+        assert_eq!(status.saved_pairing_host.as_deref(), Some(""), "start returns the saved pairing host");
+        assert!(status.auto_start, "start returns the persisted enabled flag");
+        let token = ctx.remote_web().create_pairing(None, false).unwrap().device_token;
+
+        let status = web_server_set_listen(&ctx, "loopback", Some("vela.example.ts.net")).unwrap();
+        assert!(status.running);
+        assert_eq!(status.port, Some(port), "the port is kept");
+        assert_eq!(status.urls, [format!("https://vela.example.ts.net:{port}")], "the listener was restarted");
+        assert_eq!(status.saved_pairing_host.as_deref(), Some("vela.example.ts.net"));
+        assert_eq!(
+            ctx.remote_web().create_pairing(None, false).unwrap().device_token,
+            token,
+            "pairing credentials survive the restart"
+        );
+
+        let err = web_server_set_listen(&ctx, "192.0.2.10", None).unwrap_err();
+        assert_eq!(err, "remote_bind_unavailable:192.0.2.10");
+        let status = web_server_status(&ctx);
+        assert!(status.running, "the previous instance keeps running");
+        assert_eq!(status.bind.as_deref(), Some("loopback"));
+        assert_eq!(status.saved_bind.as_deref(), Some("loopback"), "a failed change is not persisted");
+
+        ctx.remote_web().stop();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn chat_attach_antigravity_does_not_deadlock_db() {
+        let tmp = std::env::temp_dir().join(format!(
+            "vlx-cc-chat-attach-agy-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let ctx = headless_ctx(&tmp);
+        let project = super::create_virtual_project(&ctx, "P", None).unwrap();
+        let session = super::create_session(
+            &ctx,
+            &project.id,
+            None,
+            "Antigravity",
+            crate::models::SessionKind::Antigravity,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("/nonexistent/agy"),
+            Some("chat"),
+        )
+        .unwrap();
+
+        super::chat_attach(&ctx, &session.id).unwrap();
+
+        // Subsequent DB-backed commands must keep working without blocking.
+        let models = super::chat_models(&ctx, &session.id).unwrap();
+        assert!(models.as_array().is_some_and(|items| !items.is_empty()));
+        super::chat_set_model(&ctx, &session.id, Some("gemini-4-neon")).unwrap();
+        let term = super::create_session(
+            &ctx,
+            &project.id,
+            None,
+            "Terminal",
+            crate::models::SessionKind::Terminal,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(term.kind, crate::models::SessionKind::Terminal);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
 

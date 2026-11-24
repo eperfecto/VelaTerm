@@ -1,11 +1,96 @@
 # Changelog
 
-> Created: 2026-07-09 16:10 · Updated: 2026-11-08
+> Created: 2026-07-09 16:10 · Updated: 2026-11-24
 
 All notable changes to VelaTerm are documented here, newest first.
 v0.1.91 is the first public release; earlier version numbers were internal iterations and are not covered.
 
 ---
+
+## v0.3.6 — 2026-11-24
+
+- 📝 File diff views now support inline review comments on selected lines, with a review summary bar to edit, copy, or send all comments directly to an active agent session.
+- 🔀 Branch comparison in the Git panel now lets you create pull or merge requests (including drafts) on GitHub, GitLab, and Gitea with prefilled details, view PR status and CI checks, and clean up the worktree and branch after merge.
+- 🔌 SSH remote windows now include a Ports tab in the right panel and a forwarded-port counter in the status bar, detecting listening ports on Linux hosts and letting you forward ports, open them in your browser, or stop them directly.
+- 🎨 Settings ▸ Appearance now lets you choose separate named themes for dark mode (Tokyo Night, Dracula, Nord, Gruvbox Dark, Adventure Time, and Campbell PowerShell) and light mode (One Half Light and Solarized Light) alongside Classic, keeping your selection when switching between dark and light.
+- ⌨️ The sidebar session tree now supports full keyboard navigation with arrow keys, `Home`/`End`, `Enter`, and `Escape` to return focus to the active terminal or conversation input, along with a configurable Focus sidebar shortcut (`Cmd+Shift+E` on macOS, `Ctrl+Alt+S` on Windows and Linux).
+- 🔎 Searching in the sidebar while a status filter is active now lists matching projects excluded by the filter in a separate Other projects section below the filtered results.
+- ⚡ Antigravity conversations now reopen faster and send messages immediately without stalling on cold starts or background checks.
+- 🪐 Antigravity conversations now start cleanly even when no default model is selected, recover automatically from silent stalls, network hiccups, and corrupted session state, keep interactive choice prompts usable under Bypass permissions, and automatically resume after quota resets.
+- 🔑 ZCode sessions now automatically pick up newly released cloud models and support ZCode 4.0 encrypted credentials, including system keychain sign-ins.
+- 🤖 New Grok conversations now start cleanly without falsely warning that an earlier conversation could not be reopened, and Grok, Copilot, Cursor, Kimi, and Antigravity conversations whose earlier conversation can no longer be reopened recover cleanly into a fresh conversation instead of stopping.
+- 🪟 On macOS, the window title bar now matches your selected dark or light theme even when it differs from the system appearance, and switches back cleanly when returning to System mode.
+- 💬 Dismissing the conversation view hint is now remembered across restarts and across desktop, Electron, and browser windows without briefly reappearing on startup.
+- 🧩 Switching away from or closing a plugin view in the desktop app now works normally without snapping back, and plugin rendering errors stay contained with a Retry option.
+- 🔧 Switching between regular tabs and views without a right panel, such as the Knowledge Base, no longer crashes the interface.
+
+## v0.3.5 — 2026-11-23
+
+- 🔎 Global session search now lets you filter results by a specific project or collection, including nested collections and projects.
+- 🪐 Opening multiple Antigravity conversations at once no longer triggers credential conflicts or duplicate sign-in prompts, and idle sessions automatically renew expired credentials instead of failing mid-turn.
+- 🔄 Antigravity conversations now automatically recover from cold-start model errors and transient upstream errors without interrupting the turn or losing completed tool results.
+- 🤖 `vapp` now accepts `--yes` (`-y` / `--no-confirm`) to run actions directly without a confirmation card, and knowledge base changes made through `vapp` refresh the knowledge base view automatically.
+- 💬 `vtell` can now send messages to any conversation-view agent session—including Antigravity, ZCode, DeepSeek, Copilot, Cursor, Kimi and Grok—with Antigravity also supporting `--steer` interjections.
+- ✉️ Sending a message while viewing earlier conversation history or after a missed live update no longer leaves the message stuck on Sent.
+
+## v0.3.4 — 2026-11-22
+
+- 🪐 Antigravity conversations now ship with a built-in model list including Gemini 4 Neon and Orchestrator (Neon), refresh available models in the background when opened, and seamlessly switch long-running sessions to newly released models.
+- 🔑 Antigravity conversations now let you sign in with Google and sign out directly from the conversation view.
+- 🛡️ Antigravity conversations now keep Bypass permissions reliably on startup, wait for the model list on cold starts instead of failing on the first message, and no longer freeze the app when opening a session.
+- 📁 The Files panel now supports multi-select, batch delete, and cutting, copying and pasting files with Finder and File Explorer, including conflict resolution.
+- 🔎 Filtering in the Files panel now searches recursively across collapsed folders and expands matching paths automatically.
+- 🖼️ Oversized images pasted or dropped into conversations are now automatically resized and compressed instead of rejected, with a 1, 2 or 4 MB limit option in Settings.
+- 🔔 Main and remote windows now show their own pending count in the window title, and the Dock or taskbar badge shows the total across all open windows.
+- 🔍 SSH, WSL and paired URL remote windows now include the interface zoom control in the status bar.
+- 🧱 SSH host-key probing and trust now honor aliases, hostnames and custom ports in `~/.ssh/config`.
+- 🪟 On macOS, clicking the Dock icon while only remote windows are open raises them instead of opening a new main window, and the Dock context menu adds New Window.
+- 💬 Conversation errors now strip raw terminal escape codes, show a clear message when another Codex process is holding the same conversation, and no longer duplicate startup errors.
+- 🔧 Cancelling a project drag in the sidebar clears the drop indicator immediately, and conversation-view sessions no longer receive conflicting status updates from terminal hooks.
+
+## v0.3.3 — 2026-11-17
+
+- 🌐 Remote access can now listen on all networks, a single IPv4 address such as a Tailscale address, or this computer only for use behind a tunnel or reverse proxy; `vela-server --serve` takes the same choice with `--bind`.
+- 🔒 The access password for `vela-server --serve` is no longer inherited by terminals, agents and other child processes, and `--password-file` reads it from a file only its owner can read.
+- 🪐 New Antigravity sessions open in the conversation view, while sessions created before the update keep the view they had.
+- 🧭 Right-click a section on the activity bar to make it the default view; without one, the sidebar now opens on Projects instead of the section you last viewed.
+- 🤖 Grok conversations offer every model the account can use and each model's own reasoning levels, with `none` shown below the ladder.
+- 💬 Grok's plan approvals, questions and MCP forms now appear as the usual cards and can be answered, and a conversation Grok can no longer reopen starts a fresh one instead of blocking every message.
+- 🏷️ Grok sessions follow the title Grok gives their conversation, and long conversations or ones filed under a deleted project start normally again.
+- 🧱 SSH connections on Windows now honor `~/.ssh/config` for host aliases, ports, users, identity files and preferred authentication.
+- 🗂️ Projects can be reordered by dragging one project row onto the upper or lower half of another.
+- ⚙️ Settings reopens on the section you last viewed.
+- 💡 Behavior settings that are hard to infer from their labels now explain themselves through an info icon.
+- 📁 Files gains Collapse All to close every open folder below the root at once.
+- ⌨️ `Cmd/Ctrl+Tab` and `Cmd/Ctrl+Shift+Tab` move to the next and previous tab and wrap around.
+- ⌨️ Typing `/` in the terminal no longer sends it twice.
+- ⌨️ Terminal input after moving the cursor and then using an IME is no longer corrupted.
+- 🖥️ A mirrored window that missed a size change now matches the terminal's size instead of drawing a garbled prompt.
+- 🧩 Chips switched off in the Composer toolbar settings no longer appear behind More.
+
+## v0.3.2 — 2026-11-16
+
+- 🤖 OpenCode v2 sessions can use AI rename and translation again, and a failed AI rename now reports the failure instead of saying the agent is unavailable.
+- 🪐 In Antigravity conversations, Load earlier messages now keeps working after an agent wakes up, instead of doing nothing.
+
+## v0.3.1 — 2026-11-16
+
+- 🪐 Antigravity conversation view now supports model and reasoning effort switching, subagent and background task tracking, interactive `ask_question` prompts, five-level permissions, AI rename, and turn stats, output speed, and quota usage in the Info panel.
+- 🐋 DeepSeek sessions now support background tasks, model-level image input, context usage, AI rename, API URL and key configuration next to the input box, and read-only viewing of earlier `dsh` history.
+- 🤖 Agents can now propose VelaTerm app actions with `vapp` (including organizing sidebar trees with `$name` references), with each action or batch shown as a confirmation card in conversation view.
+- 📁 Tasks and Chats in the left sidebar support creating groups, adding items from the empty-area context menu, and dragging items out to the top level.
+- 📦 Windows releases now include portable zip packages for both full and minimal builds, and portable copies update from the download page.
+- 🇨🇳 Settings can switch the update and download server to the China mainland mirror `velaterm.cn`.
+- 🔍 Status bar adds interface zoom controls with direct percentage input, and Settings lets you pick separate searchable fonts for the interface and conversations.
+- 📎 Files dragged from Finder or File Explorer can now be dropped directly into terminals, conversations, and the project file tree.
+- 🍴 ZCode sessions support forking from the latest reply without modifying the workspace, reverting from the latest message, and AI rename, while Pi and OMP sessions support slash-command completion.
+- 📋 Conversation messages have Copy full message in their context menu, the input box has a native Cut/Copy/Paste/Select All context menu with shortcut labels, and in-conversation search scans full transcripts first.
+- 📊 The Info panel Usage section displays quota bars grouped by reset window with a 20-tick scale and separate reset times, and collapses non-Gemini Antigravity quotas by default.
+- 🏷️ Sessions have Set Status (Viewed / Pending) in their context menu, newly created sessions stay visible under status filters, and `vspawn --title` sets custom titles for spawned and planning sessions.
+- 🪟 `vartifact` docks files even when opened from background tabs, the background tab limit dropdown goes up to 512, and public share viewers can expand or collapse the left tree locally.
+- ⌨️ Confirming an IME composition with Enter on macOS no longer submits answers or searches prematurely, remote terminal input hides Zsh inline history suggestions, and synchronized terminal updates no longer flash the viewport.
+- 🔔 Clicking a remote window notification on macOS raises that window directly without flashing the main window first, and reopening the app restores the main window even when only remote windows are open.
+- 🔧 Switching projects clears the file tree filter, permission selectors save defaults immediately with Set as default, AI rename works on very long sessions, and the first message in a new session no longer flashes before the session starts.
 
 ## v0.3.0 — 2026-11-08
 

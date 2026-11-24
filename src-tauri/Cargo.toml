@@ -121,7 +121,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 portable-pty = "0.8"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions"] }
 uuid = { workspace = true }
-# DeepSeek Harness writes its session logs as zstd-compressed JSONL; already in the tree through dependencies.
+# The retired DeepSeek Harness wrote its session logs as zstd-compressed JSONL.
 zstd = "0.13"
 # Server audit-log timestamps use local `yyyy-MM-dd HH:mm:ss` date and time.
 time = { workspace = true }
@@ -240,6 +240,10 @@ windows = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     # LoadLibraryW, so the bundled conpty.dll replaces the inbox ConPTY (pty/conpty_win.rs).
     "Win32_System_LibraryLoader",
+    # System file clipboard (CF_HDROP + Preferred DropEffect) for Explorer interoperability (file_clipboard.rs).
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_Globalization",
     # Native WinRT toast notifications with Activated navigation; the official plugin lacks desktop clicks.
     "Foundation",
     "Data_Xml_Dom",

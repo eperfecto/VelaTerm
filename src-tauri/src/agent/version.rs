@@ -38,7 +38,7 @@ pub fn for_session(app: &AppCtx, id: &str, check_updates: bool) -> Result<AgentV
     let live = app.chat().agent_version(id);
     let running = live.is_some();
     let version = live.unwrap_or_else(|| installed(&super::executable::for_session(app, &session)));
-    let opencode_v2=session.kind==SessionKind::Opencode && super::opencode::is_v2_version(version.as_deref());
+    let opencode_v2=session.kind.uses_opencode() && super::opencode::is_v2_version(version.as_deref());
     let latest = if opencode_v2 {latest_opencode_v2(check_updates)} else {latest(session.kind, check_updates)};
     let update_available = if opencode_v2 {newer_opencode_v2(version.as_deref(),latest.version.as_deref())}
         else {newer(version.as_deref(), latest.version.as_deref())};
@@ -51,12 +51,48 @@ pub fn for_session(app: &AppCtx, id: &str, check_updates: bool) -> Result<AgentV
     })
 }
 
+type InstalledCache = Mutex<HashMap<String, ((u64, std::time::SystemTime), Option<String>)>>;
+static INSTALLED_CACHE: OnceLock<InstalledCache> = OnceLock::new();
+
+fn installed_cache() -> &'static InstalledCache {
+    INSTALLED_CACHE.get_or_init(Default::default)
+}
+
+fn binary_stamp(bin: &str) -> Option<(u64, std::time::SystemTime)> {
+    let resolved = std::fs::canonicalize(bin).ok()?;
+    let meta = std::fs::metadata(resolved).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
+
+/// Forget the cached version for `bin` after an install or self-update, whose launcher script may stay
+/// unchanged while the package behind it is replaced.
+pub fn forget(bin: &str) {
+    installed_cache().lock().unwrap().remove(bin);
+}
+
 /// Capture the selected executable before launch, retaining that version throughout the process lifetime.
+/// Cached by executable path and target file metadata so cold session starts do not re-spawn `<bin> --version`.
 pub fn installed(bin: &str) -> Option<String> {
-    match super::health::run_version(bin, Duration::from_secs(3)) {
+    let stamp = binary_stamp(bin);
+    if let Some(stamp) = stamp {
+        if let Some((seen, cached)) = installed_cache().lock().unwrap().get(bin) {
+            if *seen == stamp {
+                return cached.clone();
+            }
+        }
+    }
+    let parsed = match super::health::run_version(bin, Duration::from_secs(3)) {
         super::health::Outcome::Exited { success: true, stdout } => parse(&stdout),
         _ => None,
+    };
+    if let Some(stamp) = stamp {
+        let mut guard = installed_cache().lock().unwrap();
+        if guard.len() >= 128 {
+            guard.clear();
+        }
+        guard.insert(bin.to_string(), (stamp, parsed.clone()));
     }
+    parsed
 }
 
 fn parse(text: &str) -> Option<String> {
@@ -90,7 +126,7 @@ fn source(kind: SessionKind) -> Option<(String, &'static str)> {
         SessionKind::Codex => Some("@openai/codex"),
         SessionKind::Opencode => Some("opencode-ai"),
         SessionKind::Pi => Some("@earendil-works/pi-coding-agent"),
-        SessionKind::Deepseek => Some("@deepseek-ai/dsh"),
+        SessionKind::Deepseek => Some("opencode-ai"),
         _ => None,
     };
     if let Some(package) = package { return Some((format!("https://registry.npmjs.org/{package}/latest"), "version")); }

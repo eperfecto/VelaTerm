@@ -85,6 +85,7 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("--spawn") => velaterm_lib::run_spawn(&args),
         Some("--tell") => velaterm_lib::run_tell(&args),
+        Some("--app") => velaterm_lib::run_app(&args),
         Some("--run") => velaterm_lib::run_wait(&args),
         Some("--flow") => velaterm_lib::run_flow(&args),
         Some("--view") => velaterm_lib::run_view(&args),
@@ -94,25 +95,30 @@ fn main() {
         Some("--stat") => velaterm_lib::run_stat(&args),
         Some("--self") => velaterm_lib::run_self(&args),
         Some("--knowledge") => velaterm_lib::run_knowledge(&args),
+        Some("--plugin-cli") => velaterm_lib::run_plugin_cli(&args),
         _ => {}
     }
     // Raise the process's open-file soft limit on paths that can launch PTY sessions: --serve and the
     // desktop app. Short-lived shims above have already returned. Child agents inherit this limit;
     // without it, Node-based agents can fail under macOS's default limit of 256 descriptors.
     raise_fd_limit();
-    // Dock and desktop launches inherit a minimal environment: no login-shell PATH, no variables a
-    // startup file exports. Both are needed by the GUI and by the headless server's chat engine, so
-    // recover them before anything spawns a child process. Also remember the original launch baseline
-    // on every platform so new sessions can refresh exports without inheriting stale hydrated values.
-    velaterm_lib::login_env::hydrate();
     // Headless server mode starts browser remote access (HTTPS, login, WebSocket, and PTY) from the CLI
-    // without creating a window or requiring a display server.
+    // without creating a window or requiring a display server. It must run before anything below spawns
+    // a child: run_serve first removes the access password from the environment and only then recovers
+    // the login-shell environment itself, so the login-shell probe never inherits the password. The
+    // parent watch started just before it reads no variables.
     if args.get(1).map(String::as_str) == Some("--serve") {
         #[cfg(unix)]
         exit_with_parent();
         velaterm_lib::run_serve(&args);
         return;
     }
+    // Dock and desktop launches inherit a minimal environment: no login-shell PATH, no variables a
+    // startup file exports. The GUI and the vela-server host subcommands need both, so recover them
+    // before anything spawns a child process (--serve does the same inside run_serve, after its password
+    // scrub). Terminal launches already carry the shell environment and skip this.
+    #[cfg(unix)]
+    velaterm_lib::login_env::hydrate();
     // vela-server host subcommands (link, run, devices, …); no arguments at all starts first-run linking.
     #[cfg(not(feature = "gui"))]
     if velaterm_lib::run_host_cli(&args) {

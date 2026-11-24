@@ -32,6 +32,7 @@ import type { UnlistenFn } from "../ipc/transport";
 import { terminalLinkHandler, webLinkActivate } from "../terminal/openLink";
 
 import { appAltKeyCodes, IS_PLAIN_BROWSER } from "./shortcutRegistry";
+import { isTabCycleKey } from "./useKeyboardShortcuts";
 
 import {
   ptyRedraw,
@@ -64,6 +65,7 @@ import {
   unregisterTerminal,
 } from "../terminal/registry";
 import { installQueryReplyGuard } from "../terminal/queryReplyGuard";
+import { installSyncOutputFix } from "../terminal/syncOutputFix";
 import { installCompletion } from "../terminal/completion/controller";
 import {
   discardTerminalOutput,
@@ -72,6 +74,7 @@ import {
   writeTerminalOutput,
 } from "../terminal/outputScheduler";
 import { installWebkitImeFix, isWebkitEngine } from "../terminal/imeWebkitFix";
+import { installImeAnchor } from "../terminal/imeAnchor";
 import { installImeCaret } from "../terminal/imeCaret";
 import { detectAgentScreen, readScreenTail } from "../terminal/screenDetect";
 import { remapGrokDayCanvasToWhite } from "../terminal/grokBgRemap";
@@ -291,11 +294,20 @@ export function usePtySession(session: Session, cwd?: string, hidden?: boolean) 
         !e.ctrlKey &&
         !e.altKey &&
         !e.metaKey &&
-        !e.isComposing
+        !e.isComposing &&
+        e.keyCode !== 229 // WebKit reports the composition-confirming Enter with isComposing false.
       ) {
         e.preventDefault();
         completion?.input("\x1b\r");
         void ptyWrite(session.id, "\x1b\r").catch(() => {});
+        return false;
+      }
+      // Cmd/Ctrl+Tab and Cmd/Ctrl+Shift+Tab cycle app tabs (see useKeyboardShortcuts). xterm would also
+      // encode them as HT / CBT (\x1b[Z) and write them to the PTY, so swallow them here on every
+      // platform — this sits above the macOS early return below. Only the modified combination is taken,
+      // and only while there are tabs to cycle: an unmodified Tab or Shift+Tab, or the combo with a single
+      // tab open, still reaches the shell.
+      if (isTabCycleKey(e)) {
         return false;
       }
       // On Windows/Linux, let plain Ctrl+V reach native browser paste. xterm otherwise converts it to
@@ -434,6 +446,9 @@ export function usePtySession(session: Session, cwd?: string, hidden?: boolean) 
     // Draw a caret inside the pre-edit overlay while composing; xterm's overlay has none and it covers the
     // terminal cursor (issue #59). See imeCaret.ts.
     const imeCaret = installImeCaret(container);
+    // Keep the helper textarea caret at the end outside composition so xterm slices the commit correctly
+    // after ←/→ moved it. See imeAnchor.ts.
+    const imeAnchor = term.textarea ? installImeAnchor(container, term.textarea) : null;
 
     let disposed = false;
     let unlistenExit: UnlistenFn | undefined;
@@ -455,6 +470,8 @@ export function usePtySession(session: Session, cwd?: string, hidden?: boolean) 
       if (replaying || modeRef.current === "mirror") return;
       void useTermStore.getState().applyTerminalTitle(session.id, title).catch(() => {});
     });
+    // Prevent xterm 6.0.0 from forcing a full-viewport DOM redraw on every CSI ? 2026 l exit.
+    const disposeSyncOutputFix = installSyncOutputFix(term);
 
     // Never fit a display:none/zero-width container. xterm silently shrinks to two columns and
     // permanently hard-wraps history rather than throwing.
@@ -981,6 +998,7 @@ export function usePtySession(session: Session, cwd?: string, hidden?: boolean) 
       container.removeEventListener("vlx-terminal-user-scroll", syncViewportIntent);
       searchIntentSub.dispose();
       imeCaret.dispose();
+      imeAnchor?.dispose();
       imeFix?.dispose();
       writeParsedSub.dispose();
       dataSub.dispose();
@@ -990,6 +1008,7 @@ export function usePtySession(session: Session, cwd?: string, hidden?: boolean) 
       unlistenStatus?.();
       unlistenReattach?.();
       unlistenReattachStart?.();
+      disposeSyncOutputFix();
       disposeReplyGuard();
       titleSub.dispose();
       unregisterSearch(session.id, searchAddon);

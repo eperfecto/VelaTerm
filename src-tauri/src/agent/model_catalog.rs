@@ -53,12 +53,12 @@ fn list_args(agent: &str) -> Option<&'static [&'static str]> {
 /// dialog can say why the list is empty instead of silently offering nothing.
 pub fn list_models(app: &crate::host::AppCtx, agent: &str) -> Result<Vec<String>, String> {
     if agent == "claude" {
-        let bin = super::executable::resolve(app, crate::models::SessionKind::Claude, None)
+        let bin = super::executable::resolve_cached(app, crate::models::SessionKind::Claude, None)
             .unwrap_or_else(|| "claude".into());
         return Ok(super::claude_models::list_for_bin(&bin).into_iter().map(|m| m.id).collect());
     }
     if agent == "codex" {
-        let bin = super::executable::resolve(app, crate::models::SessionKind::Codex, None)
+        let bin = super::executable::resolve_cached(app, crate::models::SessionKind::Codex, None)
             .unwrap_or_else(|| "codex".into());
         return super::codex_models::list(&bin, &[]).map(|models| models.into_iter().map(|m| m.id).collect());
     }
@@ -67,32 +67,47 @@ pub fn list_models(app: &crate::host::AppCtx, agent: &str) -> Result<Vec<String>
     }
     if list_args(agent).is_none() { return Ok(Vec::new()); }
     let kind = crate::models::SessionKind::from_db(agent);
-    let bin = super::executable::resolve(app, kind, None)
+    let bin = super::executable::resolve_cached(app, kind, None)
         .unwrap_or_else(|| super::executable::command_name(kind).to_string());
     list_models_at(agent, &bin)
 }
 
-/// Use the session's selected executable for both model discovery and conversation launches.
-pub fn list_models_at(agent: &str, bin: &str) -> Result<Vec<String>, String> {
-    let Some(args) = list_args(agent) else { return Ok(Vec::new()); };
+/// Run the configured model-list command for `agent` and return its raw stdout.
+pub(crate) fn run_list_command(agent: &str, bin: &str) -> Result<String, String> {
+    run_list_command_with_timeout(agent, bin, LIST_TIMEOUT)
+}
+
+/// Run the configured model-list command for `agent` with an explicit timeout.
+pub(crate) fn run_list_command_with_timeout(
+    agent: &str,
+    bin: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    let Some(args) = list_args(agent) else { return Ok(String::new()); };
     let mut cmd = crate::host::command(bin);
     crate::login_env::refresh_command(&mut cmd);
-    super::executable::prepare_command(&mut cmd, &bin);
+    super::executable::prepare_command(&mut cmd, bin);
     cmd.args(args);
     // Several CLIs render a decorated tree when they detect a terminal and one plain identifier per
     // line otherwise. Capturing through a pipe already puts them in the plain mode; NO_COLOR removes
     // any remaining escape sequences.
     cmd.env("NO_COLOR", "1");
-    let text = run_capture(cmd)?;
+    run_capture(cmd, timeout)
+}
+
+/// Use the session's selected executable for both model discovery and conversation launches.
+pub fn list_models_at(agent: &str, bin: &str) -> Result<Vec<String>, String> {
+    let text = run_list_command(agent, bin)?;
+    if text.is_empty() { return Ok(Vec::new()); }
     Ok(parse(agent, &text))
 }
 
-/// Run a prepared command and return its stdout, killing it once LIST_TIMEOUT elapses.
+/// Run a prepared command and return its stdout, killing it once `timeout` elapses.
 ///
 /// stdout is drained on a helper thread rather than after waiting: a CLI that fills the pipe buffer
 /// while the parent waits would deadlock. stderr is discarded because these commands print
 /// authentication hints there that are not part of the catalogue.
-fn run_capture(mut cmd: Command) -> Result<String, String> {
+fn run_capture(mut cmd: Command, timeout: Duration) -> Result<String, String> {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -109,7 +124,7 @@ fn run_capture(mut cmd: Command) -> Result<String, String> {
         let _ = out.read_to_string(&mut buf);
         let _ = tx.send(buf);
     });
-    match rx.recv_timeout(LIST_TIMEOUT) {
+    match rx.recv_timeout(timeout) {
         Ok(text) => {
             let _ = child.wait();
             Ok(text)
@@ -149,9 +164,10 @@ fn parse(agent: &str, text: &str) -> Vec<String> {
                 }
                 format!("{provider}/{model}")
             }
-            // Grok prints prose around a bulleted list: `  * grok-4.5 (default)`.
+            // Grok prints prose around a bulleted list: `  * grok-4.5 (default)` marks the default model,
+            // and `  - grok-4.6` lists every other model the account can switch to.
             "grok" => {
-                let Some(rest) = line.strip_prefix("* ") else {
+                let Some(rest) = line.strip_prefix("* ").or_else(|| line.strip_prefix("- ")) else {
                     continue;
                 };
                 rest.split_whitespace().next().unwrap_or_default().to_string()
@@ -251,7 +267,7 @@ fn parse_omp_json(text: &str) -> Vec<String> {
 }
 
 /// Whether a token is shaped like a model identifier rather than table decoration or prose.
-fn looks_like_id(s: &str) -> bool {
+pub(crate) fn looks_like_id(s: &str) -> bool {
     s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':'))
@@ -312,6 +328,11 @@ mod tests {
     fn grok_prose_and_bullets_yield_only_models() {
         let text = "You are not authenticated.\n\nDefault model: grok-4.5\n\nAvailable models:\n  * grok-4.5 (default)\n  * grok-4.6\n";
         assert_eq!(parse("grok", text), vec!["grok-4.5", "grok-4.6"]);
+        // Current releases mark the default with `*` and list the others with `-`.
+        let text = "默认模型：magpie/workbuddy-ai/deepseek-v4.1-flash-sg\n\n可用模型：\n  - grok-4.6\n  - grok-4.5\n  - magpie/auto/claude-opus-5-5\n  * magpie/workbuddy-ai/deepseek-v4.1-flash-sg （默认）\n";
+        assert_eq!(parse("grok", text), vec![
+            "grok-4.6", "grok-4.5", "magpie/auto/claude-opus-5-5", "magpie/workbuddy-ai/deepseek-v4.1-flash-sg"
+        ]);
     }
 
     #[test]

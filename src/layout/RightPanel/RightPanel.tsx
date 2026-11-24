@@ -114,11 +114,11 @@ export function RightPanel() {
     ({ session, project, group } = resolve(lastTargetRef.current));
   }
   const cwd = session?.cwd || project?.rootPath || null;
+  // A stored or mirrored "ports" selection has no panel outside SSH remote windows.
+  const activeTab: InspectorTab = isInspectorTab(inspectorTab) ? inspectorTab : "info";
   // An open knowledge entry or archived session takes over the Info tab while its page is showing.
   const memoryRoute = new URLSearchParams(search).get("memory") ?? "";
   const memoryInfoRoute = /^(entry|history|collection)\//.test(memoryRoute) ? memoryRoute : "";
-  // A stored or mirrored "ports" selection has no panel outside SSH remote windows.
-  const activeTab: InspectorTab = isInspectorTab(inspectorTab) ? inspectorTab : "info";
 
   return (
     <aside className="col col-right" style={{ width, borderLeft: "none" }}>
@@ -126,9 +126,9 @@ export function RightPanel() {
         {INSPECTOR_TABS.map(({ id, label, Icon }) => (
           <a
             href={tabUrl(id)}
-            title={id==="ports"?t("ports.title"):label}
-            aria-label={id==="ports"?t("ports.title"):label}
-            aria-current={activeTab===id?"page":undefined}
+            title={id === "ports" ? t("ports.title") : label}
+            aria-label={id === "ports" ? t("ports.title") : label}
+            aria-current={activeTab === id ? "page" : undefined}
             key={id}
             className={"insp-tab" + (activeTab === id ? " on" : "")}
             onClick={event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();const href=tabUrl(id);memoryNavigate(href,false,onlyInspectorChanges(href));}}

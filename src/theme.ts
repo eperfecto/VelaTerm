@@ -8,6 +8,7 @@
 import type { ITheme } from "@xterm/xterm";
 import { invoke, isTauri } from "./ipc/transport";
 import { setXtermTheme } from "./terminal/registry";
+import { accentTokens, chromeTokens, namedTheme, type DarkStyle, type LightStyle, type ThemeDef } from "./themes";
 
 /** User-selected color-scheme mode; this is the persisted value. */
 export type ThemeMode = "system" | "dark" | "light";
@@ -15,8 +16,7 @@ export type ThemeMode = "system" | "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
 /** Legacy store name, equivalent to ThemeMode. */
 export type Theme = ThemeMode;
-/** Retained settings field for compatibility with saved dark-style preferences. */
-export type DarkStyle = "classic";
+export type { DarkStyle, LightStyle } from "./themes";
 
 /** Accent color: 'auto' follows the scheme (dark→green, light→blue); other choices are fixed. */
 export type AccentName = "green" | "blue" | "amber" | "violet";
@@ -31,11 +31,27 @@ export type DividerStyle = "subtle" | "visible";
 export type NavLayout = "tree" | "compact";
 /** Active tab in the right-side Inspector. */
 export type InspectorTab = "files" | "info" | "git" | "ports";
+/** Settings dialog sections. Persisted so reopening Settings returns to the section last viewed. */
+export const SETTINGS_TABS = [
+  "appearance",
+  "terminal",
+  "conversation",
+  "behavior",
+  "advanced",
+  "agents",
+  "plugins",
+  "shortcuts",
+  "general",
+] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /** Vlinx visual settings: design tokens beyond the color scheme. */
 
 export interface VisualSettings {
+  /** Theme used in dark mode: "classic" or a named dark theme. */
   darkStyle: DarkStyle;
+  /** Theme used in light mode: "classic" or a named light theme. */
+  lightStyle: LightStyle;
   accent: AccentChoice;
   density: Density;
   paneStyle: PaneStyle;
@@ -43,9 +59,17 @@ export interface VisualSettings {
   navLayout: NavLayout;
   /** UI font size in pixels. null follows density without an inline --ui-fs; a value overrides the density size inline. */
   uiFontSize: number | null;
+  /** Interface face for menus, labels and lists; null keeps the stylesheet's --font-ui stack. */
+  uiFontFamily: string | null;
+  /** Monospace face for code, paths and diffs outside the terminal; null keeps --font-mono. */
+  uiMonoFontFamily: string | null;
   chatFontFamily: string | null;
+  /** Code blocks and tool output in conversations; null follows the interface monospace font. */
+  chatCodeFontFamily: string | null;
   chatFontSize: number;
   chatLineHeight: number;
+  /** Conversation letter spacing in pixels; null picks the spacing tuned for the active face. */
+  chatLetterSpacing: number | null;
 }
 
 /** Initial typography; terminal and conversation preferences are saved independently. */
@@ -55,6 +79,22 @@ export const DEFAULT_TERMINAL_LINE_HEIGHT = 1.2;
 
 export function normalizeTextSize(value: number, defaultValue = DEFAULT_TERMINAL_FONT_SIZE): number {
   return Number.isFinite(value) ? Math.max(10, Math.min(24, Math.round(value * 2) / 2)) : defaultValue;
+}
+
+/** Letter spacing used when the conversation shows the bundled Inter face, which reads cramped at small sizes. */
+export const DEFAULT_CHAT_TRACKING = 0.2;
+export const MIN_CHAT_TRACKING = -1;
+export const MAX_CHAT_TRACKING = 2;
+
+/** Clamp a saved letter spacing to the supported range in 0.1 px steps; anything unusable means automatic. */
+export function normalizeLetterSpacing(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(MIN_CHAT_TRACKING, Math.min(MAX_CHAT_TRACKING, Math.round(value * 10) / 10));
+}
+
+/** Trim a saved font family; blank or non-string values mean the default face. */
+export function normalizeFontFamily(value: unknown): string | null {
+  return typeof value === "string" ? value.trim() || null : null;
 }
 
 export function normalizeTextLineHeight(value: number): number {
@@ -102,6 +142,24 @@ export function fontStack(family: string | null | undefined): string {
   return `${quoted}, ${SYS_MONO_FALLBACK}, "VlxSymbols", "Symbola", ${CJK_FALLBACK}, monospace`;
 }
 
+/** Proportional fallbacks after a chosen interface face, matching --font-ui in vlinx.css minus Inter. */
+const UI_FALLBACK =
+  '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Segoe UI", system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"';
+
+/**
+ * Build the interface font-family string. Same rules as fontStack, but a single name falls back to proportional
+ * system and CJK faces, so an interface font without Chinese glyphs never drops to a monospace or bitmap face.
+ * Returns null for the default so callers can remove the override and keep the stylesheet value.
+ */
+export function uiFontStack(family: string | null | undefined): string | null {
+  const f = family?.trim();
+  if (!f) return null;
+  if (f.includes(",")) return f;
+  const alreadyQuoted = (f.startsWith('"') && f.endsWith('"')) || (f.startsWith("'") && f.endsWith("'"));
+  const quoted = alreadyQuoted ? f : /\s/.test(f) ? JSON.stringify(f) : f;
+  return `${quoted}, ${UI_FALLBACK}`;
+}
+
 /** Match xterm's measured font height and device-pixel rounding, rather than CSS's em-based multiplier. */
 function conversationLineHeight(family: string, size: number, multiplier: number): number {
   let height = 0;
@@ -142,15 +200,20 @@ export function applyConversationTypography(s: VisualSettings) {
   const size = normalizeTextSize(s.chatFontSize, DEFAULT_CONVERSATION_FONT_SIZE);
   const next = { family, size, multiplier: normalizeTextLineHeight(s.chatLineHeight) };
   chatTypography = next;
-  if (s.chatFontFamily?.trim()) {
-    // Tracking is tuned for Inter; a chosen font keeps its own spacing.
-    document.documentElement.style.setProperty("--chat-font", family);
-    document.documentElement.style.setProperty("--chat-tracking", "0px");
-  } else {
-    document.documentElement.style.removeProperty("--chat-font");
-    document.documentElement.style.removeProperty("--chat-tracking");
-  }
-  document.documentElement.style.setProperty("--chat-fs", `${size}px`);
+  const root = document.documentElement.style;
+  const customText = !!s.chatFontFamily?.trim();
+  if (customText) root.setProperty("--chat-font", family);
+  else root.removeProperty("--chat-font");
+  // Without a chosen code face, --chat-code-font follows --font-mono, which the interface monospace setting drives.
+  if (s.chatCodeFontFamily?.trim()) root.setProperty("--chat-code-font", fontStack(s.chatCodeFontFamily));
+  else root.removeProperty("--chat-code-font");
+  // Automatic spacing is tuned for Inter. The default text face follows the interface font, so a chosen
+  // interface or conversation face keeps its own spacing.
+  const tracking = normalizeLetterSpacing(s.chatLetterSpacing);
+  if (tracking != null) root.setProperty("--chat-tracking", `${tracking}px`);
+  else if (customText || s.uiFontFamily?.trim()) root.setProperty("--chat-tracking", "0px");
+  else root.removeProperty("--chat-tracking");
+  root.setProperty("--chat-fs", `${size}px`);
   refreshConversationLineHeight();
   // A bundled webfont may finish loading after initial appearance settings have been applied.
   document.fonts?.load(`${size}px ${family}`, "W").then(() => {
@@ -195,9 +258,43 @@ export const XTERM_THEME: Record<ResolvedTheme, ITheme> = {
   },
 };
 
+/** Themes last applied for each mode. Module state so every terminal mount and the chrome read the same ones. */
+let activeDarkStyle: DarkStyle = "classic";
+let activeLightStyle: LightStyle = "classic";
+
+/** The named theme painting a resolved mode, or null when that mode uses the classic look. */
+function activeTheme(resolved: ResolvedTheme): ThemeDef | null {
+  return namedTheme(resolved, resolved === "dark" ? activeDarkStyle : activeLightStyle);
+}
+
 /** Use the same palette for live terminals, newly mounted panes, and recording playback. */
 export function xtermTheme(mode: ThemeMode): ITheme {
-  return XTERM_THEME[resolveTheme(mode)];
+  const resolved = resolveTheme(mode);
+  return activeTheme(resolved)?.terminal ?? XTERM_THEME[resolved];
+}
+
+/** Inline custom properties written by the last applyThemeChrome, so switching back to classic removes them. */
+let appliedChromeProps: string[] = [];
+
+/**
+ * Paint the chrome for the resolved mode. A named theme writes its tokens and its accent preset inline on
+ * documentElement, which outranks the `[data-theme]` and `[data-accent]` blocks; classic removes them again.
+ * `data-dark-style` / `data-light-style` name the active themes for component styles that pin classic colors.
+ */
+function applyThemeChrome(resolved: ResolvedTheme) {
+  const root = document.documentElement;
+  root.dataset.darkStyle = activeDarkStyle;
+  root.dataset.lightStyle = activeLightStyle;
+  for (const prop of appliedChromeProps) root.style.removeProperty(prop);
+  appliedChromeProps = [];
+  const theme = activeTheme(resolved);
+  if (!theme) return;
+  const hue = (root.dataset.accent as AccentName | undefined) ?? effectiveAccent("auto", resolved);
+  const tokens = { ...chromeTokens(theme), ...accentTokens(theme, hue) };
+  for (const [prop, value] of Object.entries(tokens)) {
+    root.style.setProperty(prop, value);
+    appliedChromeProps.push(prop);
+  }
 }
 
 const STORAGE_KEY = "vlx-theme";
@@ -250,10 +347,12 @@ function syncNativeChrome(mode: ThemeMode, resolved: ResolvedTheme) {
 }
 
 /** Apply a scheme: resolve it, write data-theme and color-scheme, persist the mode, and synchronize xterm colors. */
-export function applyTheme(mode: ThemeMode, darkStyle: DarkStyle = "classic") {
+export function applyTheme(mode: ThemeMode, darkStyle: DarkStyle = "classic", lightStyle: LightStyle = "classic") {
   const resolved = resolveTheme(mode);
+  activeDarkStyle = darkStyle;
+  activeLightStyle = lightStyle;
   document.documentElement.dataset.theme = resolved;
-  document.documentElement.dataset.darkStyle = darkStyle;
+  applyThemeChrome(resolved);
   // color-scheme drives how the user agent renders native in-page controls: checkboxes, radios, selects,
   // scrollbars, and form fields. index.html only seeds it from prefers-color-scheme, so without this line it
   // keeps following the OS for the window's lifetime and an explicit dark theme still draws light checkboxes
@@ -271,8 +370,12 @@ export function applyTheme(mode: ThemeMode, darkStyle: DarkStyle = "classic") {
 export function applyVisual(s: VisualSettings) {
   const root = document.documentElement;
   const resolved = (root.dataset.theme as ResolvedTheme) || resolveTheme("system");
-  root.dataset.darkStyle = s.darkStyle;
+  activeDarkStyle = s.darkStyle;
+  activeLightStyle = s.lightStyle;
   root.dataset.accent = effectiveAccent(s.accent, resolved);
+  // The accent picks which of the theme's hues the accent tokens take, so repaint after it is known.
+  applyThemeChrome(resolved);
+  setXtermTheme(xtermTheme(resolved));
   root.dataset.density = s.density;
   root.dataset.pane = s.paneStyle;
   root.dataset.divider = s.dividerStyle;
@@ -282,6 +385,13 @@ export function applyVisual(s: VisualSettings) {
   // density still controls line height and spacing. An empty value removes the override.
   if (s.uiFontSize != null) root.style.setProperty("--ui-fs", `${s.uiFontSize}px`);
   else root.style.removeProperty("--ui-fs");
+  // Overriding the two base stacks inline also moves everything derived from them on :root (--font-prose,
+  // the default --chat-font and --chat-code-font). The terminal keeps its own font setting.
+  const uiStack = uiFontStack(s.uiFontFamily);
+  if (uiStack) root.style.setProperty("--font-ui", uiStack);
+  else root.style.removeProperty("--font-ui");
+  if (s.uiMonoFontFamily?.trim()) root.style.setProperty("--font-mono", fontStack(s.uiMonoFontFamily));
+  else root.style.removeProperty("--font-mono");
   applyConversationTypography(s);
 }
 

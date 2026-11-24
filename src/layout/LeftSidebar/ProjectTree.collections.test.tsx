@@ -38,6 +38,8 @@ vi.mock("../../hooks/shortcutRegistry", () => ({
   formatCombo: (combo: string) => combo,
 }));
 vi.mock("../../ipc/shareBase", () => ({ isShareSurface: false }));
+// Keyboard navigation hands focus back to the terminal; the real registry pulls in the transport.
+vi.mock("../../terminal/registry", () => ({ focusTerminal: vi.fn() }));
 vi.mock("../../sharing/sessionNavigation", () => ({
   navigateSharedSession: vi.fn(),
   sharedSessionUrl: () => "",
@@ -333,6 +335,38 @@ describe("dragging projects", () => {
     expect(fireEvent.dragOver(rowOf("Payments"), overData(["text/plain"]))).toBe(false);
     expect(fireEvent.dragOver(rowOf("Payments"), overData(["text/plain", PROJECT_DRAG_MIME]))).toBe(false);
   });
+
+  it("refuses the reorder halves of a project row while sorting by activity, keeping its center", () => {
+    // jsdom has no DragEvent, and testing-library's plain Event fallback drops clientY; a MouseEvent keeps it.
+    const win = window as unknown as { DragEvent: unknown };
+    const originalDragEvent = win.DragEvent;
+    win.DragEvent = window.MouseEvent;
+    // Rows are 28 px tall at the top of the viewport, so clientY picks the zone.
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      top: 0, left: 0, bottom: 28, right: 200, width: 200, height: 28, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+    const over = (clientY: number) => {
+      const dataTransfer = { types: ["text/plain", PROJECT_DRAG_MIME], dropEffect: "" };
+      // fireEvent returns false when the handler called preventDefault, which is what lets the drop happen.
+      const notPrevented = fireEvent.dragOver(rowOf("notes"), { clientY, dataTransfer });
+      return { allowed: !notPrevented, dropEffect: dataTransfer.dropEffect };
+    };
+    try {
+      mocks.state.sortByActivity = false;
+      const manual = render(<ProjectTree {...handlers()} />);
+      expect(over(2)).toEqual({ allowed: true, dropEffect: "move" });
+      manual.unmount();
+
+      mocks.state.sortByActivity = true;
+      render(<ProjectTree {...handlers()} />);
+      expect(over(2)).toEqual({ allowed: false, dropEffect: "none" });
+      expect(over(26)).toEqual({ allowed: false, dropEffect: "none" });
+      expect(over(14)).toEqual({ allowed: true, dropEffect: "move" });
+    } finally {
+      rect.mockRestore();
+      win.DragEvent = originalDragEvent;
+    }
+  });
 });
 
 describe("active project", () => {
@@ -370,6 +404,59 @@ describe("active project", () => {
     expect(setActiveProject).toHaveBeenCalledWith("p-api");
     expect(openSession).toHaveBeenCalledWith("s1", undefined);
     expect(setActiveProject.mock.invocationCallOrder[0]).toBeLessThan(openSession.mock.invocationCallOrder[0]);
+  });
+});
+
+describe("groups in Tasks", () => {
+  const tasksState = () => {
+    mocks.state.projects = [collection(SYSTEM_PROJECTS, "Projects", 0), collection(SYSTEM_TASKS, "Tasks", 1)];
+    mocks.state.groups = [
+      { id: "g1", projectId: SYSTEM_TASKS, parentGroupId: null, name: "reading", sortOrder: 0, collapsed: false, createdAt: 0 },
+    ];
+    mocks.state.sessions = [
+      { id: "s1", projectId: SYSTEM_TASKS, groupId: "g1", name: "inner", kind: "terminal", sortOrder: 0, collapsed: false },
+    ];
+  };
+
+  it("offers a new group next to a new task when Tasks is empty", () => {
+    mocks.state.projects = [collection(SYSTEM_PROJECTS, "Projects", 0), collection(SYSTEM_TASKS, "Tasks", 1)];
+    const onAddGroup = vi.fn();
+    render(<ProjectTree {...handlers({ onAddGroup })} section="tasks" />);
+    fireEvent.click(screen.getByText("tree.newGroup"));
+    expect(onAddGroup).toHaveBeenCalledWith(expect.objectContaining({ kind: "project", id: SYSTEM_TASKS }));
+  });
+
+  it("takes a task out of its group when dropped on the blank space", () => {
+    tasksState();
+    const { container } = render(<ProjectTree {...handlers()} section="tasks" />);
+    const tree = container.querySelector(".tree") as HTMLElement;
+    fireEvent.drop(tree, dropData({ kind: "session", id: "s1", projectId: SYSTEM_TASKS }));
+    expect(mocks.state.moveNode).toHaveBeenCalledWith("session", "s1", SYSTEM_TASKS, null, null, expect.any(Number));
+  });
+
+  it("ignores blank-space drops of sessions from another collection", () => {
+    tasksState();
+    const { container } = render(<ProjectTree {...handlers()} section="tasks" />);
+    const tree = container.querySelector(".tree") as HTMLElement;
+    fireEvent.drop(tree, dropData({ kind: "session", id: "s9", projectId: "p-web" }));
+    expect(mocks.state.moveNode).not.toHaveBeenCalled();
+  });
+
+  it("opens the Tasks menu on a right-click in the blank space", () => {
+    tasksState();
+    const onContext = vi.fn();
+    const { container } = render(<ProjectTree {...handlers({ onContext })} section="tasks" />);
+    // The app cancels the native menu in the capture phase before any React handler runs (bootstrap.tsx).
+    const cancelNative = (event: Event) => event.preventDefault();
+    document.addEventListener("contextmenu", cancelNative, { capture: true });
+    try {
+      fireEvent.contextMenu(container.querySelector(".tree") as HTMLElement);
+    } finally {
+      document.removeEventListener("contextmenu", cancelNative, { capture: true });
+    }
+    expect(onContext).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "project", id: SYSTEM_TASKS }), expect.any(Number), expect.any(Number),
+    );
   });
 });
 
@@ -440,6 +527,16 @@ describe("other projects section", () => {
       expect.any(Number),
       expect.any(Number),
     );
+  });
+
+  it("stays hidden in non-projects fixed sections such as Tasks", () => {
+    mocks.state.projects = [
+      collection(SYSTEM_PROJECTS, "Projects", 0),
+      collection(SYSTEM_TASKS, "Tasks", 1),
+      project("p-notes", "notes", 2, SYSTEM_PROJECTS),
+    ];
+    render(<ProjectTree {...filtered("notes", true)} section="tasks" />);
+    expect(screen.queryByText("tree.otherProjects")).toBeNull();
   });
 });
 

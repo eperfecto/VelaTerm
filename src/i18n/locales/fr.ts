@@ -1,6 +1,7 @@
 //! French dictionary. Each entry includes its English source in a trailing review comment; en.ts enforces the complete key set.
 
 import type en from "./en";
+import assist from "../assist/fr";
 
 const fr: typeof en = {
   "panel.turnStats": "Statistiques du tour",
@@ -8,6 +9,8 @@ const fr: typeof en = {
   "panel.showChangedFiles": "Afficher les fichiers modifiés pendant ce tour",
   "panel.noFilesChanged": "Aucun fichier n’a été modifié pendant ce tour.",
   "panel.shellEditsNotListed": "Les modifications effectuées par des commandes shell ne sont pas répertoriées.",
+  "panel.usageShowScope": (scope: string) => `Afficher ${scope}`,
+  "panel.usageHideScope": (scope: string) => `Masquer ${scope}`,
   "translation.swap": "Inverser les langues",
   "translation.openai": "Compatible OpenAI",
   "translation.bing": "Bing Traducteur (sans clé API)",
@@ -373,6 +376,7 @@ const fr: typeof en = {
   "common.create": "Créer", // Create
   "common.close": "Fermer", // Close
   "chat.copyAsMarkdown": "Copier au format Markdown",
+  "chat.copyEntireMessage": "Copier tout le message",
   "chat.imageViewOriginal": "Afficher l’image originale",
   "chat.imageCopy": "Copier l’image",
   "chat.imageSave": "Enregistrer l’image",
@@ -491,6 +495,7 @@ const fr: typeof en = {
   "settings.catTerminal": "Terminal", // Terminal
   "settings.catBehavior": "Comportement", // Behavior
   "settings.catAgents": "Agents", // Agents
+  "settings.catPlugins": "Extensions",
   "settings.agentDefaultsTitle": "Valeurs par défaut des nouvelles sessions",
   "settings.referSummaryTitle": "Contexte des références de session",
   "settings.referSummaryMode": "Mode de contexte",
@@ -526,7 +531,23 @@ const fr: typeof en = {
   "settings.agentDefaultView": "Vue par défaut", // Default view
   "settings.agentDefaultViewHint":
     "Vue dans laquelle s'ouvrent les nouvelles sessions de cet agent. Les sessions existantes gardent la vue avec laquelle elles ont été créées.", // Agent default view hint
+  "settings.deepseekApiTitle": "DeepSeek API",
+  "settings.deepseekApiDesc":
+    "Les conversations DeepSeek passent par OpenCode. Saisissez ici l'adresse et la clé de l'API pour utiliser la même connexion dans toutes les conversations.",
+  "settings.deepseekBaseUrl": "Adresse de l'API",
+  "settings.deepseekEndpointHint":
+    "Laissez l'adresse vide pour utiliser le point de terminaison officiel. Les modifications s'appliquent dès le prochain message.",
+  "settings.deepseekApiKey": "Clé API",
+  "settings.deepseekKeySaved": "Enregistrée (laisser vide pour la conserver)",
+  "settings.deepseekKeyPlaceholder": "Saisissez votre clé API DeepSeek",
+  "settings.deepseekRemoveKey": "Supprimer la clé",
+  "settings.deepseekSaved": "Enregistré.",
+  "settings.deepseekInvalid": "Saisissez une adresse d'API http(s) valide et une clé API sur une seule ligne.",
+  "settings.deepseekLocalOnly": "Ces identifiants sont stockés sur l'appareil hôte ; ils ne peuvent donc être modifiés que là.",
   "settings.appearance": "Apparence", // Appearance
+  "settings.darkTheme": "Thème sombre", // Dark theme
+  "settings.lightTheme": "Thème clair", // Light theme
+  "settings.themeClassic": "Classique", // Classic
   "settings.accent": "Accent", // Accent
   "settings.accentAuto": "Suivre le thème", // Follow theme
   "settings.density": "Densité", // Density
@@ -543,12 +564,16 @@ const fr: typeof en = {
   "settings.navTree": "Arbre", // Tree
   "settings.navCompact": "Compacte", // Compact
   "settings.tabs": "Onglets", // Tabs
+  "settings.tabsHint": "« Unique » réutilise le même onglet pour chaque session ouverte et laisse les autres tourner en arrière-plan. « Multiples » donne à chaque session son propre onglet.", // Single reuses one tab for every session you open, keeping the others running in the background. Multi gives each session its own tab.
   "settings.dynamicStatusFilter": "Ajout dynamique au filtre d’état",
+  "settings.dynamicStatusFilterHint": "Un filtre d’état conserve les sessions qui correspondaient au moment où vous l’avez appliqué. Activé, il ajoute aussi celles qui se mettent à correspondre ensuite. Aucune session n’est retirée lorsque son état change.", // A status filter keeps the sessions that matched when you applied it. When on, sessions that begin matching later are added as well. Sessions are never removed as their status changes.
   "settings.tabSingle": "Unique", // Single
   "settings.tabMulti": "Multiples", // Multi
   "settings.maxLiveTabs": "Background limit", // Background limit
+  "settings.maxLiveTabsHint": "Nombre de sessions maintenues en arrière-plan en mode onglet unique. Au-delà de la limite, la session inactive la plus ancienne est fermée ; celles qui travaillent, attendent une action de votre part ou ont une notification non lue sont conservées.", // How many sessions keep running in the background in single-tab mode. Beyond the limit the oldest idle session is closed; ones that are working, waiting for you, or holding an unread notification are kept.
   "settings.defaultShell": "Shell par défaut", // Default shell
   "settings.spawnConfirm": "Confirm before spawn", // Confirm before spawn
+  "settings.spawnConfirmHint": "S’applique aux sessions qu’un agent dérive via vspawn, pas aux onglets que vous ouvrez vous-même. Activé, vous pouvez relire et modifier l’invite avant le démarrage.", // Applies to sessions an agent derives with vspawn, not to tabs you open yourself. When on, you can review and edit the prompt before the session starts.
   "settings.scopeTabsToProject": "Afficher uniquement les onglets du projet actif", // Show only the active project's tabs
   "settings.scopeTabsToProjectHint": "Sélectionner un projet dans la barre latérale n'affiche que ses onglets et les terminaux globaux. Les onglets masqués continuent de s'exécuter.", // Selecting a project in the sidebar shows only its tabs plus global terminals. Hidden tabs keep running.
   "settings.usageAuto": "Usage auto-refresh", // Usage auto-refresh
@@ -663,6 +688,31 @@ const fr: typeof en = {
   "changes.ignoreWhitespace": "Ignorer les espaces",
   "changes.collapseUnchanged": "Replier les lignes inchangées",
   "changes.tooLarge": "Ce fichier dépasse la limite de prévisualisation de 2 MiB.",
+  "changes.review.addLine": (range: string) => `Commenter ${range}`,
+  "changes.review.addFile": "Ajouter un commentaire",
+  "changes.review.gutterHint": (line: number) => `Ajouter un commentaire de revue à la ligne ${line}`,
+  "changes.review.sideOriginal": "Avant",
+  "changes.review.sideModified": "Après",
+  "changes.review.fieldLabel": "Commentaire de revue",
+  "changes.review.placeholder": "Rédigez vos retours pour l'agent (Entrée pour enregistrer, Maj+Entrée pour une nouvelle ligne)…",
+  "changes.review.save": "Enregistrer le commentaire",
+  "changes.review.cancel": "Annuler",
+  "changes.review.edit": "Modifier",
+  "changes.review.remove": "Supprimer",
+  "changes.review.count": (count: number, files: number) =>
+    count === 1 ? "1 commentaire de revue" : `${count} commentaires de revue sur ${files} fichiers`,
+  "changes.review.showList": "Liste des commentaires",
+  "changes.review.hideList": "Masquer la liste",
+  "changes.review.clearAll": "Tout effacer",
+  "changes.review.targetAgent": "Session cible",
+  "changes.review.sendTo": (agent: string) => `Envoyer à ${agent}`,
+  "changes.review.pasteTo": (agent: string) => `Coller dans ${agent}`,
+  "changes.review.sending": "Envoi…",
+  "changes.review.copy": "Copier la revue",
+  "changes.review.copied": "Copié",
+  "changes.review.noAgent": "Ouvrez ou démarrez une session d'agent dans ce dépôt pour envoyer les commentaires directement.",
+  "changes.review.promptHeader": "Veuillez traiter les commentaires de revue de code suivants sur les modifications actuelles :",
+  "changes.review.promptComment": "Commentaire :",
   "git.fileStatus.modified": "Modifié",
   "git.fileStatus.added": "Ajouté",
   "git.fileStatus.deleted": "Supprimé",
@@ -711,6 +761,39 @@ const fr: typeof en = {
   "git.pr.noToken": "Ajoutez un jeton Gitea dans les Réglages pour créer des pull requests ici.",
   "git.pr.unreachable": "Le serveur Gitea est injoignable pour le moment.",
   "git.pr.opened": "Pull request créée",
+  "git.pr.openMr": "Créer une merge request",
+  "git.pr.openedMr": "Merge request créée",
+  "git.pr.formTitleProvider": (provider: string) =>
+    provider === "gitlab"
+      ? "Créer une merge request GitLab"
+      : provider === "github"
+        ? "Créer une pull request GitHub"
+        : "Créer une pull request Gitea",
+  "git.pr.formDescriptionMr": (branch: string, base: string) =>
+    `Pousse ${branch} vers origin et crée une merge request vers ${base}.`,
+  "git.pr.draftField": "Créer comme brouillon",
+  "git.pr.noGhCli": "Installez GitHub CLI (gh) pour créer des pull requests ici.",
+  "git.pr.noGhAuth": "Exécutez gh auth login dans un terminal pour connecter GitHub.",
+  "git.pr.noGlabCli": "Installez GitLab CLI (glab) pour créer des merge requests ici.",
+  "git.pr.noGlabAuth": "Exécutez glab auth login dans un terminal pour connecter GitLab.",
+  "git.pr.state.open": "Ouverte",
+  "git.pr.state.draft": "Brouillon",
+  "git.pr.state.merged": "Fusionnée",
+  "git.pr.state.closed": "Fermée",
+  "git.pr.checks.passing": "Vérifications réussies",
+  "git.pr.checks.failing": "Vérifications échouées",
+  "git.pr.checks.pending": "Vérifications en cours",
+  "git.pr.refreshStatus": "Actualiser l'état",
+  "git.pr.cleanupWorktree": "Nettoyer le worktree…",
+  "git.pr.cleanupTitle": "Nettoyer le worktree fusionné",
+  "git.pr.cleanupDescription": (branch: string, path: string) =>
+    `La branche ${branch} a été fusionnée. Supprimer le worktree ${path} ?`,
+  "git.pr.cleanupDeleteBranch": (branch: string) => `Supprimer la branche locale ${branch}`,
+  "git.pr.cleanupArchiveSession": "Archiver cette session",
+  "git.pr.cleanupArchiveHint": "Décochez pour conserver la session dans le répertoire principal du dépôt.",
+  "git.pr.cleanupForce": "Forcer la suppression des modifications non validées",
+  "git.pr.cleanupSubmit": "Nettoyer",
+  "git.pr.cleanupSubmitting": "Nettoyage…",
   "git.push": "Pousser",
   "git.pushTitle": (u: string) => `Pousser vers ${u}`,
   "git.publish": "Publier la branche",
@@ -828,18 +911,32 @@ const fr: typeof en = {
   "settings.recordSessions": "Enregistrer les journaux de session", // Record session logs
   "settings.recordSessionsHint":
     "Désactivé par défaut. Une fois activé, la sortie du terminal est enregistrée dans un fichier journal pour la relecture d'archive et la recherche. Les sessions de terminal simples ne sont jamais enregistrées ; les sessions d'agent lisent leur propre transcription.", // Record session logs hint
-  "settings.fonts": "Fonts", // TODO translate
+  "settings.fonts": "Polices",
   "settings.uiFontSize": "Taille de police de l'interface",
   "settings.termFont": "Police du terminal",
   "settings.termFontSize": "Taille de police du terminal",
   "settings.termLineHeight": "Interligne du terminal",
   "settings.chatTypography": "Vue de conversation",
-  "settings.chatTypographyHint": "Ces paramètres de police sont indépendants du terminal et prennent effet immédiatement.",
+  "settings.chatTypographyHint": "Ces paramètres sont indépendants du terminal et prennent effet immédiatement. Par défaut, le texte utilise la police de l'interface et le code sa police à chasse fixe.",
   "settings.chatFont": "Police de la conversation",
   "settings.chatFontSize": "Taille de police de la conversation",
   "settings.chatLineHeight": "Interligne de la conversation",
+  "settings.chatCodeFont": "Police du code dans la conversation",
+  "settings.chatLetterSpacing": "Espacement des lettres de la conversation",
+  "settings.uiTypography": "Polices de l'interface",
+  "settings.uiTypographyHint": "S'applique aux menus, aux listes, aux boîtes de dialogue et aux documents. La police à chasse fixe sert au code, aux chemins et aux comparaisons ; le terminal a ses propres réglages de police.",
+  "settings.uiFont": "Police de l'interface",
+  "settings.uiMonoFont": "Police à chasse fixe",
+  "settings.fontPreview": "Aperçu",
+  "settings.fontPreviewText": "Portez ce vieux whisky au juge blond qui fume. 0123456789",
+  "settings.fontPreviewChat": "J'ai mis à jour la page des paramètres. Chaque réglage de police prend effet immédiatement, et vous pouvez rétablir les valeurs par défaut à tout moment.",
+  "settings.fontResetGroup": "Rétablir les polices par défaut",
+  "settings.chatImages": "Images",
+  "settings.chatImageMaxMb": "Taille max. d’image",
+  "settings.chatImageMaxMbHint": "Avant l’envoi, les images dépassant 1568 pixels de côté ou cette limite sont automatiquement redimensionnées et compressées. Seules celles impossibles à décoder ou qui dépassent encore la limite après compression sont ignorées.",
+  "settings.chatImageSizeMb": (mb: number) => `${mb} Mo`,
   "settings.composerChips": "Barre d’outils de saisie",
-  "settings.composerChipsHint": "Les éléments activés s’affichent à côté du message dans l’ordre indiqué. Si une fonction est temporairement indisponible (agent arrêté, aucune tâche en arrière-plan ou connexion au compte en attente), son élément reste visible, mais vide ou désactivé. Les fonctions non prises en charge par l’agent actuel sont omises. Les éléments qui ne tiennent pas dans la barre passent dans le menu Plus. Les éléments désactivés ici apparaissent uniquement dans ce menu et restent configurables ici.",
+  "settings.composerChipsHint": "Les éléments activés s’affichent à côté du message dans l’ordre indiqué. Si une fonction est temporairement indisponible (agent arrêté, aucune tâche en arrière-plan ou connexion au compte en attente), son élément reste visible, mais vide ou désactivé. Les fonctions non prises en charge par l’agent actuel sont omises. Les éléments qui ne tiennent pas dans la barre passent dans le menu Plus. Les éléments désactivés ici ne s’affichent nulle part tant que vous ne les réactivez pas.",
   "settings.composerChipUp": (chip: string) => `Monter ${chip}`,
   "settings.composerChipDown": (chip: string) => `Descendre ${chip}`,
   "settings.composerChip.model": "Modèle",
@@ -856,15 +953,21 @@ const fr: typeof en = {
   "settings.composerChip.account": "Compte",
   "settings.composerChip.codexCredits": "Crédits de réinitialisation Codex",
   "settings.fontDefault": "Par défaut",
-  "settings.fontCustom": "Custom…", // TODO translate
+  "settings.fontSearch": "Rechercher une police…",
+  "settings.fontUseCustom": (query: string) => `Utiliser « ${query} »`,
   "settings.fontListUnavailable": "Impossible de récupérer la liste des polices système. Vous pouvez saisir un nom de police manuellement.",
   "settings.fontUnconfirmed": "Impossible de confirmer la disponibilité de cette police.",
-  "settings.fontAuto": "Auto", // TODO translate
-  "settings.fontSmaller": "Smaller", // TODO translate
-  "settings.fontLarger": "Larger", // TODO translate
-  "settings.fontReset": "Reset", // TODO translate
+  "settings.fontAuto": "Auto",
+  "settings.fontSmaller": "Plus petit",
+  "settings.fontLarger": "Plus grand",
+  "settings.fontReset": "Réinitialiser",
   "settings.sound": "Son de notification", // Notification sound
   "settings.language": "Langue", // Language
+  "settings.serverRegion": "Serveur", // Server
+  "settings.serverRegionGlobal": "International", // International
+  "settings.serverRegionChina": "Chine continentale", // Mainland China
+  "settings.serverRegionHint":
+    "Utilisé pour les liens vers le site web et le catalogue de modèles. Avec « Chine continentale », VelaTerm utilise velaterm.cn, plus rapide depuis la Chine. Les mises à jour et vela-server proviennent toujours des versions GitHub de cette compilation. Les fonctionnalités liées au compte utilisent toujours velaterm.com.",
   "settings.langAuto": "Auto (système)", // Auto (system)
   "settings.skillLabel": "Vela Skills",
   "settings.skillInstall": "Install", // Install
@@ -903,6 +1006,7 @@ const fr: typeof en = {
   "settings.scCopyTerminal": "Copier la sélection du terminal", // Copy terminal selection
   "settings.scSelectAllTerminal": "Tout sélectionner dans le terminal", // Select all in terminal
   "settings.scSaveDoc": "Enregistrer le document", // Save document
+  "settings.scFocusSidebar": "Mettre le focus sur la barre latérale", // Focus sidebar
   "settings.scRecording": "Appuyez sur les touches…", // Press keys…
   "settings.scHint":
     "Cliquez sur un raccourci, puis appuyez sur une nouvelle combinaison (Cmd/Ctrl requis).", // hint
@@ -1004,6 +1108,19 @@ const fr: typeof en = {
   "remote.cloudflareHelpEmail": "Zero Trust › Integrations › Identity providers › One-time PIN. Dans la stratégie de l’application, utilisez Allow › Include › Emails.", // Zero Trust › Integrations › Identity providers › One-time PIN. In the app policy, use Allow › Include › Emails.
   "remote.cloudflareHelpDashboard": "Tableau de bord", // Dashboard
   "remote.cloudflareHelpDocs": "Docs", // Docs
+  "remote.listenLabel": "Écouter sur", // Listen on
+  "remote.listenAll": "Tous les réseaux", // All networks
+  "remote.listenLoopback": "Cet ordinateur uniquement (tunnel)", // This computer only (tunnel)
+  "remote.listenUnavailable": (ip: string) => `${ip} (indisponible)`, // ${ip} (not available)
+  "remote.reachAll": "Accessible depuis tous les réseaux auxquels cet ordinateur est connecté.", // Reachable from every network this computer is connected to.
+  "remote.reachOnly": (addr: string) => `Accessible uniquement à l'adresse ${addr}.`, // Reachable only at ${addr}.
+  "remote.reachTunnel": "Accessible uniquement via un tunnel ou un proxy sur cet ordinateur, par exemple tailscale serve ou ssh -L.", // Reachable only through a tunnel or proxy on this computer, for example tailscale serve or ssh -L.
+  "remote.pairingHostLabel": "Adresse des liens d’appairage", // Address for pairing links
+  "remote.pairingHostPlaceholder": "host.tailnet.ts.net", // host.tailnet.ts.net
+  "remote.pairingHostNeeded": "Les clients joignent cet ordinateur via un tunnel. Saisissez le nom d’hôte ou l’IP qu’ils utilisent. Sans cela, les liens d’appairage pointent vers 127.0.0.1, ce qui ne fonctionne qu’avec ssh -L.", // Clients reach this computer through a tunnel. Enter the host name or IP they use. Without it, pairing links point to 127.0.0.1, which only works with ssh -L.
+  "remote.bindInvalid": (value: string) => `« ${value} » n’est pas une adresse d’écoute valide. Choisissez tous les réseaux, cet ordinateur uniquement, ou une adresse IPv4 de cet ordinateur.`, // "${value}" is not a valid listen address. Choose all networks, this computer only, or an IPv4 address of this computer.
+  "remote.bindUnavailable": (ip: string) => `L’adresse ${ip} n’est pas disponible sur cet ordinateur. Connectez le réseau ou le VPN, ou choisissez une autre adresse. L’accès distant ne bascule jamais sur tous les réseaux.`, // The address ${ip} is not available on this computer. Connect the network or VPN, or choose another address. Remote access never falls back to all networks.
+  "remote.pairingHostInvalid": (value: string) => `« ${value} » n’est pas une adresse valide pour les liens d’appairage. Saisissez un nom d’hôte ou une adresse IPv4, sans schéma, port ni chemin.`, // "${value}" is not a valid address for pairing links. Enter a host name or an IPv4 address, without scheme, port, or path.
 
   // ── Remote connection panel ──
   "connect.wslUpgrade": "Cet espace de travail utilise une autre version du serveur. Le redémarrage du serveur met fin à toutes les sessions actives de cet espace de travail WSL.",
@@ -1079,6 +1196,7 @@ const fr: typeof en = {
   "tree.deleteGroup": "Supprimer le groupe", // Delete Group
   "tree.deleteSession": "Supprimer la session", // Delete Session
   "tree.projectRoot": "Racine du projet (sans groupe)", // Project root (no group)
+  "tree.collectionRoot": (name: string) => `${name} (sans groupe)`,
   "tree.moveToSession": "Déplacer sous une session (en enfant)", // Move under a session (as child)
   "tree.moveTo": "Déplacer vers…", // Move to…
   "tree.openNewTab": "Ouvrir dans un nouvel onglet", // Open in New Tab
@@ -1185,6 +1303,7 @@ const fr: typeof en = {
   "tree.filterStatus": "Filtrer par état", // Filter by status
   "tree.refreshStatusFilter": "Actualiser le filtre d’état",
   "tree.refreshStatusMatch": "Actualiser l’état",
+  "tree.setStatus": "Définir l’état", // Set Status
   "tree.filterStatusSection": "État", // Status
   "tree.filterMarkSection": "Repère", // Mark
   "tree.sortSection": "Ordre", // Order
@@ -1385,6 +1504,9 @@ const fr: typeof en = {
 
   // ── Global session-content search ──
   "search.allPlaceholder": "Rechercher dans tout le contenu des sessions…", // Search across all session content…
+  "search.inLocationPlaceholder": (name) => `Rechercher dans ${name}…`, // Search in {name}…
+  "search.allLocations": "Tous les projets et collections", // All projects & collections
+  "search.filterLocation": "Filtrer par projet ou collection", // Filter by project or collection
   "search.hint":
     "Recherchez le contenu des sessions. Les sessions archivées sont exclues par défaut — cochez « Inclure les archives » pour les ajouter.", // Search session content. Archived sessions are excluded by default.
   "search.includeArchived": "Inclure les archives", // Include archived
@@ -1413,11 +1535,9 @@ const fr: typeof en = {
 
   // ── Center pane ──
   "center.noSession": "Aucune session", // No session
-  "center.noSessionHintPre":
-    "Choisissez une session dans la barre latérale, ou appuyez sur ", // Pick a session from the sidebar, or press
-  "center.noSessionHintPost": " pour créer un terminal", // to create a terminal
   "center.createTerminal": "Créer un terminal", // Create Terminal
-  "center.splitHint": "Ouvrez une session pour la diviser avec ces raccourcis :",
+  "center.startTitle": "Démarrer une session", // Start a session
+  "center.startHint": "Choisissez une session dans la barre latérale ou démarrez-en une nouvelle.", // Pick one from the sidebar, or start something new.
   "tab.unsavedDot": "Modifications non enregistrées", // Unsaved changes
   "tab.newTerminal": "Nouveau terminal", // New terminal
   "tab.newGlobalTerminal": "Nouveau terminal global", // New global terminal
@@ -1631,13 +1751,27 @@ const fr: typeof en = {
   "files.nameLabel": "Nom", // Name
   "files.newTooltip": "Nouveau fichier ou dossier", // New file or folder
   "files.openInTerminal": "Open in Terminal",
+  "files.collapseAll": "Tout réduire", // Collapse All
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "Copier le chemin", // Copy Path
   "files.copyRelPath": "Copier le chemin relatif", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
+  "files.filterTruncated": "Seuls les premiers résultats sont affichés. Saisissez davantage de caractères pour affiner.",
   "files.dblClickOpen": "Double-cliquer pour ouvrir",
   "files.deleteConfirm": (name) =>
     `Supprimer « ${name} » ? Cette action est irréversible.`, // Delete "{name}"? This can't be undone.
+  "files.deleteManyConfirm": (count) =>
+    count === 1
+      ? "Supprimer 1 élément ? Cette action est irréversible."
+      : `Supprimer ${count} éléments ? Cette action est irréversible.`, // Delete {count} items? This can't be undone.
+  "files.pasteConflictTitle": "L'élément existe déjà", // Item already exists
+  "files.pasteConflictBody": (name) =>
+    `Un élément nommé « ${name} » existe déjà dans le dossier de destination.`, // An item named "{name}" already exists in the destination folder.
+  "files.pasteConflictProgress": (current, total) => `${current} sur ${total}`, // {current} of {total}
+  "files.pasteConflictApplyAll": "Appliquer à tous les conflits restants", // Apply to all remaining conflicts
+  "files.pasteReplace": "Remplacer", // Replace
+  "files.pasteSkip": "Ignorer", // Skip
+  "files.pasteKeepBoth": "Conserver les deux", // Keep Both
 
   // ── File transfer (remote access) ──
   "transfer.title": "Transferts", // Transfers
@@ -1651,6 +1785,9 @@ const fr: typeof en = {
   "transfer.downloading": "Téléchargement…", // Downloading…
   "transfer.savedToDownloads": "Enregistré dans Téléchargements", // Saved to Downloads
   "transfer.foldersUnsupported": "Les dossiers ne peuvent pas être envoyés.", // Folders can't be uploaded.
+  "drop.browserFilesHint": "Dans le navigateur, seules les images peuvent être déposées ici. Pour utiliser d'autres fichiers, envoyez-les d'abord dans le projet.", // In the browser, only images can be dropped here. To use other files, upload them to the project first.
+  "files.copyFailed": "Certains fichiers n'ont pas pu être copiés. Vérifiez qu'ils existent toujours et que vous pouvez écrire dans ce dossier.", // Some files could not be copied. Check that they still exist and that you can write to this folder.
+  "files.pasteFailed": "Certains éléments n'ont pas pu être collés. Vérifiez que la source existe toujours et que vous pouvez écrire dans ce dossier.", // Some items could not be pasted. Check that the sources exist and that you can write to this folder.
 
   // ── Status bar ──
   "statusbar.sessions": (n) => (n === 1 ? "1 session" : `${n} sessions`), // {n} sessions
@@ -1666,6 +1803,11 @@ const fr: typeof en = {
   "statusbar.permSkip": "Droits : Ignorer", // Perms: Skip
   "statusbar.notifyOn": "Notify: On", // TODO translate
   "statusbar.notifyOff": "Notify: Off", // TODO translate
+  "statusbar.zoomGroup": "Zoom de l’interface",
+  "statusbar.zoomOut": "Zoom arrière",
+  "statusbar.zoomIn": "Zoom avant",
+  "statusbar.zoomEdit": "Zoom de l’interface · Cliquez pour saisir un pourcentage (80–200 %)",
+  "statusbar.zoomInput": "Pourcentage de zoom de l’interface, de 80 à 200",
   "statusbar.permTooltip":
     "Mode d'autorisation de cette session · cliquez pour changer (cette session uniquement)", // This session's permission mode · click to change (this session only)
   "statusbar.permMenuTitle": "Autorisations de cette session", // This session's permissions
@@ -2026,10 +2168,12 @@ const fr: typeof en = {
   "updater.hide": "Hide", // TODO translate
   "updater.hideHint":
     "Keep downloading in the background. Progress stays in the status bar.", // TODO translate
-  "updater.downloadManually": "Download manually", // TODO translate
-  "updater.downloadManuallyHint": "Open the download page in your browser.", // TODO translate
+  "updater.downloadManually": "Télécharger manuellement",
+  "updater.downloadManuallyHint": "Ouvre la page de téléchargement dans le navigateur.",
   "updater.windowsNotice":
     "VelaTerm will close while the installer runs, then reopen on its own.", // TODO translate
+  "updater.portableNotice":
+    "Cette version portable ne se met pas à jour automatiquement. Téléchargez la nouvelle version et remplacez ce dossier par celle-ci ; vos paramètres et vos sessions sont conservés.",
   "updater.installingWindows":
     "Installing… VelaTerm is about to close. The installer will finish the update and reopen it.", // TODO translate
   "statusbar.updateAvailable": (version) => `Update ${version}`, // TODO translate
@@ -2051,6 +2195,7 @@ const fr: typeof en = {
   "skills.vstat": "Indique quelles sessions travaillent ou attendent une saisie.",
   "skills.vtell": "Envoie un message à une autre session.",
   "skills.vkb": "Interroge CodeGraph et la base de connaissances du projet.",
+  "skills.vapp": "Permet à l’agent d’utiliser VelaTerm, chaque action étant soumise à votre confirmation.",
   "skills.settingsHint": "Vous pourrez aussi les installer plus tard dans Paramètres > Avancé.",
   "skills.installFailed": (err) => `Échec de l’installation : ${err}`,
   "skills.dontRemind": "Ne plus me le rappeler",
@@ -2170,6 +2315,7 @@ const fr: typeof en = {
   "chat.question.submit": "Envoyer",
   "chat.question.next": "Suivant",
   "chat.question.dismiss": "Ignorer",
+  "chat.question.skip": "Passer",
   "chat.question.answerPlaceholder": "Tapez votre réponse",
   "chat.question.otherPlaceholder": "Autre réponse",
   "chat.question.answeredHeading": (n: number) =>
@@ -2224,6 +2370,8 @@ const fr: typeof en = {
   "chat.rewind.editWarning": "Le message original et tous les messages suivants seront définitivement supprimés. Le message modifié sera envoyé à partir de cet endroit. Les modifications des fichiers ne seront pas annulées.",
   "chat.rewind.inactive": "Le processus de conversation n’est pas démarré. Ces actions seront disponibles après son démarrage.",
   "chat.rewind.unsupported": "L’agent connecté ne propose pas cette action pour le moment.",
+  "chat.rewind.latestOnly": "L’agent connecté ne peut revenir en arrière qu’à partir du dernier message.",
+  "chat.rewind.appliesOnSend": "L’agent n’applique le retour en arrière qu’à l’envoi de votre prochain message. D’ici là, la conversation et les fichiers restent inchangés.",
   "chat.rewind.title": "Revenir à ce point",
   "chat.rewind.warning": "Cette action est irréversible.",
   "chat.rewind.conversation": "Revenir sur la conversation",
@@ -2320,6 +2468,10 @@ const fr: typeof en = {
   "chat.auth.claude.submit": "Envoyer le code",
   "chat.auth.claude.invalidCode": "Collez le code complet de cette tentative d’autorisation, y compris la partie après #.",
   "chat.auth.claude.externalAuth": "Les clés API et les autres méthodes d’authentification configurées restent inchangées.",
+  "chat.auth.antigravity.pending": "Ouvrez la page d’autorisation, connectez-vous avec Google, puis collez le code d’autorisation ou l’URL de redirection affichée.",
+  "chat.auth.antigravity.failed": "La connexion n’a pas pu aboutir. Réessayez et vérifiez que votre version d’Antigravity CLI prend en charge l’autorisation du compte.",
+  "chat.auth.antigravity.code": "Code d’autorisation ou URL de redirection",
+  "chat.auth.antigravity.invalidCode": "Collez le code d’autorisation ou l’URL de redirection de cette tentative de connexion, sans espaces.",
   "chat.auth.open": "Ouvrir la page d’autorisation",
   "chat.auth.zcode.required": "Connectez-vous à ZCode avec votre compte Z.ai ou BigModel pour utiliser cette conversation.",
   "chat.auth.zcode.pending": "Ouvrez la page d’autorisation et accordez l’accès. Cette vue sera mise à jour une fois la connexion terminée.",
@@ -2415,7 +2567,7 @@ const fr: typeof en = {
   "settings.completionTab": "Tab uniquement",
   "settings.completionOff": "Désactivées",
   "settings.completionUnavailable": "Impossible de charger ou d’enregistrer les paramètres.",
-  "settings.completionHint": "Pendant la saisie dans Zsh, la commande la plus récente de l’historique qui correspond s’affiche en grisé après le curseur ; appuyez sur → ou Fin pour l’accepter. Tab se comporte comme dans le shell : une correspondance unique est insérée directement, la partie commune est complétée d’abord, et la liste s’ouvre lorsque plusieurs choix subsistent. S’applique aux nouveaux terminaux Zsh, Bash 4+, Fish et PowerShell.",
+  "settings.completionHint": "Pendant la saisie dans Zsh, la commande la plus récente de l’historique qui correspond s’affiche en grisé après le curseur ; appuyez sur → ou Fin pour l’accepter. Elle n’apparaît pas lors d’une saisie depuis une connexion distante. Tab se comporte comme dans le shell : une correspondance unique est insérée directement, la partie commune est complétée d’abord, et la liste s’ouvre lorsque plusieurs choix subsistent. S’applique aux nouveaux terminaux Zsh, Bash 4+, Fish et PowerShell.",
   "settings.completionTabOnlyHint": "Aucune suggestion ne s’affiche pendant la saisie. Appuyez sur Tab pour compléter comme dans le shell : une correspondance unique est insérée directement, la partie commune est complétée d’abord, et la liste s’ouvre lorsque plusieurs choix subsistent. S’applique aux nouveaux terminaux Zsh, Bash 4+, Fish et PowerShell.",
   "settings.completionTabKey": "Touche Tab",
   "settings.completionTabAccept": "Accepter la suggestion",
@@ -2532,29 +2684,17 @@ const fr: typeof en = {
   "chat.antigravity.placeholder": "Écrivez à Antigravity ou utilisez @fichiers pour référencer des fichiers",
   "chat.antigravity.textOnly": "La vue de conversation d’Antigravity ne prend actuellement en charge que les messages texte.",
   "chat.textOnly": (agent: string) => `La vue de conversation de ${agent} ne prend en charge que les messages texte.`,
+  "chat.attach.modelTextOnly": "Le modèle sélectionné n’accepte pas les images.",
   "chat.signInRequired": (agent: string) => `Connectez-vous à ${agent} pour utiliser la vue de conversation. Passez à la vue terminal pour vous connecter, puis renvoyez votre message.`,
-  "chat.apiKeyRequired": "DeepSeek Harness a besoin d'une clé API. Définissez la variable d'environnement DEEPSEEK_API_KEY, ou lancez `dsh web` et enregistrez la clé sur sa page Models, puis renvoyez votre message.",
+  "chat.apiKeyRequired": "DeepSeek a besoin d'une clé API. Ouvrez « API » à côté du champ de message et saisissez-la, ou définissez la variable d'environnement `DEEPSEEK_API_KEY`, puis renvoyez votre message.",
+  "chat.codex.activeWriter": "Un autre processus Codex utilise actuellement cette conversation. Fermez l’autre onglet de terminal ou l’autre instance Codex qui l’occupe, ou patientez un instant avant de réessayer.",
   "chat.antigravity.permissionsHint": "Les outils nécessitant une autorisation doivent être autorisés dans les paramètres d’Antigravity ou utilisés dans la vue terminal.",
   "chat.antigravity.settingsHint": "Modifiez le modèle, le niveau de raisonnement ou les autorisations entre les tours.",
-  "ports.title": "Ports", // Ports
-  "ports.active": "Transférés", // Forwarded
-  "ports.activeEmpty": "Aucun port transféré", // No forwarded ports
-  "ports.detected": "Détectés", // Detected
-  "ports.detectedEmpty": "Aucun port en écoute trouvé", // No listening ports found
-  "ports.detectionUnavailable": "La détection des ports n’est pas disponible sur cet hôte", // Port detection is not available on this host
-  "ports.manual": "Transférer un port", // Forward a port
-  "ports.portPlaceholder": "Port distant", // Remote port
-  "ports.forward": "Transférer", // Forward
-  "ports.open": "Ouvrir dans le navigateur", // Open in browser
-  "ports.stop": "Arrêter", // Stop
-  "ports.localChanged": (port) => `Le port local ${port} était occupé, un autre port local est utilisé`, // Local port {port} was busy, so another local port is used
-  "ports.unavailable": "Indisponible — mettez à jour VelaTerm", // Unavailable — update VelaTerm
-  "ports.invalidPort": (port) => `Port non valide : ${port}`, // Invalid port: {port}
-  "ports.missingPort": "Saisissez un port", // Enter a port
-  "ports.unknownAction": (action) => `Action inconnue : ${action}`, // Unknown action: {action}
-  "ports.limit": (max) => `Au maximum ${max} ports peuvent être transférés par connexion`, // At most {max} ports can be forwarded per connection
-  "ports.notForwarded": (port) => `Le port ${port} n'est pas transféré`, // Port {port} is not forwarded
-  "statusbar.ports": (n) => (n === 1 ? "1 port transféré" : `${n} ports transférés`), // {n} forwarded ports
+  "chat.antigravity.rewindTitle": "Revenir en arrière dans la vue terminal",
+  "chat.antigravity.rewindHint": "La vue de conversation d’Antigravity ne permet pas encore de revenir en arrière ni de modifier les messages envoyés. Basculez vers la vue terminal et exécutez /rewind ; l’état sera synchronisé à votre retour.",
+  "chat.antigravity.rewindGuide": "La vue de conversation d’Antigravity ne permet pas encore de revenir directement en arrière ni de modifier un message envoyé. Basculez vers la vue terminal et exécutez /rewind pour rétablir la conversation ou restaurer les fichiers ; le nouvel état sera chargé automatiquement à votre retour.",
+  "chat.antigravity.rewindCommandDescription": "Basculer vers la vue terminal pour exécuter /rewind",
+  "chat.antigravity.switchToTerminal": "Basculer vers la vue terminal",
   "chat.history.imageDownloadRequired": "Cette image ne peut pas être ouverte ici. Téléchargez l’original pour la consulter.",
   "chat.history.readBody": "Lire le contenu intégral",
   "chat.history.selectDetail": "Choisir un fichier ou un champ",
@@ -2666,6 +2806,8 @@ const fr: typeof en = {
   "sidebarSection.nav": "Sections de la barre latérale",
   "sidebarSection.noTasks": "Aucune session de tâche pour le moment.",
   "sidebarSection.noChats": "Aucune session de discussion pour le moment.",
+  "sidebarSection.setDefaultView": "Définir comme vue par défaut",
+  "sidebarSection.clearDefaultView": "Retirer la vue par défaut",
   "artifact.comment": "Commenter", // Comment
   "artifact.commentTitle": "Cliquer sur des éléments de la page pour laisser des commentaires à l'agent", // Click elements in the page to leave comments for the agent
   "artifact.pickHint": "Cliquez sur un élément de la page pour le commenter. Appuyez sur Échap pour arrêter.", // Click an element in the page to comment on it. Press Esc to stop.
@@ -2730,6 +2872,50 @@ const fr: typeof en = {
   "kb.searchEntries": "Rechercher des articles…",
   "kb.updatedOn": (date: string) => `Mise à jour le ${date}`,
   "archive.sessionsCount": (count: string) => `${count} ${count === "1" ? "session" : "sessions"}`,
+
+
+  ...assist,
+  "plugins.title": "Extensions",
+  "plugins.subtitle": "Installez, liez, activez ou rechargez des extensions VelaTerm externes. Chaque extension s’exécute dans un processus backend isolé et charge son interface dynamiquement.",
+  "plugins.installArchive": "Installer depuis une archive…",
+  "plugins.linkDev": "Lier une extension locale…",
+  "plugins.localOnlyHint": "L’installation, la liaison et l’activation des extensions sont réservées à l’hôte local.",
+  "plugins.archivePathPrompt": "Saisissez le chemin complet vers une archive .vlxplugin ou .zip :",
+  "plugins.devPathPrompt": "Saisissez le chemin complet d’un dossier d’extension local contenant manifest.json :",
+  "plugins.empty": "Aucune extension installée. Installez une archive .vlxplugin ou liez un dossier d’extension local pour commencer.",
+  "plugins.sourceInstalled": "Installée",
+  "plugins.sourceDev": "Dév. local",
+  "plugins.statusRunning": "En cours",
+  "plugins.statusStarting": "Démarrage…",
+  "plugins.statusDisabled": "Désactivée",
+  "plugins.statusStopped": "Arrêtée",
+  "plugins.statusError": "Erreur",
+  "plugins.enable": "Activer",
+  "plugins.disable": "Désactiver",
+  "plugins.reload": "Recharger",
+  "plugins.uninstall": "Désinstaller",
+  "plugins.uninstallConfirm": (name: string) => `Désinstaller l’extension « ${name} » ?`,
+  "plugins.removeData": "Supprimer également le dossier de données local de cette extension",
+  "plugins.loadFailed": "Échec du chargement de l’interface de l’extension",
+  "ports.title": "Ports", // Ports
+  "ports.active": "Transférés", // Forwarded
+  "ports.activeEmpty": "Aucun port transféré", // No forwarded ports
+  "ports.detected": "Détectés", // Detected
+  "ports.detectedEmpty": "Aucun port en écoute trouvé", // No listening ports found
+  "ports.detectionUnavailable": "La détection des ports n’est pas disponible sur cet hôte", // Port detection is not available on this host
+  "ports.manual": "Transférer un port", // Forward a port
+  "ports.portPlaceholder": "Port distant", // Remote port
+  "ports.forward": "Transférer", // Forward
+  "ports.open": "Ouvrir dans le navigateur", // Open in browser
+  "ports.stop": "Arrêter", // Stop
+  "ports.localChanged": (port) => `Le port local ${port} était occupé, un autre port local est utilisé`, // Local port {port} was busy, so another local port is used
+  "ports.unavailable": "Indisponible — mettez à jour VelaTerm", // Unavailable — update VelaTerm
+  "ports.invalidPort": (port) => `Port non valide : ${port}`, // Invalid port: {port}
+  "ports.missingPort": "Saisissez un port", // Enter a port
+  "ports.unknownAction": (action) => `Action inconnue : ${action}`, // Unknown action: {action}
+  "ports.limit": (max) => `Au maximum ${max} ports peuvent être transférés par connexion`, // At most {max} ports can be forwarded per connection
+  "ports.notForwarded": (port) => `Le port ${port} n'est pas transféré`, // Port {port} is not forwarded
+  "statusbar.ports": (n) => (n === 1 ? "1 port transféré" : `${n} ports transférés`), // {n} forwarded ports
 };
 
 export default fr;

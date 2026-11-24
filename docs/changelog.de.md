@@ -1,3 +1,88 @@
+## v0.3.6 — 2026-11-24
+
+- 📝 Diff-Ansichten unterstützen jetzt Inline-Review-Kommentare für ausgewählte Zeilen sowie eine Übersichtsleiste zum Bearbeiten, Kopieren oder direkten Senden aller Kommentare an eine aktive Agent-Sitzung.
+- 🔀 Der Branch-Vergleich im Git-Bereich ermöglicht jetzt das Erstellen von Pull- oder Merge-Requests (einschließlich Entwürfen) auf GitHub, GitLab und Gitea mit vorausgefüllten Angaben, zeigt Status und CI-Prüfungen an und räumt Worktree sowie Branch nach dem Zusammenführen auf.
+- 🔌 SSH-Remote-Fenster bieten jetzt im rechten Bereich den Tab „Ports“ sowie einen Zähler weitergeleiteter Ports in der Statusleiste, erkennen lauschende Ports auf Linux-Hosts und erlauben direktes Weiterleiten, Öffnen im Browser oder Beenden.
+- 🎨 Unter Einstellungen ▸ Darstellung lassen sich neben „Klassisch“ jetzt separate benannte Designs für den dunklen Modus (Tokyo Night, Dracula, Nord, Gruvbox Dark, Adventure Time und Campbell PowerShell) und den hellen Modus (One Half Light und Solarized Light) wählen, wobei die Auswahl beim Wechsel zwischen Hell und Dunkel erhalten bleibt.
+- ⌨️ Der Sitzungsbaum in der Seitenleiste unterstützt jetzt vollständige Tastaturnavigation mit Pfeiltasten, `Home`/`End`, `Enter` sowie `Escape` zur Rückkehr des Fokus zum aktiven Terminal oder Eingabefeld, ergänzt um das anpassbare Kürzel „Seitenleiste fokussieren“ (`Cmd+Shift+E` unter macOS, `Ctrl+Alt+S` unter Windows und Linux).
+- 🔎 Bei der Suche in der Seitenleiste mit aktivem Statusfilter erscheinen passende, vom Filter ausgeblendete Projekte jetzt in einem eigenen Abschnitt „Weitere Projekte“ unterhalb der gefilterten Ergebnisse.
+- ⚡ Antigravity-Gespräche öffnen sich jetzt schneller erneut und senden Nachrichten sofort, ohne bei einem Kaltstart oder bei Hintergrundprüfungen hängen zu bleiben.
+- 🪐 Antigravity-Gespräche starten jetzt auch ohne vorausgewähltes Standardmodell sauber, erholen sich automatisch von stillem Stillstand, Netzwerkstörungen und beschädigtem Sitzungszustand, halten interaktive Auswahlfragen auch unter Bypass-Berechtigungen nutzbar und setzen nach dem Zurücksetzen des Kontingents automatisch fort.
+- 🔑 ZCode-Gespräche übernehmen neu veröffentlichte Cloud-Modelle jetzt automatisch und unterstützen verschlüsselte Anmeldedaten aus ZCode 4.0 einschließlich der Anmeldung über den System-Schlüsselbund.
+- 🤖 Neue Grok-Gespräche starten jetzt sauber ohne die fälschliche Warnung, ein früheres Gespräch könne nicht erneut geöffnet werden, und Gespräche von Grok, Copilot, Cursor, Kimi und Antigravity wechseln sauber in ein neues Gespräch statt abzubrechen, wenn das vorherige nicht mehr geöffnet werden kann.
+- 🪟 Unter macOS passt sich die Fenstertitelleiste jetzt dem gewählten dunklen oder hellen Design an, selbst wenn es vom Systemerscheinungsbild abweicht, und kehrt im Systemmodus sauber zurück.
+- 💬 Das Ausblenden des Hinweises zur Gesprächsansicht wird jetzt über Neustarts hinweg sowie zwischen Desktop-, Electron- und Browser-Fenstern gespeichert und blitzt beim Start nicht mehr kurz auf.
+- 🧩 Das Verlassen oder Schließen einer Plugin-Ansicht in der Desktop-App funktioniert jetzt normal ohne Zurückspringen, und Darstellungsfehler von Plugins bleiben mit einer Option zum erneuten Versuch isoliert.
+- 🔧 Das Wechseln zwischen regulären Tabs und Ansichten ohne rechten Bereich, wie der Wissensdatenbank, führt nicht mehr zum Absturz der Oberfläche.
+
+## v0.3.5 — 2026-11-23
+
+- 🔎 Die globale Sitzungssuche ermöglicht es jetzt, Ergebnisse nach einem bestimmten Projekt oder einer Sammlung einschließlich verschachtelter Sammlungen und Projekte zu filtern.
+- 🪐 Das gleichzeitige Öffnen mehrerer Antigravity-Gespräche löst keine Anmeldedaten-Konflikte oder doppelten Anmeldeaufforderungen mehr aus, und länger inaktive Sitzungen erneuern abgelaufene Anmeldedaten automatisch, statt mitten im Durchgang fehlzuschlagen.
+- 🔄 Antigravity-Gespräche erholen sich jetzt automatisch von Modellfehlern beim Kaltstart und vorübergehenden Upstream-Fehlern, ohne den Durchgang abzubrechen oder bereits abgeschlossene Werkzeugergebnisse zu verlieren.
+- 🤖 `vapp` akzeptiert jetzt `--yes` (`-y` / `--no-confirm`), um Aktionen direkt ohne Bestätigungskarte auszuführen, und über `vapp` vorgenommene Änderungen an der Wissensdatenbank aktualisieren deren Ansicht automatisch.
+- 💬 `vtell` kann jetzt Nachrichten an jede Agent-Sitzung in der Gesprächsansicht senden — einschließlich Antigravity, ZCode, DeepSeek, Copilot, Cursor, Kimi und Grok —, wobei Antigravity auch `--steer`-Einwürfe unterstützt.
+- ✉️ Das Senden einer Nachricht beim Ansehen älterer Gesprächsverläufe oder nach einem verpassten Live-Update lässt die Nachricht nicht mehr auf „Gesendet“ hängen.
+
+## v0.3.4 — 2026-11-22
+
+- 🪐 Antigravity-Gespräche enthalten jetzt eine integrierte Modellliste mit Gemini 4 Neon und Orchestrator (Neon), aktualisieren verfügbare Modelle beim Öffnen im Hintergrund und wechseln auch bei länger laufenden Sitzungen nahtlos zu neu veröffentlichten Modellen.
+- 🔑 In Antigravity-Gesprächen können Sie sich jetzt direkt in der Gesprächsansicht mit Google an- und abmelden.
+- 🛡️ Antigravity-Gespräche behalten Bypass-Berechtigungen beim Start zuverlässig bei, warten bei einem Kaltstart auf die Modellliste statt bei der ersten Nachricht fehlzuschlagen und frieren die App beim Öffnen einer Sitzung nicht mehr ein.
+- 📁 Der Bereich „Dateien“ unterstützt jetzt Mehrfachauswahl, Stapellöschung sowie Ausschneiden, Kopieren und Einfügen mit Finder und Datei-Explorer einschließlich Konfliktlösung.
+- 🔎 Der Filter im Bereich „Dateien“ sucht jetzt rekursiv auch in eingeklappten Ordnern und klappt passende Pfade automatisch auf.
+- 🖼️ Zu große Bilder, die in ein Gespräch eingefügt oder gezogen werden, werden jetzt automatisch skaliert und komprimiert statt abgelehnt; in den Einstellungen lässt sich ein Limit von 1, 2 oder 4 MB wählen.
+- 🔔 Das Hauptfenster und Remote-Fenster zeigen jetzt jeweils ihre eigene Anzahl ausstehender Einträge im Fenstertitel an, und das Dock- oder Taskleisten-Badge zeigt die Summe über alle geöffneten Fenster.
+- 🔍 Remote-Fenster für SSH, WSL und gekoppelte URLs zeigen jetzt die Zoom-Steuerung der Oberfläche in der Statusleiste an.
+- 🧱 Das Abfragen und Vertrauen von SSH-Hostschlüsseln berücksichtigt jetzt Aliase, Hostnamen und benutzerdefinierte Ports aus `~/.ssh/config`.
+- 🪟 Unter macOS bringt ein Klick auf das Dock-Symbol bei ausschließlich geöffneten Remote-Fenstern diese in den Vordergrund, statt ein neues Hauptfenster zu öffnen, und das Dock-Kontextmenü erhält New Window.
+- 💬 Gesprächsfehler entfernen jetzt rohe Terminal-Steuersequenzen, zeigen eine klare Meldung an, wenn ein anderer Codex-Prozess dasselbe Gespräch verwendet, und duplizieren Startfehler nicht mehr.
+- 🔧 Das Abbrechen des Ziehens eines Projekts in der Seitenleiste entfernt die Einfügemarkierung sofort, und Sitzungen in der Gesprächsansicht erhalten keine widersprüchlichen Statusmeldungen mehr von Terminal-Hooks.
+
+## v0.3.3 — 2026-11-17
+
+- 🌐 Der Fernzugriff kann jetzt auf allen Netzwerken, auf einer bestimmten IPv4-Adresse wie einer Tailscale-Adresse oder nur auf diesem Computer hinter einem Tunnel oder Reverse-Proxy lauschen; `vela-server --serve` nimmt dieselbe Auswahl mit `--bind` entgegen.
+- 🔒 Das Zugriffspasswort von `vela-server --serve` wird nicht mehr an Terminals, Agenten und andere Kindprozesse weitergegeben, und `--password-file` liest es aus einer Datei, auf die nur der Eigentümer zugreifen kann.
+- 🪐 Neue Antigravity-Sitzungen öffnen sich in der Gesprächsansicht, während vor dem Update erstellte Sitzungen ihre bisherige Ansicht behalten.
+- 🧭 Ein Rechtsklick auf einen Bereich der Aktivitätsleiste legt ihn als Standardansicht fest; ohne eine solche öffnet sich die Seitenleiste jetzt bei Projekte statt beim zuletzt angesehenen Bereich.
+- 🤖 Grok-Gespräche bieten jetzt alle Modelle, die das Konto nutzen kann, und die eigenen Denkstufen jedes Modells; `none` erscheint unter der Stufenliste.
+- 💬 Planfreigaben, Fragen und MCP-Formulare von Grok erscheinen jetzt als die gewohnten Karten und lassen sich beantworten; ein Gespräch, das Grok nicht mehr öffnen kann, startet ein neues, statt jede Nachricht zu blockieren.
+- 🏷️ Grok-Sitzungen übernehmen den Titel, den Grok ihrem Gespräch gibt, und sehr lange Gespräche oder solche unter einem gelöschten Projekt starten wieder normal.
+- 🧱 SSH-Verbindungen unter Windows beachten jetzt `~/.ssh/config` für Host-Aliase, Ports, Benutzer, Identitätsdateien und bevorzugte Authentifizierung.
+- 🗂️ Projekte lassen sich neu anordnen, indem eine Projektzeile auf die obere oder untere Hälfte einer anderen gezogen wird.
+- ⚙️ Die Einstellungen öffnen sich wieder im zuletzt angesehenen Bereich.
+- 💡 Verhaltenseinstellungen, deren Wirkung sich nicht aus der Bezeichnung ergibt, erklären sich jetzt über ein Info-Symbol.
+- 📁 Dateien erhält „Alle einklappen“, um alle geöffneten Ordner unterhalb des Stammverzeichnisses auf einmal zu schließen.
+- ⌨️ `Cmd/Ctrl+Tab` und `Cmd/Ctrl+Shift+Tab` wechseln zum nächsten bzw. vorherigen Tab und springen am Ende wieder zum Anfang.
+- ⌨️ Die Eingabe von `/` im Terminal wird nicht mehr doppelt gesendet.
+- ⌨️ Die Eingabe im Terminal nach dem Verschieben des Cursors mit den Pfeiltasten und einer IME-Komposition wird nicht mehr verfälscht.
+- 🖥️ Ein Spiegel-Fenster, das eine Größenänderung verpasst hat, gleicht sich wieder an die Terminalgröße an, statt eine verzerrte Eingabeaufforderung zu zeichnen.
+- 🧩 Im Eingabebereich deaktivierte Chips erscheinen nicht mehr hinter More.
+
+## v0.3.2 — 2026-11-16
+
+- 🤖 OpenCode-v2-Sitzungen können KI-Umbenennung und Übersetzung wieder nutzen, und eine fehlgeschlagene KI-Umbenennung meldet jetzt den Fehler, statt den Agenten als nicht verfügbar zu bezeichnen.
+- 🪐 In Antigravity-Gesprächen funktioniert „Ältere Nachrichten laden“ auch nach dem Aufwachen des Agenten weiter, statt wirkungslos zu bleiben.
+
+## v0.3.1 — 2026-11-16
+
+- 🪐 Die Antigravity-Gesprächsansicht unterstützt jetzt den Wechsel von Modell und Denkaufwand, die Verfolgung von Unteragenten und Hintergrundaufgaben, interaktive `ask_question`-Abfragen, fünf Berechtigungsstufen, KI-Umbenennung sowie Rundenstatistiken, Ausgabegeschwindigkeit und Kontingentverbrauch im Info-Bereich.
+- 🐋 DeepSeek-Sitzungen unterstützen jetzt Hintergrundaufgaben, modellabhängige Bildeingabe, Kontextverbrauch, KI-Umbenennung, die Konfiguration von API-URL und -Schlüssel neben dem Eingabefeld sowie die schreibgeschützte Ansicht früherer `dsh`-Verläufe.
+- 🤖 Agenten können jetzt mit `vapp` VelaTerm-App-Aktionen vorschlagen (einschließlich der Organisation von Seitenleistenbäumen mit `$name`-Referenzen), wobei jede Aktion oder Gruppe als Bestätigungskarte in der Gesprächsansicht erscheint.
+- 📁 Aufgaben und Chats in der linken Seitenleiste unterstützen das Erstellen von Gruppen, das Hinzufügen von Einträgen über das Kontextmenü im leeren Bereich sowie das Herausziehen von Einträgen auf die oberste Ebene.
+- 📦 Windows-Releases enthalten jetzt portable ZIP-Pakete für Voll- und Minimal-Builds, und portable Kopien aktualisieren sich über die Download-Seite.
+- 🇨🇳 In den Einstellungen lässt sich der Update- und Download-Server auf den Festlandchina-Mirror `velaterm.cn` umschalten.
+- 🔍 Die Statusleiste erhält eine Steuerung für die Oberflächenskalierung mit direkter Prozenteingabe, und in den Einstellungen lassen sich getrennte, durchsuchbare Schriftarten für Oberfläche und Gespräche wählen.
+- 📎 Dateien aus dem Finder oder Datei-Explorer lassen sich jetzt direkt in Terminals, Gespräche und den Projekt-Dateibaum ziehen.
+- 🍴 ZCode-Sitzungen unterstützen das Abzweigen ab der letzten Antwort ohne Änderung des Arbeitsbereichs, das Zurücksetzen ab der letzten Nachricht sowie KI-Umbenennung, während Pi- und OMP-Sitzungen die Vervollständigung von Slash-Befehlen unterstützen.
+- 📋 Gesprächsnachrichten bieten „Gesamte Nachricht kopieren“ im Kontextmenü, das Eingabefeld bietet ein Kontextmenü für Ausschneiden/Kopieren/Einfügen/Alles auswählen mit Tastenkürzeln, und die Suche im Gespräch durchsucht zuerst das vollständige Transkript.
+- 📊 Der Bereich „Usage“ im Info-Bereich zeigt Kontingentbalken gruppiert nach Rücksetzfenster mit 20-teiliger Skala und separaten Rücksetzzeiten an und klappt Nicht-Gemini-Kontingente von Antigravity standardmäßig ein.
+- 🏷️ Sitzungen bieten „Status festlegen“ (Angesehen / Ausstehend) im Kontextmenü, neu erstellte Sitzungen bleiben bei aktiven Statusfiltern sichtbar, und `vspawn --title` setzt eigene Titel für abgeleitete und Planungssitzungen.
+- 🪟 `vartifact` dockt Dateien auch beim Öffnen aus Hintergrund-Tabs an, das Dropdown für das Hintergrund-Tab-Limit reicht bis 512, und Besucher öffentlicher Freigaben können den linken Baum lokal auf- und zuklappen.
+- ⌨️ Das Bestätigen einer IME-Eingabe mit Enter unter macOS sendet Antworten oder Suchen nicht mehr vorzeitig ab, die Remote-Terminaleingabe blendet Zsh-Inline-Verlaufsvorschläge aus, und synchronisierte Terminalaktualisierungen lassen den Anzeigebereich nicht mehr flackern.
+- 🔔 Ein Klick auf die Benachrichtigung eines Remote-Fensters unter macOS holt dieses Fenster direkt in den Vordergrund, ohne zuvor das Hauptfenster aufblitzen zu lassen, und beim erneuten Öffnen der App wird das Hauptfenster auch dann wiederhergestellt, wenn nur Remote-Fenster geöffnet sind.
+- 🔧 Beim Projektwechsel wird der Dateibaum-Filter geleert, Berechtigungsauswahlen speichern Standards sofort über Set as default, die KI-Umbenennung funktioniert auch bei sehr langen Sitzungen, und die erste Nachricht einer neuen Sitzung flackert vor dem Start der Sitzung nicht mehr.
+
 ## v0.3.0 — 2026-11-08
 
 - 🔏 Die macOS-Version wird jetzt mit dem Zertifikat von Vlinx Software, Inc. statt mit dem bisherigen signiert. Nach dem Update müssen Sie einige macOS-Berechtigungen möglicherweise erneut erteilen, und im Schlüsselbund gespeicherte Einträge wie Passwörter für Remote-Verbindungen müssen noch einmal freigegeben werden: Geben Sie bei der Abfrage Ihr Anmeldepasswort ein und wählen Sie „Immer erlauben“.

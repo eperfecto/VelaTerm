@@ -25,7 +25,9 @@ import { invoke } from "./transport";
  *  vlx-theme=color scheme / vlx-lang=language / vlx-sound=notification sound /
  *  vlx-notify=master system-notification switch / vlx-clean-images=automatic pasted-image cleanup /
  *  vlx-record-sessions=session recording switch used by backend spawn / vlx-settings=main settings block for
- *  appearance, terminal, behavior, advanced options, and shortcuts. */
+ *  appearance, terminal, behavior, advanced options, and shortcuts / vlx-server-region=international or China
+ *  mirror service, also read by the backend for updates and downloads (see serverRegion.ts) /
+ *  vlx-conversation-view-hint-0.2.0-dismissed=one-time dismissal flag for the conversation view switch hint. */
 export const SYNCED_KEYS = [
   "vlx-theme",
   "vlx-lang",
@@ -34,6 +36,8 @@ export const SYNCED_KEYS = [
   "vlx-clean-images",
   "vlx-record-sessions",
   "vlx-settings",
+  "vlx-server-region",
+  "vlx-conversation-view-hint-0.2.0-dismissed",
 ] as const;
 const SYNCED = new Set<string>(SYNCED_KEYS);
 

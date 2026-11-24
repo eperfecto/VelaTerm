@@ -6,7 +6,7 @@ import { sessionNameFromTitle } from "../terminal/terminalTitle";
 
 import { create } from "zustand";
 import { navigateProjectDialog, readProjectDialogCollection, writeDialogDraft } from "../remote/dialogNavigation";
-import { DEFAULT_CONVERSATION_FONT_SIZE, normalizeTextSize, normalizeTextLineHeight } from "../theme";
+import { DEFAULT_CONVERSATION_FONT_SIZE, normalizeFontFamily, normalizeLetterSpacing, normalizeTextSize, normalizeTextLineHeight } from "../theme";
 import { t } from "../i18n";
 import { setBrowserUrl } from "../ipc/browser";
 import { chatClear, chatStop, setSessionEngine, type ChatBackgroundTask } from "../ipc/chat";
@@ -23,6 +23,7 @@ import {
   type UsageSnapshot,
 } from "../ipc/commands";
 import {
+  markSessionPending,
   markSessionRead,
   markSessionUnread,
   reportScreen,
@@ -31,8 +32,8 @@ import {
 } from "../ipc/sessionState";
 import type { BackgroundRun } from "../ipc/runs";
 import { pushSetting } from "../ipc/settingsSync";
-import { isTauri } from "../ipc/transport";
 import { isShareSurface } from "../ipc/shareBase";
+import { isTauri } from "../ipc/transport";
 import { env } from "../platform";
 import { genId } from "../genId";
 import type { SpawnRequest, StatusSignal } from "../ipc/events";
@@ -83,11 +84,13 @@ import {
   resolveTheme,
   type AccentChoice,
   type DarkStyle,
+  type LightStyle,
   type Density,
   type DividerStyle,
   type InspectorTab,
   type NavLayout,
   type PaneStyle,
+  type SettingsTab,
   type ResolvedTheme,
   type Theme,
 } from "../theme";
@@ -110,17 +113,20 @@ import {
   CLEAN_IMAGES_KEY,
   NOTIFY_KEY,
   RECORD_SESSIONS_KEY,
+  SETTINGS_DEFAULTS,
   SOUND_KEY,
   loadCleanPastedImages,
   loadNotifyEnabled,
   loadRecordSessions,
   loadSettings,
   loadSoundEnabled,
+  normalizeChatImageMaxMb,
   normalizeInputLatencyThreshold,
   sanitizeComposerInlineChips,
   saveSettings,
   visualOf,
   type AgentDefaultConfig,
+  type ChatImageMaxMb,
   type ComposerChipId,
   type ImagePasteMode,
   type MemoryPrefs,
@@ -140,7 +146,7 @@ import {
   visibleTabIds,
   type TabScopeState,
 } from "./visibleTabs";
-import { parseRailSection, sectionStartsExpanded, type RailSection } from "../layout/LeftSidebar/systemCollections";
+import { parseRailSection, sectionStartsExpanded, SYSTEM_CHAT, SYSTEM_PROJECTS, SYSTEM_TASKS, type DefaultViewSection, type RailSection } from "../layout/LeftSidebar/systemCollections";
 
 // Re-export the public API after moving implementations to settings/docTab, preserving existing import paths.
 export { DEFAULT_MAX_LIVE_TABS } from "./settings";
@@ -545,6 +551,34 @@ function loadSidebarViews() {
   }
 }
 
+/**
+ * Land a fresh page load on the user's default view instead of the section used last. A section that already owns
+ * a pane group shows that group as it was left; one the user never opened gets the same unfiltered group a first
+ * visit from the activity bar creates.
+ */
+function landingSidebarViews(
+  loaded: ReturnType<typeof loadSidebarViews>,
+  section: DefaultViewSection,
+) {
+  const target = loaded.tabs.find((tab) => sidebarTabSection(tab) === section);
+  if (target) return { ...loaded, activeId: target.activeViewId };
+  const view: SidebarTreeView = {
+    id: `tree-view-${genId()}`,
+    name: nextSidebarViewName(loaded.views),
+    treeFilter: "",
+    statusFilter: null,
+    statusFilterIds: null,
+    markFilter: null,
+    collapsedOverrides: null,
+  };
+  return {
+    views: [...loaded.views, view],
+    tabs: [...loaded.tabs, makeSidebarTreeTab(view.id, section)],
+    primaryId: loaded.primaryId,
+    activeId: view.id,
+  };
+}
+
 /** Debounce timers for persisting browser-node URLs, keyed by node ID. */
 const browserUrlTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -573,6 +607,24 @@ interface PersistedLayout {
  * tabs and kill their PTYs.
  */
 let layoutRestored = false;
+
+/**
+ * Collapse choices made on the public share surface. A visitor must not change the host's sidebar, so these
+ * stay in this page and are reapplied over every tree refresh, which otherwise carries the host's values.
+ */
+const shareCollapsed = new Map<string, boolean>();
+
+function rememberShareCollapse(kind: string, id: string, collapsed: boolean): void {
+  if (isShareSurface) shareCollapsed.set(`${kind}:${id}`, collapsed);
+}
+
+function applyShareCollapse<T extends { id: string; collapsed?: boolean }>(kind: string, nodes: T[]): T[] {
+  if (shareCollapsed.size === 0) return nodes;
+  return nodes.map((node) => {
+    const collapsed = shareCollapsed.get(`${kind}:${node.id}`);
+    return collapsed === undefined ? node : { ...node, collapsed };
+  });
+}
 
 /**
  * Snapshot the current tabs, split trees, and active state.
@@ -905,7 +957,7 @@ export interface BrowserTab {
 }
 
 /**
- * Tab showing one of a Claude conversation's background tasks, parallel to `DocTab` and `BrowserTab`: no pane
+ * Tab showing one of a conversation's background tasks, parallel to `DocTab` and `BrowserTab`: no pane
  * tree, no session of its own, so session reuse never replaces it. Client-local: neither persisted across
  * restart (the process behind it is gone by then) nor published to mirror peers, who lack the conversation's
  * context. Live content stays in the mounted `TaskView`, which subscribes to the session's chat events itself.
@@ -915,7 +967,7 @@ export interface TaskTab {
   id: string;
   /** The conversation the task belongs to. */
   sessionId: string;
-  /** Claude's task_id, the key into `extras.backgroundTasks`. */
+  /** The backend's task_id, the key into `extras.backgroundTasks`. */
   taskId: string;
   /** Static title chosen when the tab opened; the live "Phase: agent" line stays inside the view. */
   title: string;
@@ -1019,6 +1071,8 @@ interface TermStore {
   revealSuppressId: SessionId | null;
   /** Project requested by `vela <path>` for sidebar reveal; consumed by `ProjectTree`. */
   revealProjectId: string | null;
+  /** Session the sidebar was asked to scroll to; consumed by the active pane of the shown section's `ProjectTree`. */
+  revealSessionId: SessionId | null;
   focusedPaneId: string | null; // Currently focused pane.
   /**
    * Complete tabs kept alive off the tab bar; their pane trees remain mounted and restore intact.
@@ -1093,6 +1147,13 @@ interface TermStore {
    * sidebar instead.
    */
   pickSidebarSection: (section: RailSection) => void;
+  /** Choose the section a fresh launch opens on; `null` goes back to Projects. */
+  setDefaultSidebarSection: (section: DefaultViewSection | null) => void;
+  /**
+   * Show the section a session belongs to (Projects, Tasks or Chat) without hiding the sidebar, then scroll the
+   * section's active pane to the session, expanding its collapsed ancestors there.
+   */
+  revealSession: (id: SessionId) => void;
   rightCollapsed: boolean;
   leftWidth: number;
   rightWidth: number;
@@ -1156,6 +1217,11 @@ interface TermStore {
 
   // Sessions with recent system notifications, mapped to notification timestamps.
   notifications: Record<SessionId, number>;
+  /**
+   * Session the user marked Pending while it was the active one. The two-second read delay skips it until
+   * another session becomes active; otherwise the marker would clear itself right after being set.
+   */
+  unreadHold: SessionId | null;
   // Whether the application window is focused.
   windowFocused: boolean;
   // Persisted system-notification sound setting, enabled by default.
@@ -1169,12 +1235,14 @@ interface TermStore {
 
   // Vlinx appearance settings, driven by `data-*` attributes and persisted in `vlx-settings`.
   darkStyle: DarkStyle;
+  lightStyle: LightStyle;
   accent: AccentChoice;
   density: Density;
   paneStyle: PaneStyle;
   dividerStyle: DividerStyle;
   navLayout: NavLayout;
   inspectorTab: InspectorTab;
+  settingsTab: SettingsTab;
   /** Single-tab mode: reuse the session slot and keep replaced tabs alive in the background. */
   singleTabMode: boolean;
   /** Tab bar shows only the active project's tabs plus global terminals. */
@@ -1198,14 +1266,24 @@ interface TermStore {
   shells: ShellOption[];
   /** Interface font size in pixels, or `null` to follow density. */
   uiFontSize: number | null;
+  /** Interface font family, or `null` for the bundled Inter stack. */
+  uiFontFamily: string | null;
+  /** Monospace font for code, paths and diffs outside the terminal, or `null` for the default stack. */
+  uiMonoFontFamily: string | null;
   /** Terminal monospace font, applied live to all terminals. */
   termFontFamily: string | null;
   /** Terminal font size in pixels, applied live to all terminals. */
   termFontSize: number;
   termLineHeight: number;
   chatFontFamily: string | null;
+  /** Conversation code font, or `null` to follow `uiMonoFontFamily`. */
+  chatCodeFontFamily: string | null;
   chatFontSize: number;
   chatLineHeight: number;
+  /** Conversation letter spacing in pixels, or `null` for automatic. */
+  chatLetterSpacing: number | null;
+  /** Maximum size in MB that conversation images are compressed down to before sending. */
+  chatImageMaxMb: ChatImageMaxMb;
   /** Custom global shortcut overrides by action ID. */
   shortcutOverrides: Record<string, string>;
   /** Default arguments and permission mode by agent type, applied when new sessions omit them. */
@@ -1220,6 +1298,8 @@ interface TermStore {
   usageRefreshSec: number;
   /** Whether conversations stopped by a usage limit continue on their own once it resets. */
   autoContinueAtUsageLimit: boolean;
+  /** Whether the Antigravity quota section in the Info panel shows non-Gemini buckets. */
+  usageAntigravityShowOther: boolean;
   /** The backend's one account-usage copy, filled by `usage://changed` and read by the Info panel.
    * Null until the first read returns; sessions never query providers themselves. */
   usage: UsageSnapshot | null;
@@ -1241,6 +1321,8 @@ interface TermStore {
   memoryPrefs: MemoryPrefs;
   /** Last model and effort chosen per agent in the AI rename dialog. */
   sessionTitlePrefs: SessionTitlePrefs;
+  /** Last agent explicitly chosen in the AI rename dialog; empty uses the session's own agent. */
+  sessionTitleAgent: SessionKind | "";
   /** Optional global pre-summary selection for `vrefer --ask`. */
   referSummary: ReferSummaryConfig;
   /** Whether the Info panel's Resources section shows the whole-machine group. */
@@ -1266,6 +1348,8 @@ interface TermStore {
    * without waiting for the coalesced backend write. Ids without activity are absent.
    */
   sessionActivity: Record<SessionId, number>;
+  /** Sidebar section a fresh launch opens on; `null` opens Projects. */
+  defaultSidebarSection: DefaultViewSection | null;
 
   /** Saved agent launch configurations shown in the new-session menu, in menu order. */
   agentPresets: AgentPreset[];
@@ -1281,8 +1365,11 @@ interface TermStore {
   openProjectPath: (rootPath: string, collectionId?: string | null) => Promise<void>;
   /** Creates a collection with no directory of its own, optionally under a parent, then selects and reveals it. */
   addVirtualProject: (name: string, collectionId?: string | null) => Promise<void>;
-  /** Expands, selects, and reveals a just-created or just-imported project, clearing sidebar filters. */
-  revealFreshProject: (projectId: string) => Promise<void>;
+  /**
+   * Expands, selects, and reveals a just-created or just-imported project, clearing sidebar filters. With
+   * `keepFilters` the filters stay on; the tree keeps a node that appears under unchanged conditions visible.
+   */
+  revealFreshProject: (projectId: string, opts?: { keepFilters?: boolean }) => Promise<void>;
   setDirPickerOpen: (open: boolean, collectionId?: string | null) => void;
   /** Opens or closes the create-project dialog. */
   setCreateProjectModalOpen: (open: boolean, collectionId?: string | null) => void;
@@ -1388,6 +1475,7 @@ interface TermStore {
   /** Sets or clears one-shot sidebar reveal suppression. */
   setRevealSuppress: (id: SessionId | null) => void;
   setRevealProject: (id: string | null) => void;
+  setRevealSession: (id: SessionId | null) => void;
   moveNode: (
     kind: NodeKind,
     id: string,
@@ -1563,6 +1651,11 @@ interface TermStore {
   clearNotification: (id: SessionId) => void;
   /** Reports every marked session as read, clearing all dots and the Dock badge everywhere. */
   clearAllNotifications: () => void;
+  /**
+   * Sets sessions' review status by hand from the session menu: `viewed` clears the unread marker, `pending`
+   * raises it without a system notification. Both apply on every client.
+   */
+  markSessionsReview: (ids: readonly SessionId[], status: "viewed" | "pending") => void;
   /** Clears everything the Dock badge counts: unread markers and undecided spawn cards. */
   clearAllBadges: () => void;
   /** Merges a batch of authoritative session records from the backend into local state. */
@@ -1644,12 +1737,16 @@ interface TermStore {
 
   // Persisted Vlinx appearance settings applied through `data-*` attributes.
   setDarkTheme: (style: DarkStyle) => void;
+  /** Choose the theme each mode uses, without switching modes. */
+  setDarkStyle: (style: DarkStyle) => void;
+  setLightStyle: (style: LightStyle) => void;
   setAccent: (v: AccentChoice) => void;
   setDensity: (v: Density) => void;
   setPaneStyle: (v: PaneStyle) => void;
   setDividerStyle: (v: DividerStyle) => void;
   setNavLayout: (v: NavLayout) => void;
   setInspectorTab: (v: InspectorTab) => void;
+  setSettingsTab: (v: SettingsTab) => void;
   /** Toggles persisted single-tab mode. */
   setSingleTabMode: (v: boolean) => void;
   setScopeTabsToProject: (v: boolean) => void;
@@ -1676,6 +1773,8 @@ interface TermStore {
   setMemoryPrefs: (patch: { agent?: SessionKind | null; model?: string | null; effort?: string | null }) => void;
   /** Remember the model or effort chosen for one agent in the AI rename dialog. */
   setSessionTitlePrefs: (agent: SessionKind, patch: { model?: string; effort?: string }) => void;
+  /** Remember the agent explicitly chosen in the AI rename dialog. */
+  setSessionTitleAgent: (agent: SessionKind) => void;
   /** Updates the one global Agent/model/effort selection used for reference pre-summaries. */
   setReferSummary: (patch: Partial<ReferSummaryConfig>) => void;
   /** Shows or hides the whole-machine rows in the Info panel's Resources section. */
@@ -1704,6 +1803,8 @@ interface TermStore {
   setUsageRefreshSec: (v: number) => void;
   /** Turns automatic continuation after a usage limit resets on or off. */
   setAutoContinueAtUsageLimit: (v: boolean) => void;
+  /** Shows or hides non-Gemini quota windows (such as `claude/gpt`) in Antigravity's Usage section. */
+  setUsageAntigravityShowOther: (v: boolean) => void;
   /** Stores a usage snapshot received from the backend. */
   setUsage: (snap: UsageSnapshot) => void;
   /** Sets the persisted terminal renderer for new terminals. */
@@ -1719,9 +1820,14 @@ interface TermStore {
   setMaxLiveTabs: (v: number) => void;
   /** Sets the persisted default terminal shell; empty means system default. */
   setDefaultShell: (v: string) => void;
-  /** Interface font family; empty or `null` uses the default stack. */
   /** Interface font size in pixels; `null` follows density. */
   setUiFontSize: (v: number | null) => void;
+  /** Interface font family; empty or `null` uses the default stack. */
+  setUiFontFamily: (v: string | null) => void;
+  /** Interface monospace font family; empty or `null` uses the default stack. */
+  setUiMonoFontFamily: (v: string | null) => void;
+  /** Restores the interface font, monospace font and size together. */
+  resetUiTypography: () => void;
   /** Terminal font family; empty or `null` uses the default stack. */
   setTermFontFamily: (v: string | null) => void;
   /** Terminal font size in pixels, clamped to 10–24. */
@@ -1730,6 +1836,14 @@ interface TermStore {
   setChatFontFamily: (v: string | null) => void;
   setChatFontSize: (v: number) => void;
   setChatLineHeight: (v: number) => void;
+  /** Conversation code font family; empty or `null` follows the interface monospace font. */
+  setChatCodeFontFamily: (v: string | null) => void;
+  /** Conversation letter spacing in pixels, clamped to -1–2; `null` is automatic. */
+  setChatLetterSpacing: (v: number | null) => void;
+  /** Maximum size in MB that conversation images are compressed down to before sending. */
+  setChatImageMaxMb: (v: ChatImageMaxMb) => void;
+  /** Restores every conversation font setting together. */
+  resetChatTypography: () => void;
   /** Persists a global shortcut override for one action. */
   setShortcut: (action: string, combo: string) => void;
   /** Restores all global shortcuts by clearing overrides. */
@@ -1873,12 +1987,14 @@ function persistAndApplyVisual(getState: () => TermStore) {
   const s = getState();
   const ps: PersistedSettings = {
     darkStyle: s.darkStyle,
+    lightStyle: s.lightStyle,
     accent: s.accent,
     density: s.density,
     paneStyle: s.paneStyle,
     dividerStyle: s.dividerStyle,
     navLayout: s.navLayout,
     inspectorTab: s.inspectorTab,
+    settingsTab: s.settingsTab,
     singleTabMode: s.singleTabMode,
     scopeTabsToProject: s.scopeTabsToProject,
     termRenderer: s.termRenderer,
@@ -1890,12 +2006,17 @@ function persistAndApplyVisual(getState: () => TermStore) {
     maxLiveTabs: s.maxLiveTabs,
     defaultShell: s.defaultShell,
     uiFontSize: s.uiFontSize,
+    uiFontFamily: s.uiFontFamily,
+    uiMonoFontFamily: s.uiMonoFontFamily,
     termFontFamily: s.termFontFamily,
     termFontSize: s.termFontSize,
     termLineHeight: s.termLineHeight,
     chatFontFamily: s.chatFontFamily,
+    chatCodeFontFamily: s.chatCodeFontFamily,
     chatFontSize: s.chatFontSize,
     chatLineHeight: s.chatLineHeight,
+    chatLetterSpacing: s.chatLetterSpacing,
+    chatImageMaxMb: s.chatImageMaxMb,
     shortcutOverrides: s.shortcutOverrides,
     agentDefaults: s.agentDefaults,
     spawnConfirm: s.spawnConfirm,
@@ -1903,6 +2024,7 @@ function persistAndApplyVisual(getState: () => TermStore) {
     usageAutoRefresh: s.usageAutoRefresh,
     usageRefreshSec: s.usageRefreshSec,
     autoContinueAtUsageLimit: s.autoContinueAtUsageLimit,
+    usageAntigravityShowOther: s.usageAntigravityShowOther,
     imagePasteMode: s.imagePasteMode,
     chatModel: s.chatModel,
     chatModelByKind: s.chatModelByKind,
@@ -1912,6 +2034,7 @@ function persistAndApplyVisual(getState: () => TermStore) {
     planExecutePrefs: s.planExecutePrefs,
     memoryPrefs: s.memoryPrefs,
     sessionTitlePrefs: s.sessionTitlePrefs,
+    sessionTitleAgent: s.sessionTitleAgent,
     referSummary: s.referSummary,
     showSystemResources: s.showSystemResources,
     turnFilesView: s.turnFilesView,
@@ -1920,6 +2043,7 @@ function persistAndApplyVisual(getState: () => TermStore) {
     composerInlineChipsRevision: s.composerInlineChipsRevision,
     sortByActivity: s.sortByActivity,
     groupByWorktree: s.groupByWorktree,
+    defaultSidebarSection: s.defaultSidebarSection,
   };
   saveSettings(ps);
   applyVisual(visualOf(ps));
@@ -2127,7 +2251,12 @@ function nextTerminalName(
   return `${label} ${maxN + 1}`;
 }
 
-const initialSidebarViews = loadSidebarViews();
+/** Settings are read once per page load; the store spreads this instead of reading local storage a second time. */
+const initialSettings = loadSettings();
+const initialSidebarViews = landingSidebarViews(
+  loadSidebarViews(),
+  initialSettings.defaultSidebarSection ?? "projects",
+);
 const initialPrimarySidebarView =
   initialSidebarViews.views.find(
     (view) => view.id === initialSidebarViews.primaryId,
@@ -2185,6 +2314,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
   sessionOpenRequest: null,
   revealSuppressId: null,
   revealProjectId: null,
+  revealSessionId: null,
   focusedPaneId: null,
   liveTabs: [],
   pinnedTabs: [],
@@ -2231,6 +2361,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
   selectionAnchor: null,
   inspectTarget: null,
   notifications: {},
+  unreadHold: null,
   windowFocused: true,
   soundEnabled: loadSoundEnabled(),
   notifyEnabled: loadNotifyEnabled(),
@@ -2239,7 +2370,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
   shells: [],
   usage: null,
 
-  ...loadSettings(),
+  ...initialSettings,
 
   agentPresets: [],
 
@@ -2411,9 +2542,9 @@ export const useTermStore = create<TermStore>((set, get) => ({
           (view) => view.id === state.primarySidebarTreeViewId,
         ) ?? sidebarTreeViews[0];
       return {
-        projects: t.projects,
-        groups: t.groups,
-        sessions: t.sessions,
+        projects: applyShareCollapse("project", t.projects),
+        groups: applyShareCollapse("group", t.groups),
+        sessions: applyShareCollapse("session", t.sessions),
         treeLoaded: true,
         runtimes,
         sessionActivity,
@@ -2452,10 +2583,12 @@ export const useTermStore = create<TermStore>((set, get) => ({
 
   addVirtualProject: async (name, collectionId) => {
     const project = await tree.createVirtualProject(name, collectionId);
-    await get().revealFreshProject(project.id);
+    // A new collection is empty, so it would match no filter; the tree keeps it visible instead of the filter
+    // being cleared under the user.
+    await get().revealFreshProject(project.id, { keepFilters: true });
   },
 
-  revealFreshProject: async (projectId) => {
+  revealFreshProject: async (projectId, opts) => {
     await tree.setCollapsed("project", projectId, false).catch(() => {});
     await get().loadTree();
     set((state) => ({
@@ -2467,29 +2600,31 @@ export const useTermStore = create<TermStore>((set, get) => ({
       inspectTarget: { id: projectId, kind: "project" },
       revealProjectId: projectId,
       leftCollapsed: false,
-      // Reveal requests clear the primary projection's conditions before the one-shot target is consumed, and
-      // bring up its group, Projects, where the project row is.
+      // Reveal requests bring up the primary projection's group, Projects, where the project row is, and clear its
+      // conditions before the one-shot target is consumed unless the caller keeps them.
       activeSidebarTreeViewId: state.primarySidebarTreeViewId,
       sidebarTreeTabs: state.sidebarTreeTabs.map((tab) =>
         collectSidebarViewIds(tab.root).includes(state.primarySidebarTreeViewId)
           ? { ...tab, activeViewId: state.primarySidebarTreeViewId }
           : tab,
       ),
-      sidebarTreeViews: state.sidebarTreeViews.map((view) =>
-        view.id === state.primarySidebarTreeViewId
-          ? {
-              ...view,
-              treeFilter: "",
-              statusFilter: null,
-              statusFilterIds: null,
-              markFilter: null,
-            }
-          : view,
-      ),
-      treeFilter: "",
-      statusFilter: null,
-      statusFilterIds: null,
-      markFilter: null,
+      ...(opts?.keepFilters ? {} : {
+        sidebarTreeViews: state.sidebarTreeViews.map((view) =>
+          view.id === state.primarySidebarTreeViewId
+            ? {
+                ...view,
+                treeFilter: "",
+                statusFilter: null,
+                statusFilterIds: null,
+                markFilter: null,
+              }
+            : view,
+        ),
+        treeFilter: "",
+        statusFilter: null,
+        statusFilterIds: null,
+        markFilter: null,
+      }),
     }));
     saveSidebarViewsTick(get);
   },
@@ -3015,12 +3150,14 @@ export const useTermStore = create<TermStore>((set, get) => ({
   },
   setRevealSuppress: (id) => set({ revealSuppressId: id }),
   setRevealProject: (id) => set({ revealProjectId: id }),
+  setRevealSession: (id) => set({ revealSessionId: id }),
 
   toggleCollapsed: async (kind, id) => {
     if (kind === "project") {
       const cur = get().projects.find((p) => p.id === id);
       if (!cur) return;
       const next = !cur.collapsed;
+      rememberShareCollapse(kind, id, next);
       set((state) => ({
         projects: state.projects.map((p) =>
           p.id === id ? { ...p, collapsed: next } : p,
@@ -3040,6 +3177,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
       const cur = get().groups.find((g) => g.id === id);
       if (!cur) return;
       const next = !cur.collapsed;
+      rememberShareCollapse(kind, id, next);
       set((state) => ({
         groups: state.groups.map((g) =>
           g.id === id ? { ...g, collapsed: next } : g,
@@ -3051,6 +3189,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
       const cur = get().sessions.find((s) => s.id === id);
       if (cur) {
         const next = !cur.collapsed;
+        rememberShareCollapse(kind, id, next);
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === id ? { ...s, collapsed: next } : s,
@@ -4399,6 +4538,33 @@ export const useTermStore = create<TermStore>((set, get) => ({
     });
   },
 
+  markSessionsReview: (ids, status) => {
+    const { notifications, activeSessionId } = get();
+    if (status === "viewed") {
+      const marked = ids.filter((id) => id in notifications);
+      if (marked.length === 0) return;
+      for (const id of marked) void markSessionRead(id).catch(() => {});
+      set((state) => {
+        const rest = { ...state.notifications };
+        for (const id of marked) delete rest[id];
+        return { notifications: rest };
+      });
+      return;
+    }
+    // The active session holds its marker even when it was already unread: the two-second read delay
+    // would otherwise clear it right after the user asked for it to stay.
+    const hold = activeSessionId && ids.includes(activeSessionId) ? { unreadHold: activeSessionId } : {};
+    const unmarked = ids.filter((id) => !(id in notifications));
+    for (const id of unmarked) void markSessionPending(id).catch(() => {});
+    const now = Date.now();
+    set((state) => {
+      if (unmarked.length === 0) return hold;
+      const next = { ...state.notifications };
+      for (const id of unmarked) next[id] = now;
+      return { notifications: next, ...hold };
+    });
+  },
+
   clearAllNotifications: () => {
     const marked = Object.keys(get().notifications);
     if (marked.length === 0) return;
@@ -4534,6 +4700,8 @@ export const useTermStore = create<TermStore>((set, get) => ({
     // Notify for results this client had not already heard about directly. A conclusion the backend
     // reached on its own — from a screen reading, from output activity — reaches the user no other way.
     for (const id of newlyUnread) {
+      // A marker someone set by hand from the session menu is not news to anyone.
+      if (batch[id]?.unreadManual) continue;
       const state = batch[id]?.agentState;
       notifyRaw(
         get(),
@@ -4622,6 +4790,35 @@ export const useTermStore = create<TermStore>((set, get) => ({
       });
     }
     saveSidebarViewsTick(get);
+  },
+  setDefaultSidebarSection: (section) => {
+    set({ defaultSidebarSection: section });
+    persistAndApplyVisual(get);
+  },
+  revealSession: (id) => {
+    const s = get();
+    const session = s.sessions.find((candidate) => candidate.id === id);
+    if (!session) return;
+    // A backend without the fixed collections has a single tree and no sections to switch.
+    if (s.projects.some((p) => p.id === SYSTEM_PROJECTS)) {
+      // Task and chat sessions live in their fixed collections, possibly inside a group or a nested collection.
+      let section: RailSection = "projects";
+      const seen = new Set<string>();
+      for (let pid: string | null | undefined = session.projectId; pid && !seen.has(pid);) {
+        seen.add(pid);
+        if (pid === SYSTEM_TASKS) { section = "tasks"; break; }
+        if (pid === SYSTEM_CHAT) { section = "chat"; break; }
+        pid = s.projects.find((p) => p.id === pid)?.collectionId;
+      }
+      const shown =
+        sidebarTabOfView(s.sidebarTreeTabs, s.activeSidebarTreeViewId) ??
+        sidebarTabOfView(s.sidebarTreeTabs, s.primarySidebarTreeViewId);
+      // Picking the section already shown would toggle the sidebar, so it is only picked to switch or to reopen.
+      if (sidebarTabSection(shown) !== section || s.leftCollapsed) s.pickSidebarSection(section);
+    } else if (s.leftCollapsed) {
+      set({ leftCollapsed: false });
+    }
+    set({ revealSessionId: id });
   },
   toggleRight: () => set((s) => ({ rightCollapsed: !s.rightCollapsed })),
 
@@ -4738,14 +4935,14 @@ export const useTermStore = create<TermStore>((set, get) => ({
   toggleBottom: () => set((s) => ({ bottomExpanded: !s.bottomExpanded })),
   toggleTheme: () => {
     const mode: Theme = get().theme === "dark" ? "light" : "dark";
-    applyTheme(mode, get().darkStyle);
+    applyTheme(mode, get().darkStyle, get().lightStyle);
     pushSetting("vlx-theme", mode); // Mirror to backend for cross-shell sharing.
     persistAndApplyVisual(get); // Re-resolve automatic accents and publish `vlx-settings`.
     set({ theme: mode });
     notifyAgentsColorScheme(get);
   },
   setTheme: (mode) => {
-    applyTheme(mode, get().darkStyle);
+    applyTheme(mode, get().darkStyle, get().lightStyle);
     pushSetting("vlx-theme", mode); // Mirror to backend for cross-shell sharing.
     persistAndApplyVisual(get);
     set({ theme: mode });
@@ -5053,6 +5250,16 @@ export const useTermStore = create<TermStore>((set, get) => ({
     set({ darkStyle: style });
     get().setTheme("dark");
   },
+  setDarkStyle: (style) => {
+    set({ darkStyle: style });
+    applyTheme(get().theme, style, get().lightStyle);
+    persistAndApplyVisual(get);
+  },
+  setLightStyle: (style) => {
+    set({ lightStyle: style });
+    applyTheme(get().theme, get().darkStyle, style);
+    persistAndApplyVisual(get);
+  },
   setAccent: (v) => {
     set({ accent: v });
     persistAndApplyVisual(get);
@@ -5075,6 +5282,10 @@ export const useTermStore = create<TermStore>((set, get) => ({
   },
   setInspectorTab: (v) => {
     set({ inspectorTab: v });
+    persistAndApplyVisual(get);
+  },
+  setSettingsTab: (v) => {
+    set({ settingsTab: v });
     persistAndApplyVisual(get);
   },
   setSingleTabMode: (v) => {
@@ -5141,6 +5352,10 @@ export const useTermStore = create<TermStore>((set, get) => ({
   },
   setSessionTitlePrefs: (agent, patch) => {
     set((state) => ({ sessionTitlePrefs: { ...state.sessionTitlePrefs, [agent]: { ...state.sessionTitlePrefs[agent], ...patch } } }));
+    persistAndApplyVisual(get);
+  },
+  setSessionTitleAgent: (agent) => {
+    set({ sessionTitleAgent: agent });
     persistAndApplyVisual(get);
   },
   setReferSummary: (patch) => {
@@ -5210,6 +5425,10 @@ export const useTermStore = create<TermStore>((set, get) => ({
     set({ autoContinueAtUsageLimit: v });
     persistAndApplyVisual(get);
   },
+  setUsageAntigravityShowOther: (v) => {
+    set({ usageAntigravityShowOther: v });
+    persistAndApplyVisual(get);
+  },
   setUsage: (snap) => set({ usage: snap }),
   setTermRenderer: (v) => {
     set({ termRenderer: v });
@@ -5236,7 +5455,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
     persistAndApplyVisual(get);
   },
   setMaxLiveTabs: (v) => {
-    set({ maxLiveTabs: Math.max(4, Math.min(64, Math.round(v))) });
+    set({ maxLiveTabs: Math.max(4, Math.min(512, Math.round(v))) });
     persistAndApplyVisual(get);
   },
   setDefaultShell: (v) => {
@@ -5246,6 +5465,22 @@ export const useTermStore = create<TermStore>((set, get) => ({
   setUiFontSize: (v) => {
     set({
       uiFontSize: v == null ? null : Math.min(20, normalizeTextSize(v)),
+    });
+    persistAndApplyVisual(get);
+  },
+  setUiFontFamily: (v) => {
+    set({ uiFontFamily: normalizeFontFamily(v) });
+    persistAndApplyVisual(get);
+  },
+  setUiMonoFontFamily: (v) => {
+    set({ uiMonoFontFamily: normalizeFontFamily(v) });
+    persistAndApplyVisual(get);
+  },
+  resetUiTypography: () => {
+    set({
+      uiFontFamily: SETTINGS_DEFAULTS.uiFontFamily,
+      uiMonoFontFamily: SETTINGS_DEFAULTS.uiMonoFontFamily,
+      uiFontSize: SETTINGS_DEFAULTS.uiFontSize,
     });
     persistAndApplyVisual(get);
   },
@@ -5271,6 +5506,28 @@ export const useTermStore = create<TermStore>((set, get) => ({
   },
   setChatLineHeight: (v) => {
     set({ chatLineHeight: normalizeTextLineHeight(v) });
+    persistAndApplyVisual(get);
+  },
+  setChatCodeFontFamily: (v) => {
+    set({ chatCodeFontFamily: normalizeFontFamily(v) });
+    persistAndApplyVisual(get);
+  },
+  setChatLetterSpacing: (v) => {
+    set({ chatLetterSpacing: normalizeLetterSpacing(v) });
+    persistAndApplyVisual(get);
+  },
+  setChatImageMaxMb: (v) => {
+    set({ chatImageMaxMb: normalizeChatImageMaxMb(v) });
+    persistAndApplyVisual(get);
+  },
+  resetChatTypography: () => {
+    set({
+      chatFontFamily: SETTINGS_DEFAULTS.chatFontFamily,
+      chatCodeFontFamily: SETTINGS_DEFAULTS.chatCodeFontFamily,
+      chatFontSize: SETTINGS_DEFAULTS.chatFontSize,
+      chatLineHeight: SETTINGS_DEFAULTS.chatLineHeight,
+      chatLetterSpacing: SETTINGS_DEFAULTS.chatLetterSpacing,
+    });
     persistAndApplyVisual(get);
   },
   setShortcut: (action, combo) => {
@@ -5306,7 +5563,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
     persistAndApplyVisual(get);
   },
   applyAppearance: () => {
-    applyTheme(get().theme, get().darkStyle);
+    applyTheme(get().theme, get().darkStyle, get().lightStyle);
     persistAndApplyVisual(get);
     notifyAgentsColorScheme(get);
   },
@@ -5325,7 +5582,7 @@ export const useTermStore = create<TermStore>((set, get) => ({
       cleanPastedImages: loadCleanPastedImages(),
       recordSessions: loadRecordSessions(),
     });
-    applyTheme(theme, ps.darkStyle);
+    applyTheme(theme, ps.darkStyle, ps.lightStyle);
     applyVisual(visualOf(ps));
     notifyAgentsColorScheme(get);
   },

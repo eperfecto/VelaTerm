@@ -92,7 +92,7 @@ fn concurrent_update(output: &[u8]) -> bool {
 fn subcommand(kind: SessionKind) -> Option<&'static [&'static str]> {
     match kind {
         SessionKind::Claude | SessionKind::Codex | SessionKind::Omp | SessionKind::Antigravity => Some(&["update"]),
-        SessionKind::Opencode => Some(&["upgrade"]),
+        SessionKind::Opencode | SessionKind::Deepseek => Some(&["upgrade"]),
         // Without a flag `pi update` may also touch extensions; only the agent itself is meant here.
         SessionKind::Pi => Some(&["update", "--self"]),
         _ => None,
@@ -101,7 +101,7 @@ fn subcommand(kind: SessionKind) -> Option<&'static [&'static str]> {
 
 /// The OpenCode 2 previews track a separate beta channel that `opencode upgrade` does not follow.
 fn supported(kind: SessionKind, version: Option<&str>) -> Option<&'static [&'static str]> {
-    if kind == SessionKind::Opencode && super::opencode::is_v2_version(version) { return None; }
+    if kind.uses_opencode() && super::opencode::is_v2_version(version) { return None; }
     subcommand(kind)
 }
 
@@ -198,12 +198,14 @@ pub fn start(app: &AppCtx, id: &str) -> Result<UpdateStatus, String> {
             while !reader.is_finished() && Instant::now() < drained { std::thread::sleep(Duration::from_millis(20)); }
         }
         let mut code = code;
+        super::version::forget(&bin);
         let mut version = super::version::installed(&bin);
         if code != Some(0) && !timed_out && concurrent_update(&waiter.output.lock().unwrap()) {
             waiter.append(b"\nWaiting for the update already in progress to finish...\n");
             let deadline = Instant::now() + CONCURRENT_WAIT;
             while version == before && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_secs(2));
+                super::version::forget(&bin);
                 version = super::version::installed(&bin);
             }
             if version != before && version.is_some() {

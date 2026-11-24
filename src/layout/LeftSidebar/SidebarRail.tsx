@@ -3,9 +3,11 @@
 //! shown hides or shows the sidebar. Settings, account, feedback, share, and game center sit at the bottom of the bar.
 
 import { Fragment, useEffect, useState } from "react";
+import { ContextMenu, type MenuItem } from "../../components/ContextMenu";
 import { GameCenterLink } from "../../components/GameCenterLink";
 import Icons from "../../components/Icons";
 import { getLocale, useT } from "../../i18n";
+import { siteUrl } from "../../ipc/serverRegion";
 import { isShareSurface } from "../../ipc/shareBase";
 import { invoke } from "../../ipc/transport";
 import { env, platform } from "../../platform";
@@ -14,14 +16,20 @@ import { SharingLink } from "../../sharing/navigation";
 import { navigateTranslation, translationUrl } from "../../translation/navigation";
 import { useTermStore } from "../../store/termStore";
 import { memoryNavigate, memoryUrl } from "../Memory/navigation";
+import { pluginNavigate, pluginUrl, readPluginRoute } from "../../plugins/navigation";
+import { translatePluginKey, useRailPlugins } from "../../plugins/host";
+import { PluginIcon } from "../../plugins/PluginViews";
 import { knowledgeSelection } from "../Notebook/knowledgeSelection";
 import { sidebarTabOfView, sidebarTabSection } from "./sidebarTreeLayout";
 import {
+  isDefaultViewSection,
   liveTerminalIds,
+  pluginRailSection,
   RAIL_SECTIONS,
   SYSTEM_PROJECTS,
   SystemCollectionIcon,
   systemLabel,
+  type DefaultViewSection,
 } from "./systemCollections";
 
 export function SidebarRail() {
@@ -37,6 +45,17 @@ export function SidebarRail() {
   const fixedLayout = useTermStore((s) => s.projects.some((p) => p.id === SYSTEM_PROJECTS));
   // A number, so runtime updates that keep the same count do not re-render the bar.
   const terminals = useTermStore((s) => liveTerminalIds(s.sessions, s.ephemeralSessions, s.runtimes).length);
+  const defaultView = useTermStore((s) => s.defaultSidebarSection);
+  const setDefaultView = useTermStore((s) => s.setDefaultSidebarSection);
+  const railPlugins = useRailPlugins();
+  const [menu, setMenu] = useState<{ x: number; y: number; section: DefaultViewSection } | null>(null);
+
+  /** The default view only has to be chosen once, so it lives in a right-click menu rather than a dialog. */
+  const defaultViewMenu = (target: DefaultViewSection): MenuItem[] => [
+    defaultView === target
+      ? { label: t("sidebarSection.clearDefaultView"), onClick: () => setDefaultView(null) }
+      : { label: t("sidebarSection.setDefaultView"), onClick: () => setDefaultView(target) },
+  ];
 
   return (
     <nav className="sidebar-rail" aria-label={t("sidebarSection.nav")}>
@@ -53,14 +72,24 @@ export function SidebarRail() {
             title={label}
             aria-label={count > 0 ? `${label} (${count})` : label}
             aria-pressed={active}
+            onContextMenu={(event) => {
+              // Archive and Knowledge open their own pages, so they cannot be a default view.
+              if (!isDefaultViewSection(id)) return;
+              event.preventDefault();
+              setMenu({ x: event.clientX, y: event.clientY, section: id });
+            }}
             onClick={() => {
               pick(id);
               // Archive and Knowledge are pages as well as sidebar sections; showing one opens its page.
               if (active) return;
               const route = new URLSearchParams(window.location.search).get("memory") ?? "";
               const onArchive = route === "collections" || route.startsWith("collection/");
-              if (id === "archive" && !onArchive) memoryNavigate(memoryUrl("collections", knowledgeSelection));
-              if (id === "knowledge" && (!route || onArchive)) memoryNavigate(memoryUrl("notebooks", knowledgeSelection));
+              if (id === "archive" && !onArchive) {
+                memoryNavigate(memoryUrl("collections", knowledgeSelection));
+              }
+              if (id === "knowledge" && (!route || onArchive)) {
+                memoryNavigate(memoryUrl("notebooks", knowledgeSelection));
+              }
             }}
           >
             <SystemCollectionIcon section={id} size={16} />
@@ -69,13 +98,51 @@ export function SidebarRail() {
           </Fragment>
         );
       })}
+      {fixedLayout && railPlugins.map((plugin, idx) => {
+        const rail = plugin.ui?.rail;
+        if (!rail) return null;
+        const secId = pluginRailSection(plugin.id);
+        const active = section === secId && !collapsed;
+        const translated = translatePluginKey(plugin.id, rail.labelKey);
+        const label = translated === rail.labelKey ? plugin.name : translated;
+        const showSep = idx === 0 || rail.separatorBefore;
+        return (
+          <Fragment key={secId}>
+            {showSep && <span className="sidebar-rail-sep" aria-hidden="true" />}
+            <button
+              type="button"
+              className={"sidebar-rail-btn" + (active ? " active" : "")}
+              title={label}
+              aria-label={label}
+              aria-pressed={active}
+              onClick={() => {
+                pick(secId);
+                if (active) return;
+                const current = readPluginRoute(window.location.search);
+                if (!current || current.pluginId !== plugin.id) {
+                  pluginNavigate(pluginUrl(plugin.id, rail.defaultRoute || "overview"));
+                }
+              }}
+            >
+              <PluginIcon plugin={plugin} size={16} />
+            </button>
+          </Fragment>
+        );
+      })}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={defaultViewMenu(menu.section)}
+          onClose={() => setMenu(null)}
+        />
+      )}
       <span className="sidebar-rail-sp" />
       <RailFooter />
     </nav>
   );
 }
 
-const FEEDBACK_URL = "https://velaterm.com/feedback";
 
 /** Settings, account, feedback, share, and game center entries pinned to the bottom of the activity bar. */
 function RailFooter() {
@@ -99,12 +166,12 @@ function RailFooter() {
           title={t("settings.title")}
           aria-label={t("settings.title")}
           onClick={(e) => {
-            // Option/Alt reveals the translation category for this opening only.
+            // Option/Alt reveals hidden categories (translation, plugins) for this opening only.
             if (settingsOpen && !e.altKey) {
               setSettingsOpen(false);
-              navigateTranslation(translationUrl({ settings: null, settingsSection: null, settingsTranslation: null, translationService: null }));
+              navigateTranslation(translationUrl({ settings: null, settingsSection: null, settingsTranslation: null, settingsPlugins: null, translationService: null }));
             } else {
-              navigateTranslation(translationUrl({ settings: "appearance", settingsSection: null, settingsTranslation: e.altKey ? "1" : null, translationService: null }));
+              navigateTranslation(translationUrl({ settings: "appearance", settingsSection: null, settingsTranslation: e.altKey ? "1" : null, settingsPlugins: e.altKey ? "1" : null, translationService: null }));
             }
           }}
         >
@@ -130,7 +197,7 @@ function RailFooter() {
         title={t("titlebar.feedback")}
         aria-label={t("titlebar.feedback")}
         onClick={() => {
-          void platform.opener.openExternal(FEEDBACK_URL).catch(() => {});
+          void platform.opener.openExternal(siteUrl("/feedback")).catch(() => {});
         }}
       >
         <Icons.feedback size={16} />

@@ -4,12 +4,15 @@
 
 mod agent;
 mod artifact;
+// `vapp`: validates and records app actions a session's agent asks the user to confirm.
+mod assist;
 // Undoes the AppImage launcher's environment rewrite for child processes on Linux.
 pub mod appimage;
 // Built-in browser tabs require desktop Tauri child windows and are absent from the minimal server.
 #[cfg(feature = "gui")]
 mod browser;
 mod command_core;
+pub mod plugins;
 // GUI-only Windows fix returning keyboard focus to the webview when a window is reactivated.
 #[cfg(all(feature = "gui", target_os = "windows"))]
 mod focus_win;
@@ -20,8 +23,11 @@ mod commands;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod connect_cancel;
 #[cfg(feature = "gui")]
+mod window_badge;
+#[cfg(feature = "gui")]
 mod window_layout;
 mod db;
+mod file_clipboard;
 mod files;
 mod fonts;
 mod fs_watch;
@@ -64,8 +70,13 @@ mod screenshot;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod server_supply;
 pub use server_supply::run_verify_update;
+// International (velaterm.com) or China mirror (velaterm.cn) for updates, downloads and website links.
+mod server_region;
 // vela-server host subcommands: account linking, full access, service install and self-update.
 mod host_cli;
+// Minimal ~/.ssh/config parser shared by the SSH transports. Consulted by the russh path so a user's
+// existing publickey configuration is honoured instead of falling through to a password prompt.
+mod ssh_config;
 // GUI-only client-side SSH orchestration, provisioning, serve, forwarding, and auto-login.
 #[cfg(feature = "gui")]
 mod ssh_remote;
@@ -89,6 +100,9 @@ mod notify_linux;
 // Windows self-update installed from VelaTerm's own data folder instead of the updater plugin's Temp folder.
 #[cfg(feature = "gui")]
 mod updater_win;
+// Update check against the selected server region; the plugin's own check only knows tauri.conf.json.
+#[cfg(feature = "gui")]
+mod updater_check;
 
 use agent::server::HookServer;
 use db::Db;
@@ -127,16 +141,27 @@ pub(crate) struct QuitState {
     pub close_window: std::sync::atomic::AtomicBool,
 }
 
-/// Light/dark preference for native window chrome, mirroring the frontend's theme mode. Windows only.
+/// Light/dark preference for native window chrome, mirroring the frontend's theme mode (Windows and macOS).
 ///
-/// The app keeps the system title bar, and DWM paints that bar light until told otherwise, so a dark UI
-/// carries a white strip above it. `None` means "follow the OS", which is what the frontend's `system` mode
-/// wants — pinning a value there would freeze the title bar the next time the OS scheme changed. Windows
-/// created after the user picks a mode read this so they open already correct instead of flashing the wrong
-/// chrome. `set_native_theme` never writes this on other platforms, so it stays `None` there.
+/// The app keeps the system title bar: Windows DWM paints it light until told otherwise, and macOS composites
+/// a light-appearance title bar material over a dark frame color when the OS is in light mode. `None` means
+/// "follow the OS", which is what the frontend's `system` mode wants — pinning a value there would freeze the
+/// title bar the next time the OS scheme changed. Windows created after the user picks a mode (main window
+/// reopened from Dock, remote/SSH windows) read this so they open already correct instead of flashing the
+/// wrong chrome. `set_native_theme` never writes this on Linux, so it stays `None` there.
 #[cfg(feature = "gui")]
 #[derive(Default)]
 pub(crate) struct NativeTheme(pub std::sync::Mutex<Option<tauri::Theme>>);
+
+/// Map the frontend's persisted theme mode to a pinned native window theme, or `None` to follow the OS.
+#[cfg(feature = "gui")]
+pub(crate) fn theme_from_mode(mode: &str) -> Option<tauri::Theme> {
+    match mode {
+        "dark" => Some(tauri::Theme::Dark),
+        "light" => Some(tauri::Theme::Light),
+        _ => None,
+    }
+}
 
 /// Read the pinned native chrome preference, or `None` while the frontend is still following the OS.
 #[cfg(feature = "gui")]
@@ -157,7 +182,39 @@ const FRAME_COLOR_DARK: (u8, u8, u8, u8) = (0x23, 0x26, 0x2b, 0xff);
 #[cfg(all(feature = "gui", target_os = "macos"))]
 const FRAME_COLOR_LIGHT: (u8, u8, u8, u8) = (0xff, 0xff, 0xff, 0xff);
 
-/// Give the window the frame color of the resolved scheme.
+/// Resolve whether the macOS window frame strip should be painted dark.
+///
+/// Explicit modes pin the color directly. Under `system`, when unpinning from an explicit appearance
+/// (`prev_theme.is_some()`), the frontend's `frontend_dark` was measured while the window still carried the
+/// old pinned `NSAppearance`, so fall back directly to the OS preference (`os_dark`) instead of painting the
+/// stale scheme. Once already following the OS (`prev_theme.is_none()`), prefer `frontend_dark` because it
+/// came from the page's live `prefers-color-scheme` resolution.
+#[cfg(all(feature = "gui", target_os = "macos"))]
+pub(crate) fn resolve_macos_frame_dark(
+    theme: Option<tauri::Theme>,
+    prev_theme: Option<tauri::Theme>,
+    frontend_dark: Option<bool>,
+    os_dark: impl FnOnce() -> bool,
+) -> bool {
+    match theme {
+        Some(tauri::Theme::Dark) => true,
+        Some(tauri::Theme::Light) => false,
+        None => {
+            if prev_theme.is_some() {
+                os_dark()
+            } else {
+                frontend_dark.unwrap_or_else(os_dark)
+            }
+        }
+        _ => os_dark(),
+    }
+}
+
+/// Give the window the native appearance and frame color of the resolved scheme.
+///
+/// Setting `win.set_theme(theme)` aligns `NSWindow.appearance` (`DarkAqua` / `Aqua` / `nil` to follow the OS)
+/// so an explicit dark UI on a light macOS desktop does not get a light-appearance frosted title bar overlay
+/// composited on top of its dark frame color.
 ///
 /// macOS 26 insets a window's web content below the title bar and paints that strip with the WKWebView's
 /// under-page background color. wry writes that color once at creation from `windows[].backgroundColor` and
@@ -165,13 +222,15 @@ const FRAME_COLOR_LIGHT: (u8, u8, u8, u8) = (0xff, 0xff, 0xff, 0xff);
 /// keeps a dark strip above a light interface. Rewriting it through AppKit is what actually repaints the
 /// strip; the window background is given the same color so any surface without web content agrees.
 #[cfg(all(feature = "gui", target_os = "macos"))]
-pub(crate) fn apply_window_frame(win: &tauri::WebviewWindow, dark: bool) {
+pub(crate) fn apply_window_frame(win: &tauri::WebviewWindow, theme: Option<tauri::Theme>, dark: bool) {
+    let _ = win.set_theme(theme);
     let (red, green, blue, alpha) = if dark { FRAME_COLOR_DARK } else { FRAME_COLOR_LIGHT };
     let _ = win.set_background_color(Some(tauri::window::Color(red, green, blue, alpha)));
     let Ok(ns_window) = win.ns_window() else {
         return;
     };
-    // Runs on the main thread: both call sites are the setup hook and the `set_native_theme` command.
+    // Runs on the main thread: all call sites are the setup hook, `open_main_window`'s main-thread callback,
+    // and the synchronous `set_native_theme` command.
     unsafe {
         use objc2::msg_send;
         use objc2::runtime::{AnyObject, Bool};
@@ -202,22 +261,16 @@ pub(crate) fn apply_window_frame(win: &tauri::WebviewWindow, dark: bool) {
     }
 }
 
-/// Resolve the frame color for the first painted frame: the persisted mode, or, while the interface
-/// follows the OS, the OS preference. Read before the window is shown so the strip never opens in the wrong
-/// color; the resolution matches the frontend's `resolveTheme`.
+/// Read the persisted theme mode from `app_settings` for the first painted frame, returning `None` when
+/// following the OS. Read before the window is shown so the strip never opens in the wrong appearance or color.
 #[cfg(all(feature = "gui", target_os = "macos"))]
-fn startup_frame_is_dark(db: &Db) -> bool {
-    let mode = db
-        .conn
+fn startup_theme_mode(db: &Db) -> Option<tauri::Theme> {
+    db.conn
         .lock()
         .ok()
         .and_then(|conn| db::repo::get_app_settings(&conn).ok())
-        .and_then(|settings| settings.get(THEME_SETTING_KEY).cloned());
-    match mode.as_deref() {
-        Some("dark") => true,
-        Some("light") => false,
-        _ => os_prefers_dark(),
-    }
+        .and_then(|settings| settings.get(THEME_SETTING_KEY).cloned())
+        .and_then(|mode| theme_from_mode(&mode))
 }
 
 /// Whether macOS is set to dark mode, read from the user's global `AppleInterfaceStyle` preference (also kept
@@ -314,10 +367,15 @@ pub fn run_notify(args: &[String]) {
             args.get(2).cloned().unwrap_or_default(),
             args.get(3).cloned().unwrap_or_default(),
         ),
-        "--notify-env" => (
-            std::env::var(agent::inject::CODEX_NOTIFY_URL_ENV).unwrap_or_default(),
-            args.get(2).cloned().unwrap_or_default(),
-        ),
+        "--notify-env" => {
+            if agent::hook_bridge::is_chat_session() {
+                return;
+            }
+            (
+                std::env::var(agent::inject::CODEX_NOTIFY_URL_ENV).unwrap_or_default(),
+                args.get(2).cloned().unwrap_or_default(),
+            )
+        }
         _ => return,
     };
     if !url.is_empty() {
@@ -334,37 +392,20 @@ pub fn run_notify(args: &[String]) {
 /// Build the URL from PTY-injected environment variables rather than hook configuration, avoiding
 /// per-session definitions/token leakage. Missing variables or invalid states are silent no-ops;
 /// forwarding never emits output or affects Codex.
-pub fn run_codex_hook(args: &[String]) {
-    use std::io::Read;
-
-    let Some(state) = args.get(2).map(String::as_str) else {
-        return;
-    };
-    if !matches!(state, "ready" | "working" | "tool" | "asking" | "waiting") {
-        return;
-    }
-    let Ok(base) = std::env::var("VLX_SPAWN_URL") else {
-        return;
-    };
-    let Ok(sid) = std::env::var("VLX_SESSION_ID") else {
-        return;
-    };
-    let Ok(token) = std::env::var("VLX_TOKEN") else {
-        return;
-    };
-    if base.is_empty() || sid.is_empty() || token.is_empty() {
-        return;
-    }
-    let mut body = String::new();
-    let _ = std::io::stdin().read_to_string(&mut body);
-    let url = format!(
-        "{}/hook/{}?t={}&e=codex_{}",
-        base.trim_end_matches('/'),
-        sid,
-        token,
-        state
-    );
-    agent::server::forward_notify(&url, &body);
+pub fn run_codex_hook(args: &[String]) -> ! {
+    let event = args.get(2).and_then(|state| match state.as_str() {
+        "ready" => Some("codex_ready"),
+        "working" => Some("codex_working"),
+        "tool" => Some("codex_tool"),
+        "asking" => Some("codex_asking"),
+        "waiting" => Some("codex_waiting"),
+        _ => None,
+    });
+    agent::hook_bridge::run_allowing_empty_eof(
+        event,
+        &["codex_ready", "codex_working", "codex_tool", "codex_asking", "codex_waiting"],
+        b"",
+    )
 }
 
 /// Hidden Cursor status hook. Completes before GUI, database, or service initialization.
@@ -380,37 +421,12 @@ pub fn run_agent_hook(args: &[String]) -> ! {
 
 /// Hidden Grok lifecycle-hook entry. Static `~/.grok/hooks/vlx-term.json` commands call this
 /// executable, while all dynamic callback values remain scoped to the managed Grok process.
-pub fn run_grok_hook(args: &[String]) {
-    use std::io::Read;
-
-    let Some(state) = args.get(2).map(String::as_str) else {
-        return;
-    };
-    if !matches!(state, "boot" | "working" | "asking" | "waiting" | "idle") {
-        return;
-    }
-    let Ok(base) = std::env::var("VLX_SPAWN_URL") else {
-        return;
-    };
-    let Ok(sid) = std::env::var("VLX_SESSION_ID") else {
-        return;
-    };
-    let Ok(token) = std::env::var("VLX_TOKEN") else {
-        return;
-    };
-    if base.is_empty() || sid.is_empty() || token.is_empty() {
-        return;
-    }
-    let mut body = String::new();
-    let _ = std::io::stdin().read_to_string(&mut body);
-    let url = format!(
-        "{}/hook/{}?t={}&e={}",
-        base.trim_end_matches('/'),
-        sid,
-        token,
-        state
-    );
-    agent::server::forward_notify(&url, &body);
+pub fn run_grok_hook(args: &[String]) -> ! {
+    agent::hook_bridge::run_allowing_empty_eof(
+        args.get(2).map(String::as_str),
+        &["boot", "working", "asking", "waiting", "idle"],
+        b"",
+    )
 }
 
 /// Hidden `--spawn` entry used by the PATH `vspawn` shim. POST injected session data to `/spawn`,
@@ -421,6 +437,11 @@ pub fn run_spawn(args: &[String]) -> ! {
 
 pub fn run_tell(args: &[String]) -> ! {
     agent::tell::run_cli(args)
+}
+
+/// `vapp`: lets a session's agent operate VelaTerm, with each action confirmed by the user.
+pub fn run_app(args: &[String]) -> ! {
+    agent::app_cli::run_cli(args)
 }
 
 pub fn run_flow(args: &[String]) -> ! {
@@ -469,6 +490,10 @@ pub fn run_wait(args: &[String]) -> ! {
 
 pub fn run_knowledge(args: &[String]) -> ! {
     knowledge::agent::run(args)
+}
+
+pub fn run_plugin_cli(args: &[String]) -> ! {
+    plugins::cli_bridge::run_cli(args)
 }
 
 /// Build-time Git commit, or unknown, used by --version and SSH remote version pinning.
@@ -669,6 +694,8 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                 .build(),
         )
         .plugin(fonts::plugin())
+        // Dropping a file where the page does not take it must never navigate a window to that file.
+        .plugin(native_drop::nav_guard())
         .plugin(local_download::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -698,12 +725,14 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
         .manage(screenshot::ScreenshotState::default())
         .manage(PtyManager::new())
         .manage(agent::chat::engine::ChatManager::new())
+        .manage(plugins::PluginManager::new())
         .manage(WebServer::new())
         .manage(web::local_link::LocalLinkServer::new())
         .manage(web::cloudflare_access::CloudflareAccessServer::new())
         .manage(browser::BrowserManager::new())
         .manage(QuitState::default())
         .manage(NativeTheme::default())
+        .manage(window_badge::WindowBadgeState::default())
         .manage(PendingOpenProject(std::sync::Mutex::new(
             initial_open_project.map(|p| p.to_string_lossy().into_owned()),
         )))
@@ -920,16 +949,17 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         "visit-website" => {
                             let _ = app_handle
                                 .opener()
-                                .open_url("https://velaterm.com", None::<&str>);
+                                .open_url(server_region::current().site_origin(), None::<&str>);
                         }
                         "send-feedback" => {
                             let _ = app_handle
                                 .opener()
-                                .open_url("https://velaterm.com/feedback", None::<&str>);
+                                .open_url(format!("{}/feedback", server_region::current().site_origin()), None::<&str>);
                         }
                         _ => {}
                     }
                 });
+                install_macos_dock_menu(app.handle());
             }
 
             // Register the Windows AppUserModelId so bare no-bundle releases can display toasts.
@@ -950,6 +980,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             diagnostics::init(&data_dir, VERSION);
             let db = Db::open(&data_dir.join("vlx-term.db"))?;
             db::system_collections::ensure(&db.conn.lock().unwrap())?;
+            server_region::load(&db);
 
             // When cleanup is enabled, remove pasted images older than 24h left by crashes. Normal exit
             // removes this process's files precisely; disabling the setting skips both paths.
@@ -960,17 +991,24 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                     crate::diagnostic_warn!("startup sweep: removed {swept} stale pasted temp image(s)");
                 }
             }
-            // The main window is created hidden so it can be sized, centered, and given the frame color of
-            // the persisted scheme before its first painted frame. Showing it here also covers the other
-            // platforms, which previously appeared before setup ran.
+            // The main window is created hidden so it can be sized, centered, and given the appearance and
+            // frame color of the persisted scheme before its first painted frame. Showing it here also covers
+            // the other platforms, which previously appeared before setup ran.
             #[cfg(target_os = "macos")]
-            let frame_is_dark = startup_frame_is_dark(&db);
+            let (startup_theme, frame_is_dark) = {
+                let theme = startup_theme_mode(&db);
+                if let Some(state) = app.try_state::<NativeTheme>() {
+                    *state.0.lock().unwrap() = theme;
+                }
+                let dark = resolve_macos_frame_dark(theme, None, None, os_prefers_dark);
+                (theme, dark)
+            };
             app.manage(db);
             screenshot::init(app.handle());
 
             if let Some(win) = app.get_webview_window("main") {
                 #[cfg(target_os = "macos")]
-                apply_window_frame(&win, frame_is_dark);
+                apply_window_frame(&win, startup_theme, frame_is_dark);
                 let _ = win.show();
             }
 
@@ -1085,6 +1123,10 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             // and browser client. It only touches providers whose account material exists on this
             // machine, and honours the usage settings live.
             agent::usage_store::start(AppCtx::Tauri(app.handle().clone()));
+            {
+                let ctx = AppCtx::Tauri(app.handle().clone());
+                ctx.plugins().start(ctx.clone());
+            }
             // Sends the continuation prompt to conversations waiting for a usage limit to reset.
             agent::chat::auto_continue::start(AppCtx::Tauri(app.handle().clone()));
             agent::remote_model_catalog::start(AppCtx::Tauri(app.handle().clone()));
@@ -1101,6 +1143,9 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             // Install macOS session-aware notification click handling; unsupported builds skip it.
             #[cfg(target_os = "macos")]
             notify_native::install(app.handle().clone());
+
+            // Relay per-window pending counts to update each window's title and the summed Dock badge.
+            window_badge::install_listener(app.handle());
 
             // Remote contexts cannot call native_notify directly, so relay vlx://remote-notify through
             // the backend with its window/session identity. Native channels target that window on click;
@@ -1251,6 +1296,10 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             commands::desktop_call,
             // Windows final update step: download through the plugin, install from VelaTerm's own folder.
             updater_win::updater_install_windows,
+            // Windows: a portable copy (no uninstall.exe beside the exe) is updated from the download page.
+            updater_win::updater_windows_portable,
+            // Update check that honors the selected server region (velaterm.com or velaterm.cn).
+            updater_check::updater_check,
             commands::record_split_trace,
             commands::take_open_project_request,
             commands::quit_prompt_ack,
@@ -1325,6 +1374,17 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
         .run({
             use std::sync::atomic::Ordering;
             move |app, event| {
+                // Drop destroyed windows from the per-window badge table on every platform so closed
+                // windows immediately stop contributing to the summed Dock/taskbar badge.
+                if let tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                } = &event
+                {
+                    window_badge::remove(app, label);
+                }
+
                 match &event {
                     tauri::RunEvent::ExitRequested { code: None, api, .. }
                         if !app.state::<QuitState>().confirmed.load(Ordering::SeqCst) =>
@@ -1368,9 +1428,14 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                         app.state::<QuitState>().confirmed.store(true, Ordering::SeqCst);
                         app.exit(0);
                     }
-                    // Dock icon click with no window on screen opens a main window, as in VS Code.
+                    // Dock icon click or relaunching the .app opens a main window when no window is on screen, as in
+                    // VS Code. When remote windows remain open after the main window closed, clicking the Dock icon
+                    // activates them instead of reopening the main window; the user can reopen it from the Dock's
+                    // "New Window" menu item or the app menu.
                     #[cfg(target_os = "macos")]
-                    tauri::RunEvent::Reopen { has_visible_windows: false, .. } => open_main_window(app),
+                    tauri::RunEvent::Reopen { has_visible_windows, .. } if !*has_visible_windows => {
+                        open_main_window(app)
+                    }
                     // Window activation leaves keyboard focus on the top-level HWND under the `unstable`
                     // child-webview path; hand it back to the webview the user was typing in.
                     #[cfg(target_os = "windows")]
@@ -1386,6 +1451,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
                 // images used by other instances.
                 if let tauri::RunEvent::Exit = event {
                     let ctx = host::AppCtx::Tauri(app.clone());
+                    ctx.plugins().shutdown_all();
                     ctx.chat().shutdown(&ctx);
                     diagnostics::record("INFO","runtime_stopping",serde_json::json!({}));
                     diagnostics::flush();
@@ -1490,6 +1556,12 @@ fn request_confirmation(app: &tauri::AppHandle, close_window: bool) {
 fn install_main_window_hooks(app: &tauri::AppHandle) {
     // Capture the paths of folders dropped from the OS file manager onto the main window.
     if let Some(win) = app.get_webview_window("main") {
+        let base_title = win
+            .title()
+            .ok()
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| "VelaTerm".to_string());
+        window_badge::register(app, "main", base_title);
         native_drop::install(&win);
     }
 
@@ -1683,11 +1755,15 @@ pub(crate) fn open_main_window(app: &tauri::AppHandle) {
         install_main_window_hooks(&app);
         #[cfg(target_os = "macos")]
         {
-            let dark = startup_frame_is_dark(app.state::<Db>().inner());
+            let pinned = startup_theme_mode(app.state::<Db>().inner());
+            if let Some(state) = app.try_state::<NativeTheme>() {
+                *state.0.lock().unwrap() = pinned;
+            }
+            let dark = resolve_macos_frame_dark(pinned, None, None, os_prefers_dark);
             let handle = app.clone();
             let _ = app.run_on_main_thread(move || {
                 if let Some(win) = handle.get_webview_window("main") {
-                    apply_window_frame(&win, dark);
+                    apply_window_frame(&win, pinned, dark);
                 }
                 show_main_window(&handle);
             });
@@ -1695,6 +1771,87 @@ pub(crate) fn open_main_window(app: &tauri::AppHandle) {
         #[cfg(not(target_os = "macos"))]
         show_main_window(&app);
     });
+}
+
+#[cfg(all(feature = "gui", target_os = "macos"))]
+fn install_macos_dock_menu(app: &tauri::AppHandle) {
+    use std::sync::OnceLock;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject, NSObject, Sel};
+    use objc2::{define_class, msg_send, AllocAnyThread};
+    use objc2_foundation::NSString;
+
+    static DOCK_APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+    static DOCK_TARGET: OnceLock<usize> = OnceLock::new();
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = AllocAnyThread]
+        #[name = "VlxDockMenuTarget"]
+        struct DockMenuTarget;
+
+        impl DockMenuTarget {
+            #[unsafe(method(newWindow:))]
+            fn new_window(&self, _sender: *mut AnyObject) {
+                if let Some(app) = DOCK_APP.get() {
+                    open_main_window(app);
+                }
+            }
+        }
+    );
+
+    extern "C" fn application_dock_menu(
+        _this: *mut AnyObject,
+        _cmd: Sel,
+        _sender: *mut AnyObject,
+    ) -> *mut AnyObject {
+        unsafe {
+            let menu: *mut AnyObject = msg_send![objc2::class!(NSMenu), alloc];
+            let empty = NSString::from_str("");
+            let menu: *mut AnyObject = msg_send![menu, initWithTitle: &*empty];
+            let title = NSString::from_str("New Window");
+            let item: *mut AnyObject = msg_send![objc2::class!(NSMenuItem), alloc];
+            let item: *mut AnyObject = msg_send![
+                item,
+                initWithTitle: &*title,
+                action: objc2::sel!(newWindow:),
+                keyEquivalent: &*empty
+            ];
+            if let Some(&target_ptr) = DOCK_TARGET.get() {
+                let target = target_ptr as *mut AnyObject;
+                let _: () = msg_send![item, setTarget: target];
+            }
+            let _: () = msg_send![menu, addItem: item];
+            let _: () = msg_send![item, release];
+            let menu: *mut AnyObject = msg_send![menu, autorelease];
+            menu
+        }
+    }
+
+    let _ = DOCK_APP.set(app.clone());
+    DOCK_TARGET.get_or_init(|| {
+        let target: Retained<DockMenuTarget> = unsafe { msg_send![DockMenuTarget::alloc(), init] };
+        Retained::into_raw(target) as usize
+    });
+
+    unsafe {
+        let ns_app: *mut AnyObject = msg_send![objc2::class!(NSApplication), sharedApplication];
+        let delegate: *mut AnyObject = msg_send![ns_app, delegate];
+        if !delegate.is_null() {
+            let cls: *const AnyClass = msg_send![delegate, class];
+            let imp: objc2::runtime::Imp = std::mem::transmute(
+                application_dock_menu
+                    as extern "C" fn(*mut AnyObject, Sel, *mut AnyObject) -> *mut AnyObject,
+            );
+            // Objective-C type encoding for `NSMenu *applicationDockMenu:(NSApplication *)`: "@@:@".
+            let _ = objc2::ffi::class_addMethod(
+                cls as *mut AnyClass,
+                objc2::sel!(applicationDockMenu:),
+                imp,
+                c"@@:@".as_ptr(),
+            );
+        }
+    }
 }
 
 /// Return the build-time Tauri context from one macro expansion shared by GUI/headless, avoiding
@@ -1747,6 +1904,10 @@ struct ServeArgs {
     /// Account relay only (`vela-server` / `vela-server run`): no local web listener at all, the host is reached
     /// solely through the outbound share tunnel. Not settable from `--serve` flags.
     relay_only: bool,
+    /// `--bind <all|loopback|IPv4>`: where this process's CLI-configured instance listens, overriding the
+    /// persisted remote-access setting for this process only (never written back). None follows the setting.
+    /// Only `loopback` is accepted together with `--local-http`, which always binds 127.0.0.1.
+    bind: Option<crate::web::BindChoice>,
 }
 
 /// Recommended headless password environment variable, avoiding exposure in process arguments.
@@ -1755,15 +1916,112 @@ const SERVE_PASSWORD_ENV: &str = "VELA_SERVE_PASSWORD";
 /// Legacy pre-rename password variable for backward compatibility only.
 const SERVE_PASSWORD_ENV_LEGACY: &str = "VLX_SERVE_PASSWORD";
 
-/// Parse arguments after `--serve`; explicit password overrides env_password. Errors are user-facing.
+/// Usage line for `--serve`, including the password source precedence.
+const SERVE_USAGE: &str = "usage: vlx-term --serve [--port 8799] [--password <password> | --password-file <path>] [--data-dir <dir>] [--local-http] [--lan-http] [--print-pairing] [--bind all|loopback|<IPv4>] [--mirror 0|1]\n  \
+     password precedence: --password > --password-file > VELA_SERVE_PASSWORD > VLX_SERVE_PASSWORD; \
+     the file must not be accessible by group or others (chmod 600), and child processes never see the password";
+
+/// Read both password variables (the new name wins) and remove them from this process's environment,
+/// so no PTY session, chat engine, model probe or other helper spawned later inherits the password.
+///
+/// `serve_startup_env` calls it as the very first step of `--serve`, before `login_env::hydrate` and
+/// before any child exists, and once more after hydrate (see there).
+/// Rust's `Command` also takes the same environment lock as `remove_var`, so a spawn can never observe a
+/// half-updated environment.
+fn take_serve_password_env() -> Option<String> {
+    let password = std::env::var(SERVE_PASSWORD_ENV)
+        .ok()
+        .or_else(|| std::env::var(SERVE_PASSWORD_ENV_LEGACY).ok());
+    std::env::remove_var(SERVE_PASSWORD_ENV);
+    std::env::remove_var(SERVE_PASSWORD_ENV_LEGACY);
+    password
+}
+
+/// Names of both serve password variables, for spawn paths that must never pass them on.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) const SERVE_PASSWORD_ENV_KEYS: [&str; 2] = [SERVE_PASSWORD_ENV, SERVE_PASSWORD_ENV_LEGACY];
+
+/// The environment step of `--serve` startup: take the password variables out of the environment,
+/// then run `hydrate` (the login-shell environment recovery, which spawns the first child of the
+/// process), then scrub again.
+///
+/// Why this order: the first take runs before anything spawns a child, so the login-shell probe and
+/// everything its startup files launch already start without the password. The only other thread that
+/// can exist at that point is main.rs's parent watch (`exit_with_parent`, set up for the Electron sidecar),
+/// which only sleeps and checks the parent process and reads no variables. A startup file may export
+/// the variable itself and hydrate then copies it back into this process; as before this change, such a
+/// value wins over the inherited one, and the second take removes it again. That second take is still
+/// safe: besides the parent watch, the only other thread that can exist then is hydrate's probe worker
+/// after a timeout, which is blocked waiting on a child whose environment was captured at spawn and reads
+/// no variables.
+fn serve_startup_env(hydrate: impl FnOnce()) -> Option<String> {
+    let inherited = take_serve_password_env();
+    hydrate();
+    take_serve_password_env().or(inherited)
+}
+
+/// How an argument appears in an error message. Flags are shown as typed; a bare value is hidden, because
+/// a misaligned command line (for example a value left over after `--password <pw>`) could otherwise
+/// print the password to stderr and from there into a service log.
+fn shown_arg(arg: &str) -> String {
+    if arg.starts_with('-') {
+        arg.to_string()
+    } else {
+        format!("<value hidden, {} characters>", arg.chars().count())
+    }
+}
+
+/// Read the access password from `--password-file`: the first line with trailing CR/LF removed. On Unix
+/// the file must not be readable or writable by group or others. Errors name the path but never the
+/// content.
+fn read_password_file(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    // A FIFO or device would block or stream on open; only a regular file is a password file.
+    let kind = std::fs::metadata(path).map_err(|e| format!("cannot open --password-file {path}: {e}"))?;
+    if !kind.is_file() {
+        return Err(format!("--password-file {path} is not a regular file"));
+    }
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("cannot open --password-file {path}: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Check the opened handle, not the path, so the file cannot be swapped between check and read.
+        let mode = file
+            .metadata()
+            .map_err(|e| format!("cannot read metadata of --password-file {path}: {e}"))?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            return Err(format!(
+                "--password-file {path} is accessible by group or others (mode {:03o}); restrict it with: chmod 600 {path}",
+                mode & 0o777
+            ));
+        }
+    }
+    let mut content = String::new();
+    file.read_to_string(&mut content)
+        .map_err(|e| format!("cannot read --password-file {path}: {e}"))?;
+    let first = content.split('\n').next().unwrap_or("").trim_end_matches(['\r', '\n']);
+    if first.trim().is_empty() {
+        return Err(format!("--password-file {path} is empty (the password must be on its first line)"));
+    }
+    Ok(first.to_string())
+}
+
+/// Parse arguments after `--serve`. Password precedence: `--password`, then `--password-file`, then
+/// env_password (already resolved from VELA_SERVE_PASSWORD, then VLX_SERVE_PASSWORD). Errors are
+/// user-facing.
 fn parse_serve_args(args: &[String], env_password: Option<String>) -> Result<ServeArgs, String> {
     let mut port: u16 = 8799;
     let mut password: Option<String> = None;
+    let mut password_file: Option<String> = None;
     let mut data_dir: Option<String> = None;
     let mut local_http = false;
     let mut lan_http = false;
     let mut print_pairing = false;
     let mut mirror: Option<bool> = None;
+    let mut bind: Option<crate::web::BindChoice> = None;
 
     let mut it = args.iter().skip(2); // Skip executable name and --serve.
     while let Some(arg) = it.next() {
@@ -1772,10 +2030,13 @@ fn parse_serve_args(args: &[String], env_password: Option<String>) -> Result<Ser
                 let v = it.next().ok_or("--port requires a value")?;
                 port = v
                     .parse()
-                    .map_err(|_| format!("--port has invalid value: {v}"))?;
+                    .map_err(|_| format!("--port has invalid value: {}", shown_arg(v)))?;
             }
             "--password" => {
                 password = Some(it.next().ok_or("--password requires a value")?.clone());
+            }
+            "--password-file" => {
+                password_file = Some(it.next().ok_or("--password-file requires a value")?.clone());
             }
             "--data-dir" => {
                 data_dir = Some(it.next().ok_or("--data-dir requires a value")?.clone());
@@ -1794,19 +2055,39 @@ fn parse_serve_args(args: &[String], env_password: Option<String>) -> Result<Ser
                 mirror = Some(match v.as_str() {
                     "1" | "on" | "true" => true,
                     "0" | "off" | "false" => false,
-                    other => return Err(format!("--mirror has invalid value: {other} (use 0 or 1)")),
+                    other => return Err(format!("--mirror has invalid value: {} (use 0 or 1)", shown_arg(other))),
                 });
             }
-            other => return Err(format!("unknown argument: {other}")),
+            "--bind" => {
+                let v = it.next().ok_or("--bind requires a value")?;
+                if v.trim().is_empty() {
+                    return Err("--bind requires a value".into());
+                }
+                bind = Some(crate::web::BindChoice::parse(v).map_err(|_| {
+                    format!("--bind has invalid value: {v} (use all, loopback, or an IPv4 address of this machine)")
+                })?);
+            }
+            other => return Err(format!("unknown argument: {}", shown_arg(other))),
         }
     }
 
-    let password = password
-        .or(env_password)
-        .filter(|p| !p.trim().is_empty())
-        .ok_or(format!(
-            "missing access password: use --password <password>, or set the {SERVE_PASSWORD_ENV} env var (recommended, keeps it out of the process list)"
-        ))?;
+    // --local-http classifies every client as local (full management rights), so its listener must never
+    // be widened beyond loopback.
+    if local_http && bind.as_ref().is_some_and(|b| *b != crate::web::BindChoice::Loopback) {
+        return Err("--local-http always listens on 127.0.0.1; it can only be combined with --bind loopback".into());
+    }
+
+    // An explicit --password wins without touching the file; otherwise a given file must be usable,
+    // and a broken file is an error rather than a silent fallback to the environment.
+    let password = match (password, password_file) {
+        (Some(p), _) => Some(p),
+        (None, Some(path)) => Some(read_password_file(&path)?),
+        (None, None) => env_password,
+    }
+    .filter(|p| !p.trim().is_empty())
+    .ok_or(format!(
+        "missing access password: use --password-file <path> (a chmod 600 file, recommended for services), set the {SERVE_PASSWORD_ENV} env var, or use --password <password>"
+    ))?;
 
     Ok(ServeArgs {
         port,
@@ -1817,7 +2098,37 @@ fn parse_serve_args(args: &[String], env_password: Option<String>) -> Result<Ser
         print_pairing,
         mirror,
         relay_only: false,
+        bind,
     })
+}
+
+/// Turn a listen-address error code from the core into an English terminal sentence. The terminal is not an
+/// i18n surface; the panel maps the same codes to localized text. Other errors pass through unchanged.
+fn describe_listen_error(e: &str) -> String {
+    let (code, detail) = e.split_once(':').unwrap_or((e, ""));
+    match code {
+        "remote_bind_invalid" => format!(
+            "invalid listen address \"{detail}\": use all, loopback, or an IPv4 address of this machine"
+        ),
+        "remote_bind_unavailable" => format!(
+            "listen address {detail} is not present on this machine (is the network or VPN connected?); not falling back to all interfaces"
+        ),
+        "remote_pairing_host_invalid" => format!(
+            "invalid pairing address \"{detail}\" in the remote-access settings: use a host name or an IPv4 address"
+        ),
+        _ => e.to_string(),
+    }
+}
+
+/// One terminal line stating where a LAN-mode instance is reachable.
+fn describe_listen_scope(bind: &crate::web::BindChoice) -> String {
+    match bind {
+        crate::web::BindChoice::All => "  listening on: all interfaces".to_string(),
+        crate::web::BindChoice::Address(ip) => format!("  listening on: {ip} only"),
+        crate::web::BindChoice::Loopback => {
+            "  listening on: 127.0.0.1 only (reach it through a tunnel or proxy on this machine)".to_string()
+        }
+    }
 }
 
 /// Whether `--serve` may print the full pairing URL including the long-lived `#pair` token fragment:
@@ -1856,6 +2167,7 @@ pub(crate) fn run_relay_serve(data_dir: Option<String>) -> Result<(), String> {
         print_pairing: false,
         mirror: None,
         relay_only: true,
+        bind: None,
     })
 }
 
@@ -1870,28 +2182,40 @@ pub fn run_host_cli(args: &[String]) -> bool {
 }
 
 pub fn run_serve(args: &[String]) {
-    // Prefer the new variable and fall back to the legacy name.
-    let env_password = std::env::var(SERVE_PASSWORD_ENV)
-        .ok()
-        .or_else(|| std::env::var(SERVE_PASSWORD_ENV_LEGACY).ok());
-    // Every terminal session inherits this process's environment; the access password must not reach them.
-    std::env::remove_var(SERVE_PASSWORD_ENV);
-    std::env::remove_var(SERVE_PASSWORD_ENV_LEGACY);
+    // Take the password variables out of the environment first, before the login-shell probe and
+    // before serve_main starts the hook server, web servers, engines or PTY manager, so none of their
+    // threads or children can see them. The login-environment recovery runs here, not in main.rs, so
+    // that the scrub precedes it.
+    let env_password = serve_startup_env(|| {
+        #[cfg(unix)]
+        crate::login_env::hydrate();
+    });
     let parsed = match parse_serve_args(args, env_password) {
         Ok(p) => p,
         Err(e) => {
-            crate::diagnostic_warn!("vlx-term --serve failed to start: {e}");
-            crate::diagnostic_warn!(
-                "usage: vlx-term --serve [--port 8799] [--password <password>] [--data-dir <dir>] [--local-http] [--lan-http] [--print-pairing] [--mirror 0|1]"
-            );
+            // Printed directly, not through diagnostic_warn!: that macro deliberately logs only the
+            // template and drops its arguments, so the operator would never see which file failed or
+            // the usage text. Argument errors name paths and flags but never the password content.
+            eprintln!("{}", serve_args_error_message(&e));
             std::process::exit(1);
         }
     };
 
     if let Err(e) = serve_main(&parsed) {
         crate::diagnostic_warn!("vlx-term --serve failed to start: {e}");
+        // diagnostic_warn! records only its template, so a service manager's log would never say why
+        // the start failed (port in use, data directory, certificate). The error names paths and ports,
+        // never the password.
+        eprintln!("vlx-term --serve failed to start: {e}");
         std::process::exit(1);
     }
+}
+
+/// Operator-facing text for a rejected `--serve` command line: the parse error followed by the usage
+/// line (with the password precedence). Kept separate from `run_serve` so a test can pin what the
+/// operator actually reads on stderr.
+fn serve_args_error_message(error: &str) -> String {
+    format!("vlx-term --serve failed to start: {error}\n{SERVE_USAGE}")
 }
 
 /// Fallible `run_serve` implementation extracted for `?` error propagation.
@@ -1902,6 +2226,7 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
     diagnostics::init(&data_dir, VERSION);
     let db = Db::open(&data_dir.join("vlx-term.db"))?;
     db::system_collections::ensure(&db.conn.lock().unwrap())?;
+    server_region::load(&db);
 
     // Match GUI cleanup of stale pasted images from abnormal exits when enabled.
     if pasted_image_cleanup_enabled(&db) {
@@ -1931,6 +2256,7 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
     let ctx = AppCtx::Headless(std::sync::Arc::clone(&host));
     host.set_hooks(HookServer::start(ctx.clone())?);
     agent::runs::start(ctx.clone());
+    ctx.plugins().start(ctx.clone());
     let _ = mobile_push::start(&ctx);
 
     let web = WebServer::new();
@@ -1956,18 +2282,38 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
             && crate::web::is_production_identifier(&identifier)
         {
             return Err(format!(
-                "LAN plaintext (--lan-http, binds 0.0.0.0 in plaintext) is only available in dev builds; this is a release build (identifier={identifier}). \
+                "LAN plaintext (--lan-http, unencrypted on the network) is only available in dev builds; this is a release build (identifier={identifier}). \
                  For production use the default TLS mode, or HTTPS with certificate pinning (see architecture §20)."
             ));
         }
-        let status = web.start(
-            ctx.clone(),
-            crate::web::StartAuth::Password(args.password.clone()),
-            Some(args.port),
+        // The LAN modes follow the persisted listen setting unless --bind overrides it for this process; the
+        // loopback mode (--local-http, the Electron sidecar and SSH connect path) always binds 127.0.0.1.
+        let lan = matches!(
             mode,
-        )?;
+            crate::web::ServeMode::LanTls | crate::web::ServeMode::LanHttp
+        );
+        let listen = if lan {
+            command_core::remote_listen_config(&ctx, args.bind.clone())
+                .map_err(|e| describe_listen_error(&e))?
+        } else {
+            crate::web::ListenConfig::default()
+        };
+        let loopback_without_host =
+            listen.bind == crate::web::BindChoice::Loopback && listen.pairing_host.is_none();
+        let status = web
+            .start_with_listen(
+                ctx.clone(),
+                crate::web::StartAuth::Password(args.password.clone()),
+                Some(args.port),
+                mode,
+                listen.clone(),
+            )
+            .map_err(|e| describe_listen_error(&e))?;
 
         println!("vlx-term headless server started");
+        if lan {
+            println!("{}", describe_listen_scope(&listen.bind));
+        }
         diagnostics::record("INFO","database_ready",serde_json::json!({"status":"success"}));
 
         // Print a fully usable preferred URL first. LAN TLS requires the complete #pair fragment with
@@ -1995,6 +2341,11 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
         if let Some(url) = &primary {
             println!("  open in browser: {url}");
         }
+        if lan && loopback_without_host {
+            println!(
+                "  links use 127.0.0.1: with ssh -L that is right; behind tailscale serve or another proxy, replace it with the address clients use (or set the pairing address in the app)"
+            );
+        }
         // Print other interface URLs without repeating the long pairing fragment; users can append it.
         if status.urls.len() > 1 {
             if matches!(mode, crate::web::ServeMode::LanTls)
@@ -2017,12 +2368,23 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
         // primary CLI-configured server so a port conflict deterministically hits this secondary instance,
         // where it is logged and nonfatal — the CLI server semantics stay untouched.
         match command_core::web_server_autostart(&ctx) {
-            Ok(Some(remote)) => println!(
-                "  remote access auto-started on port {}",
-                remote.port.unwrap_or(0)
-            ),
+            Ok(Some(remote)) => {
+                println!(
+                    "  remote access auto-started on port {} (from the saved settings; --bind does not apply to it)",
+                    remote.port.unwrap_or(0)
+                );
+                // This instance follows the saved listen setting, not --bind, so say where it listens: an
+                // operator who started the command-line instance on loopback must not assume the whole
+                // process is loopback-only.
+                if let Ok(listen) = command_core::remote_listen_config(&ctx, None) {
+                    println!("{}", describe_listen_scope(&listen.bind));
+                }
+            }
             Ok(None) => {}
-            Err(e) => crate::diagnostic_warn!("  remote access auto-start failed: {e}"),
+            Err(e) => crate::diagnostic_warn!(
+                "  remote access auto-start failed: {}",
+                describe_listen_error(&e)
+            ),
         }
         match command_core::cloudflare_access_autostart(&ctx) {
             Ok(Some(port)) => println!("  Cloudflare Access listener on http://127.0.0.1:{port}"),
@@ -2080,6 +2442,7 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
     web.stop();
     ctx.remote_web().stop();
     ctx.cloudflare_web().stop();
+    ctx.plugins().shutdown_all();
     ctx.chat().shutdown(&ctx);
     ctx.pty().kill_all();
     // Match GUI removal of this process's pasted-image files when cleanup is enabled.
@@ -2091,6 +2454,11 @@ fn serve_main(args: &ServeArgs) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Serializes the tests (here and in `login_env`) that mutate the serve password variables. No other
+/// test reads them.
+#[cfg(test)]
+pub(crate) static SERVE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {
@@ -2155,6 +2523,7 @@ mod tests {
                 print_pairing: false,
                 mirror: None,
                 relay_only: false,
+                bind: None,
             }
         );
     }
@@ -2244,6 +2613,308 @@ mod tests {
         assert!(parse_serve_args(&argv(&["--bogus", "--password", "x"]), None).is_err());
     }
 
+    /// A misaligned command line must not echo a bare value: it could be the password, and the error goes
+    /// to stderr and from there into a service log. Flags are still named so the operator can fix it.
+    #[test]
+    fn parse_serve_args_errors_never_echo_bare_values() {
+        let err = parse_serve_args(&argv(&["--password", "pw", "s3cr3t-leftover"]), None).unwrap_err();
+        assert!(!err.contains("s3cr3t-leftover"), "{err}");
+        assert!(err.contains("value hidden"), "{err}");
+        let err = parse_serve_args(&argv(&["--port", "s3cr3t", "--password", "x"]), None).unwrap_err();
+        assert!(!err.contains("s3cr3t"), "{err}");
+        let err = parse_serve_args(&argv(&["--mirror", "s3cr3t", "--password", "x"]), None).unwrap_err();
+        assert!(!err.contains("s3cr3t"), "{err}");
+        let err = parse_serve_args(&argv(&["--bogus", "--password", "x"]), None).unwrap_err();
+        assert!(err.contains("--bogus"), "flags are still named: {err}");
+    }
+
+    /// Write a password file with the given content and Unix mode into a fresh temp directory.
+    fn password_file(name: &str, content: &str, mode: u32) -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!(
+            "vela-pwfile-{}-{}-{name}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("password");
+        std::fs::write(&path, content).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        let s = path.to_string_lossy().into_owned();
+        (dir, s)
+    }
+
+    #[test]
+    fn parse_serve_args_password_file_trims_first_line() {
+        let (dir, path) = password_file("trim", "file-pw\r\nsecond line\n", 0o600);
+        let got = parse_serve_args(&argv(&["--password-file", &path]), None).expect("0600 file is accepted");
+        assert_eq!(got.password, "file-pw");
+        let _ = std::fs::remove_dir_all(dir);
+
+        // A single line without a trailing newline and a lone LF both work; inner spaces are kept.
+        let (dir, path) = password_file("plain", "a b c", 0o600);
+        assert_eq!(parse_serve_args(&argv(&["--password-file", &path]), None).unwrap().password, "a b c");
+        let _ = std::fs::remove_dir_all(dir);
+        let (dir, path) = password_file("lf", "pw-lf\n", 0o400);
+        assert_eq!(parse_serve_args(&argv(&["--password-file", &path]), None).unwrap().password, "pw-lf");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parse_serve_args_password_precedence() {
+        let (dir, path) = password_file("prec", "file-pw\n", 0o600);
+        // --password beats --password-file, in either argument order.
+        let got = parse_serve_args(&argv(&["--password-file", &path, "--password", "flag-pw"]), Some("env-pw".into()))
+            .unwrap();
+        assert_eq!(got.password, "flag-pw");
+        let got = parse_serve_args(&argv(&["--password", "flag-pw", "--password-file", &path]), None).unwrap();
+        assert_eq!(got.password, "flag-pw");
+        // --password-file beats the environment.
+        let got = parse_serve_args(&argv(&["--password-file", &path]), Some("env-pw".into())).unwrap();
+        assert_eq!(got.password, "file-pw");
+        let _ = std::fs::remove_dir_all(dir);
+        // --password wins without reading the file, so a missing file does not matter then.
+        let got = parse_serve_args(
+            &argv(&["--password", "flag-pw", "--password-file", "/nonexistent/vela-pw"]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(got.password, "flag-pw");
+    }
+
+    #[test]
+    fn parse_serve_args_password_file_errors() {
+        // An empty file or an empty first line is an error, never a fallback to the environment.
+        for (name, content) in [("empty", ""), ("newline", "\n"), ("blankfirst", "\r\nsecond\n"), ("spaces", "   \n")] {
+            let (dir, path) = password_file(name, content, 0o600);
+            let err = parse_serve_args(&argv(&["--password-file", &path]), Some("env-pw".into()))
+                .expect_err("empty password file must be rejected");
+            assert!(err.contains("empty") && err.contains(&path), "{name}: {err}");
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        // A missing file is an error naming the path.
+        let err = parse_serve_args(&argv(&["--password-file", "/nonexistent/vela-pw"]), Some("env-pw".into()))
+            .expect_err("missing file must be rejected");
+        assert!(err.contains("/nonexistent/vela-pw"), "{err}");
+        // The flag needs a value.
+        assert!(parse_serve_args(&argv(&["--password-file"]), None).is_err());
+        // A directory (like a FIFO or device) is not a regular file and is refused before opening it.
+        let dir = std::env::temp_dir();
+        let err = parse_serve_args(&argv(&["--password-file", dir.to_str().unwrap()]), None)
+            .expect_err("a directory must be rejected");
+        assert!(err.contains("not a regular file"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parse_serve_args_password_file_rejects_group_or_other_access() {
+        for mode in [0o640, 0o604, 0o620, 0o602, 0o644, 0o666] {
+            let (dir, path) = password_file(&format!("mode{mode:o}"), "secret-in-file\n", mode);
+            let err = parse_serve_args(&argv(&["--password-file", &path]), None)
+                .expect_err("group/other accessible file must be rejected");
+            assert!(err.contains(&path) && err.contains("chmod 600"), "mode {mode:o}: {err}");
+            // The content never appears in the error.
+            assert!(!err.contains("secret-in-file"), "mode {mode:o}: {err}");
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    /// What run_serve prints on stderr for a group/other-readable file: the real error with the path
+    /// and the chmod 600 fix, then the usage with the precedence, and never the file content.
+    #[cfg(unix)]
+    #[test]
+    fn serve_args_error_message_shows_path_fix_and_usage() {
+        let (dir, path) = password_file("operator-msg", "secret-in-file\n", 0o644);
+        let err = parse_serve_args(&argv(&["--password-file", &path]), None)
+            .expect_err("group/other accessible file must be rejected");
+        let msg = serve_args_error_message(&err);
+        assert!(msg.starts_with("vlx-term --serve failed to start: --password-file "), "{msg}");
+        assert!(msg.contains(&path) && msg.contains(&format!("chmod 600 {path}")), "{msg}");
+        assert!(msg.contains("--password-file <path>"), "{msg}");
+        assert!(
+            msg.contains("--password > --password-file > VELA_SERVE_PASSWORD > VLX_SERVE_PASSWORD"),
+            "{msg}"
+        );
+        // No unexpanded template placeholders reach the operator.
+        assert!(!msg.contains("{e}") && !msg.contains("{SERVE_USAGE}"), "{msg}");
+        assert!(!msg.contains("secret-in-file"), "{msg}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parse_serve_args_password_file_unreadable() {
+        // Owner without read permission: mode 0o200 passes the group/other check but cannot be read
+        // (unless the tests run as root, which bypasses file permissions).
+        let (dir, path) = password_file("unreadable", "pw\n", 0o200);
+        let is_root = std::fs::File::open(&path).is_ok();
+        if !is_root {
+            let err = parse_serve_args(&argv(&["--password-file", &path]), None)
+                .expect_err("unreadable file must be rejected");
+            assert!(err.contains(&path), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    use crate::SERVE_ENV_LOCK;
+
+    /// What a child spawned through `crate::host::command` sees for both password variables.
+    #[cfg(unix)]
+    fn child_sees_password_vars() -> String {
+        let out = crate::host::command("sh")
+            .arg("-c")
+            .arg("printf %s \"${VELA_SERVE_PASSWORD-unset}|${VLX_SERVE_PASSWORD-unset}\"")
+            .output()
+            .expect("sh must run");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn take_serve_password_env_scrubs_both_variables() {
+        let _guard = SERVE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved_new = std::env::var_os(SERVE_PASSWORD_ENV);
+        let saved_legacy = std::env::var_os(SERVE_PASSWORD_ENV_LEGACY);
+
+        std::env::set_var(SERVE_PASSWORD_ENV, "new-pw");
+        std::env::set_var(SERVE_PASSWORD_ENV_LEGACY, "legacy-pw");
+        // Control: before the scrub a child inherits both, so the assertion below discriminates.
+        #[cfg(unix)]
+        assert_eq!(child_sees_password_vars(), "new-pw|legacy-pw");
+
+        // The new name wins, and both are gone from this process and from every child afterwards.
+        assert_eq!(take_serve_password_env().as_deref(), Some("new-pw"));
+        assert!(std::env::var_os(SERVE_PASSWORD_ENV).is_none());
+        assert!(std::env::var_os(SERVE_PASSWORD_ENV_LEGACY).is_none());
+        #[cfg(unix)]
+        assert_eq!(child_sees_password_vars(), "unset|unset");
+
+        // Only the legacy name set: it is the fallback and is removed too.
+        std::env::set_var(SERVE_PASSWORD_ENV_LEGACY, "legacy-pw");
+        assert_eq!(take_serve_password_env().as_deref(), Some("legacy-pw"));
+        assert!(std::env::var_os(SERVE_PASSWORD_ENV_LEGACY).is_none());
+        // Nothing set: nothing returned.
+        assert_eq!(take_serve_password_env(), None);
+
+        // Restore whatever the test process started with.
+        for (key, saved) in [(SERVE_PASSWORD_ENV, saved_new), (SERVE_PASSWORD_ENV_LEGACY, saved_legacy)] {
+            match saved {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn serve_startup_env_scrubs_before_the_login_shell_probe() {
+        let _guard = SERVE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved_new = std::env::var_os(SERVE_PASSWORD_ENV);
+        let saved_legacy = std::env::var_os(SERVE_PASSWORD_ENV_LEGACY);
+
+        // Launcher passes the password (SSH connect mode, Electron sidecar, a service unit). The stand-in
+        // for hydrate records what its child, the first one of the process, inherits.
+        std::env::set_var(SERVE_PASSWORD_ENV, "launcher-pw");
+        std::env::set_var(SERVE_PASSWORD_ENV_LEGACY, "legacy-pw");
+        let mut probe_saw = None;
+        let got = serve_startup_env(|| {
+            #[cfg(unix)]
+            {
+                probe_saw = Some(child_sees_password_vars());
+            }
+        });
+        assert_eq!(got.as_deref(), Some("launcher-pw"));
+        #[cfg(unix)]
+        assert_eq!(probe_saw.as_deref(), Some("unset|unset"));
+        assert!(std::env::var_os(SERVE_PASSWORD_ENV).is_none());
+        assert!(std::env::var_os(SERVE_PASSWORD_ENV_LEGACY).is_none());
+
+        // A startup file exports its own value and hydrate copies it back: it wins, as before, and is
+        // scrubbed again so later children do not see it.
+        std::env::set_var(SERVE_PASSWORD_ENV, "launcher-pw");
+        let got = serve_startup_env(|| std::env::set_var(SERVE_PASSWORD_ENV, "profile-pw"));
+        assert_eq!(got.as_deref(), Some("profile-pw"));
+        assert!(std::env::var_os(SERVE_PASSWORD_ENV).is_none());
+        #[cfg(unix)]
+        assert_eq!(child_sees_password_vars(), "unset|unset");
+
+        // Nothing set anywhere: no password.
+        assert_eq!(serve_startup_env(|| {}), None);
+
+        for (key, saved) in [(SERVE_PASSWORD_ENV, saved_new), (SERVE_PASSWORD_ENV_LEGACY, saved_legacy)] {
+            match saved {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn parse_serve_args_bind_flag() {
+        use crate::web::BindChoice;
+        let bind = |v: &str| {
+            parse_serve_args(&argv(&["--bind", v, "--password", "pw"]), None)
+                .expect("parsing should succeed")
+                .bind
+        };
+        assert_eq!(bind("all"), Some(BindChoice::All));
+        assert_eq!(bind("loopback"), Some(BindChoice::Loopback));
+        assert_eq!(
+            bind("100.100.83.2"),
+            Some(BindChoice::Address("100.100.83.2".parse().unwrap()))
+        );
+        // Without the flag the persisted setting stays in charge.
+        let got = parse_serve_args(&argv(&["--password", "pw"]), None).expect("parsing should succeed");
+        assert_eq!(got.bind, None);
+        // --lan-http may choose its address.
+        let got = parse_serve_args(&argv(&["--lan-http", "--bind", "192.168.1.5", "--password", "pw"]), None)
+            .expect("parsing should succeed");
+        assert_eq!(got.bind, Some(BindChoice::Address("192.168.1.5".parse().unwrap())));
+    }
+
+    #[test]
+    fn parse_serve_args_rejects_bad_bind() {
+        assert!(parse_serve_args(&argv(&["--password", "pw", "--bind"]), None).is_err());
+        assert!(parse_serve_args(&argv(&["--bind", "", "--password", "pw"]), None).is_err());
+        for bad in ["nonsense", "::1", "224.0.0.1", "10.0.0.1:80"] {
+            let err = parse_serve_args(&argv(&["--bind", bad, "--password", "pw"]), None).unwrap_err();
+            assert!(err.starts_with("--bind has invalid value"), "{bad}: {err}");
+        }
+    }
+
+    /// --local-http treats every client as local, so --bind must never widen it beyond loopback.
+    #[test]
+    fn parse_serve_args_local_http_never_widens() {
+        for wide in ["all", "192.168.1.5"] {
+            assert!(
+                parse_serve_args(&argv(&["--local-http", "--bind", wide, "--password", "pw"]), None).is_err(),
+                "--local-http --bind {wide} must be rejected"
+            );
+        }
+        let got = parse_serve_args(&argv(&["--local-http", "--bind", "loopback", "--password", "pw"]), None)
+            .expect("--local-http --bind loopback is consistent");
+        assert!(got.local_http);
+    }
+
+    #[test]
+    fn describe_listen_error_is_english_prose() {
+        let msg = describe_listen_error("remote_bind_unavailable:192.0.2.10");
+        assert!(msg.starts_with("listen address 192.0.2.10 is not present"), "{msg}");
+        assert!(!msg.contains("remote_bind"), "{msg}");
+        let msg = describe_listen_error("remote_bind_invalid:bogus");
+        assert!(msg.contains("\"bogus\"") && !msg.contains("remote_bind"), "{msg}");
+        let msg = describe_listen_error("remote_pairing_host_invalid:a/b");
+        assert!(msg.contains("\"a/b\"") && !msg.contains("remote_pairing"), "{msg}");
+        // Unrelated errors pass through unchanged.
+        assert_eq!(describe_listen_error("Port 8799 is already in use: x"), "Port 8799 is already in use: x");
+    }
+
     #[test]
     fn serve_data_dir_prefers_explicit() {
         let args = ServeArgs {
@@ -2255,6 +2926,7 @@ mod tests {
             print_pairing: false,
             mirror: None,
             relay_only: false,
+            bind: None,
         };
         assert_eq!(
             serve_data_dir(&args, "io.vlinx.vlxterm").unwrap(),
@@ -2268,5 +2940,33 @@ mod tests {
         };
         let got = serve_data_dir(&args, "io.vlinx.vlxterm").unwrap();
         assert!(got.ends_with("io.vlinx.vlxterm"), "got {got:?}");
+    }
+
+    #[cfg(feature = "gui")]
+    #[test]
+    fn theme_from_mode_maps_explicit_and_system() {
+        assert_eq!(theme_from_mode("dark"), Some(tauri::Theme::Dark));
+        assert_eq!(theme_from_mode("light"), Some(tauri::Theme::Light));
+        assert_eq!(theme_from_mode("system"), None);
+        assert_eq!(theme_from_mode(""), None);
+    }
+
+    #[cfg(all(feature = "gui", target_os = "macos"))]
+    #[test]
+    fn resolve_macos_frame_dark_ignores_stale_frontend_value_when_unpinning() {
+        // Explicit modes pin directly regardless of frontend hint or OS state.
+        assert!(resolve_macos_frame_dark(Some(tauri::Theme::Dark), None, Some(false), || false));
+        assert!(!resolve_macos_frame_dark(Some(tauri::Theme::Light), None, Some(true), || true));
+
+        // Unpinning from Dark back to system on a light OS: frontend matchMedia still saw DarkAqua before
+        // set_theme(None) ran, so OS preference must win.
+        assert!(!resolve_macos_frame_dark(None, Some(tauri::Theme::Dark), Some(true), || false));
+        assert!(resolve_macos_frame_dark(None, Some(tauri::Theme::Light), Some(false), || true));
+
+        // Already following the OS: prefer the live frontend resolution, falling back to OS when absent.
+        assert!(resolve_macos_frame_dark(None, None, Some(true), || false));
+        assert!(!resolve_macos_frame_dark(None, None, Some(false), || true));
+        assert!(resolve_macos_frame_dark(None, None, None, || true));
+        assert!(!resolve_macos_frame_dark(None, None, None, || false));
     }
 }

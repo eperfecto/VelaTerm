@@ -1,6 +1,7 @@
 //! Traditional Chinese dictionary. Each entry includes its English source in a trailing review comment; en.ts enforces the complete key set.
 
 import type en from "./en";
+import assist from "../assist/zh-TW";
 
 const zhTW: typeof en = {
   "panel.turnStats": "本輪統計",
@@ -8,6 +9,8 @@ const zhTW: typeof en = {
   "panel.showChangedFiles": "檢視本輪修改的檔案",
   "panel.noFilesChanged": "本輪沒有編輯任何檔案。",
   "panel.shellEditsNotListed": "透過 Shell 指令所做的修改不會列出。",
+  "panel.usageShowScope": (scope: string) => `顯示 ${scope}`,
+  "panel.usageHideScope": (scope: string) => `隱藏 ${scope}`,
   "translation.swap": "交換語言",
   "translation.openai": "OpenAI 相容介面",
   "translation.bing": "Bing 翻譯（免 API 金鑰）",
@@ -373,6 +376,7 @@ const zhTW: typeof en = {
   "common.create": "建立", // Create
   "common.close": "關閉", // Close
   "chat.copyAsMarkdown": "複製為 Markdown",
+  "chat.copyEntireMessage": "複製整則訊息",
   "chat.imageViewOriginal": "檢視原圖",
   "chat.imageCopy": "複製圖片",
   "chat.imageSave": "儲存圖片",
@@ -488,6 +492,7 @@ const zhTW: typeof en = {
   "settings.catTerminal": "終端機", // Terminal
   "settings.catBehavior": "行為", // Behavior
   "settings.catAgents": "智慧體", // Agents
+  "settings.catPlugins": "外掛",
   "settings.agentDefaultsTitle": "新工作階段預設值",
   "settings.referSummaryTitle": "工作階段引用內容",
   "settings.referSummaryMode": "內容處理方式",
@@ -522,7 +527,23 @@ const zhTW: typeof en = {
   "settings.agentDefaultView": "預設檢視", // Default view
   "settings.agentDefaultViewHint":
     "該智慧體新增會話時開啟的檢視。既有會話維持建立時的檢視。", // Agent default view hint
+  "settings.deepseekApiTitle": "DeepSeek API",
+  "settings.deepseekApiDesc":
+    "DeepSeek 會話由 OpenCode 驅動。在這裡填入 API 位址與金鑰，所有會話即可共用同一份登入資訊。",
+  "settings.deepseekBaseUrl": "API 位址",
+  "settings.deepseekEndpointHint":
+    "位址留空則使用官方端點。修改後從下一則訊息開始生效。",
+  "settings.deepseekApiKey": "API 金鑰",
+  "settings.deepseekKeySaved": "已儲存（留空維持不變）",
+  "settings.deepseekKeyPlaceholder": "輸入 DeepSeek API 金鑰",
+  "settings.deepseekRemoveKey": "刪除金鑰",
+  "settings.deepseekSaved": "已儲存。",
+  "settings.deepseekInvalid": "請輸入有效的 http(s) API 位址與單行 API 金鑰。",
+  "settings.deepseekLocalOnly": "這些憑據保存在執行主機上，因此只能在主機上修改。",
   "settings.appearance": "外觀", // Appearance
+  "settings.darkTheme": "深色主題", // Dark theme
+  "settings.lightTheme": "淺色主題", // Light theme
+  "settings.themeClassic": "經典", // Classic
   "settings.accent": "強調色", // Accent
   "settings.accentAuto": "跟隨明暗", // Follow theme
   "settings.density": "密度", // Density
@@ -539,12 +560,16 @@ const zhTW: typeof en = {
   "settings.navTree": "標準", // Tree
   "settings.navCompact": "緊湊", // Compact
   "settings.tabs": "分頁", // Tabs
+  "settings.tabsHint": "「單分頁」會為你開啟的每個工作階段重複使用同一個分頁，其餘則在背景繼續執行。「多分頁」則為每個工作階段各開一個分頁。", // Single reuses one tab for every session you open, keeping the others running in the background. Multi gives each session its own tab.
   "settings.dynamicStatusFilter": "狀態篩選動態增加",
+  "settings.dynamicStatusFilterHint": "狀態篩選會保留套用當下符合的工作階段。開啟後，之後才開始符合的工作階段也會加入。工作階段的狀態改變時不會被移出清單。", // A status filter keeps the sessions that matched when you applied it. When on, sessions that begin matching later are added as well. Sessions are never removed as their status changes.
   "settings.tabSingle": "單分頁", // Single
   "settings.tabMulti": "多分頁", // Multi
   "settings.maxLiveTabs": "背景保活上限", // Background limit
+  "settings.maxLiveTabsHint": "單一分頁模式下可在背景保持執行的工作階段數量。超過上限時會關閉閒置最久的工作階段；正在執行、等待你處理或有未讀通知者則會保留。", // How many sessions keep running in the background in single-tab mode. Beyond the limit the oldest idle session is closed; ones that are working, waiting for you, or holding an unread notification are kept.
   "settings.defaultShell": "預設 Shell", // Default shell
   "settings.spawnConfirm": "派生前確認", // Confirm before spawn
+  "settings.spawnConfirmHint": "適用於代理透過 vspawn 衍生的工作階段，而非你自己開啟的分頁。開啟後，可在工作階段啟動前檢視並編輯提示。", // Applies to sessions an agent derives with vspawn, not to tabs you open yourself. When on, you can review and edit the prompt before the session starts.
   "settings.scopeTabsToProject": "僅顯示目前專案的分頁", // Show only the active project's tabs
   "settings.scopeTabsToProjectHint": "在側邊欄選取專案後，只會顯示該專案的分頁與全域終端機。隱藏的分頁會繼續執行。", // Selecting a project in the sidebar shows only its tabs plus global terminals. Hidden tabs keep running.
   "settings.usageAuto": "額度自動刷新", // Usage auto-refresh
@@ -659,6 +684,31 @@ const zhTW: typeof en = {
   "changes.ignoreWhitespace": "忽略空白",
   "changes.collapseUnchanged": "摺疊未變更的行",
   "changes.tooLarge": "此檔案超過 2 MiB 的預覽上限。",
+  "changes.review.addLine": (range: string) => `註解 ${range}`,
+  "changes.review.addFile": "新增註解",
+  "changes.review.gutterHint": (line: number) => `在第 ${line} 行新增審查註解`,
+  "changes.review.sideOriginal": "變更前",
+  "changes.review.sideModified": "變更後",
+  "changes.review.fieldLabel": "審查註解",
+  "changes.review.placeholder": "輸入給智慧體的修改意見（Enter 儲存，Shift+Enter 換行）…",
+  "changes.review.save": "儲存註解",
+  "changes.review.cancel": "取消",
+  "changes.review.edit": "編輯",
+  "changes.review.remove": "移除",
+  "changes.review.count": (count: number, files: number) =>
+    count === 1 ? "1 則審查註解" : `共 ${files} 個檔案、${count} 則審查註解`,
+  "changes.review.showList": "註解清單",
+  "changes.review.hideList": "收合清單",
+  "changes.review.clearAll": "全部清除",
+  "changes.review.targetAgent": "目標會話",
+  "changes.review.sendTo": (agent: string) => `傳送給 ${agent}`,
+  "changes.review.pasteTo": (agent: string) => `貼到 ${agent}`,
+  "changes.review.sending": "正在傳送…",
+  "changes.review.copy": "複製審查內容",
+  "changes.review.copied": "已複製",
+  "changes.review.noAgent": "請先在此儲存庫開啟或啟動智慧體會話，即可直接傳送註解。",
+  "changes.review.promptHeader": "請根據以下針對目前變更的審查註解進行修改：",
+  "changes.review.promptComment": "註解：",
   "git.fileStatus.modified": "已修改",
   "git.fileStatus.added": "已新增",
   "git.fileStatus.deleted": "已刪除",
@@ -706,6 +756,39 @@ const zhTW: typeof en = {
   "git.pr.noToken": "請先在設定中加入 Gitea 權杖，才能在這裡建立提取要求。",
   "git.pr.unreachable": "目前無法連線到 Gitea 伺服器。",
   "git.pr.opened": "已建立提取要求",
+  "git.pr.openMr": "建立合併要求",
+  "git.pr.openedMr": "已建立合併要求",
+  "git.pr.formTitleProvider": (provider: string) =>
+    provider === "gitlab"
+      ? "建立 GitLab 合併要求"
+      : provider === "github"
+        ? "建立 GitHub 提取要求"
+        : "建立 Gitea 提取要求",
+  "git.pr.formDescriptionMr": (branch: string, base: string) =>
+    `將 ${branch} 推送到 origin，並建立合併到 ${base} 的合併要求。`,
+  "git.pr.draftField": "建立為草稿（Draft）",
+  "git.pr.noGhCli": "請先安裝 GitHub CLI（gh），才能在這裡建立提取要求。",
+  "git.pr.noGhAuth": "請在終端機執行 gh auth login 登入 GitHub。",
+  "git.pr.noGlabCli": "請先安裝 GitLab CLI（glab），才能在這裡建立合併要求。",
+  "git.pr.noGlabAuth": "請在終端機執行 glab auth login 登入 GitLab。",
+  "git.pr.state.open": "開啟中",
+  "git.pr.state.draft": "草稿",
+  "git.pr.state.merged": "已合併",
+  "git.pr.state.closed": "已關閉",
+  "git.pr.checks.passing": "檢查通過",
+  "git.pr.checks.failing": "檢查失敗",
+  "git.pr.checks.pending": "檢查執行中",
+  "git.pr.refreshStatus": "重新整理狀態",
+  "git.pr.cleanupWorktree": "清理工作樹…",
+  "git.pr.cleanupTitle": "清理已合併的工作樹",
+  "git.pr.cleanupDescription": (branch: string, path: string) =>
+    `分支 ${branch} 已合併，是否移除工作樹目錄 ${path}？`,
+  "git.pr.cleanupDeleteBranch": (branch: string) => `同時刪除本機分支 ${branch}`,
+  "git.pr.cleanupArchiveSession": "封存此會話",
+  "git.pr.cleanupArchiveHint": "取消勾選則保留此會話，並切回主儲存庫目錄。",
+  "git.pr.cleanupForce": "強制刪除未提交的變更",
+  "git.pr.cleanupSubmit": "立即清理",
+  "git.pr.cleanupSubmitting": "正在清理…",
   "git.push": "推送",
   "git.pushTitle": (u: string) => `推送到 ${u}`,
   "git.publish": "發佈分支",
@@ -824,12 +907,26 @@ const zhTW: typeof en = {
   "settings.termFontSize": "終端機字級", // Terminal size
   "settings.termLineHeight": "終端機行高",
   "settings.chatTypography": "對話檢視",
-  "settings.chatTypographyHint": "字型設定與終端機分開儲存，變更後立即生效。",
+  "settings.chatTypographyHint": "這些設定與終端機分開儲存，變更後立即生效。預設情況下，內文使用介面字型，程式碼使用介面等寬字型。",
   "settings.chatFont": "對話字型",
   "settings.chatFontSize": "對話字級",
   "settings.chatLineHeight": "對話行高",
+  "settings.chatCodeFont": "對話程式碼字型",
+  "settings.chatLetterSpacing": "對話字距",
+  "settings.uiTypography": "介面字型",
+  "settings.uiTypographyHint": "套用於選單、清單、對話方塊與文件。等寬字型用於程式碼、路徑與差異比對；終端機字型請在「終端機」中另行設定。",
+  "settings.uiFont": "一般字型",
+  "settings.uiMonoFont": "等寬字型",
+  "settings.fontPreview": "預覽",
+  "settings.fontPreviewText": "敏捷的棕色狐狸跳過了那隻懶狗。The quick brown fox 0123456789",
+  "settings.fontPreviewChat": "設定頁面已更新。每項字型設定都會立即生效，你也可以隨時恢復預設值。",
+  "settings.fontResetGroup": "恢復預設字型",
+  "settings.chatImages": "圖片",
+  "settings.chatImageMaxMb": "圖片大小上限",
+  "settings.chatImageMaxMbHint": "傳送前會將長邊超過 1568 像素或大小超過此上限的圖片自動縮放並壓縮。僅當圖片無法解碼或壓縮後仍超過上限時才會略過。",
+  "settings.chatImageSizeMb": (mb: number) => `${mb} MB`,
   "settings.composerChips": "輸入工具列",
-  "settings.composerChipsHint": "已開啟的項目會依此處順序顯示在訊息旁。功能暫時無法使用時，例如智慧代理未執行、沒有背景工作或尚未完成登入，項目仍會顯示，但為空白或無法操作。目前智慧代理不支援的功能不顯示。空間不足時，無法容納的項目會移至「更多」選單。在此關閉的項目僅顯示於該選單中，仍可在此設定。",
+  "settings.composerChipsHint": "已開啟的項目會依此處順序顯示在訊息旁。功能暫時無法使用時，例如智慧代理未執行、沒有背景工作或尚未完成登入，項目仍會顯示，但為空白或無法操作。目前智慧代理不支援的功能不顯示。空間不足時，無法容納的項目會移至「更多」選單。在此關閉的項目在重新開啟前不會顯示於任何位置。",
   "settings.composerChipUp": (chip: string) => `將${chip}上移`,
   "settings.composerChipDown": (chip: string) => `將${chip}下移`,
   "settings.composerChip.model": "模型",
@@ -846,7 +943,8 @@ const zhTW: typeof en = {
   "settings.composerChip.account": "帳戶",
   "settings.composerChip.codexCredits": "Codex 額度重設券",
   "settings.fontDefault": "預設", // Default
-  "settings.fontCustom": "自訂…", // Custom
+  "settings.fontSearch": "搜尋字型…",
+  "settings.fontUseCustom": (query: string) => `使用「${query}」`,
   "settings.fontListUnavailable": "無法取得系統字型清單，可手動輸入字型名稱。",
   "settings.fontUnconfirmed": "無法確認此字型是否可用。",
   "settings.fontAuto": "自動", // Auto
@@ -855,6 +953,11 @@ const zhTW: typeof en = {
   "settings.fontReset": "重設", // Reset
   "settings.sound": "通知提示音", // Notification sound
   "settings.language": "語言", // Language
+  "settings.serverRegion": "伺服器", // Server
+  "settings.serverRegionGlobal": "國際", // International
+  "settings.serverRegionChina": "中國大陸", // Mainland China
+  "settings.serverRegionHint":
+    "用於官網連結及模型目錄。選擇「中國大陸」後改用 velaterm.cn，在中國大陸境內連線更快。更新與 vela-server 一律來自此組建的 GitHub 發行版本。帳號相關功能一律使用 velaterm.com。",
   "settings.langAuto": "自動（跟隨系統）", // Auto (system)
   "settings.skillLabel": "Vela 技能",
   "settings.skillInstall": "安裝", // Install
@@ -891,6 +994,7 @@ const zhTW: typeof en = {
   "settings.scCopyTerminal": "複製終端機選取內容", // Copy terminal selection
   "settings.scSelectAllTerminal": "全選終端機內容", // Select all in terminal
   "settings.scSaveDoc": "儲存文件", // Save document
+  "settings.scFocusSidebar": "聚焦側邊欄", // Focus sidebar
   "settings.scRecording": "請按下按鍵…", // Press keys…
   "settings.scHint": "點一下快捷鍵，再按下新的組合鍵（需含 Cmd/Ctrl）。", // hint
   "settings.scScreenshotSection": "截圖",
@@ -989,6 +1093,19 @@ const zhTW: typeof en = {
   "remote.cloudflareHelpEmail": "Zero Trust › Integrations › Identity providers › One-time PIN。在應用程式原則中使用 Allow › Include › Emails。", // Zero Trust › Integrations › Identity providers › One-time PIN. In the app policy, use Allow › Include › Emails.
   "remote.cloudflareHelpDashboard": "儀表板", // Dashboard
   "remote.cloudflareHelpDocs": "文件", // Docs
+  "remote.listenLabel": "監聽位址", // Listen on
+  "remote.listenAll": "所有網路", // All networks
+  "remote.listenLoopback": "僅限本機（通道）", // This computer only (tunnel)
+  "remote.listenUnavailable": (ip: string) => `${ip}（無法使用）`, // ${ip} (not available)
+  "remote.reachAll": "可透過此電腦連線的任一網路存取。", // Reachable from every network this computer is connected to.
+  "remote.reachOnly": (addr: string) => `僅可透過 ${addr} 存取。`, // Reachable only at ${addr}.
+  "remote.reachTunnel": "僅可透過此電腦上的通道或代理存取，例如 tailscale serve 或 ssh -L。", // Reachable only through a tunnel or proxy on this computer, for example tailscale serve or ssh -L.
+  "remote.pairingHostLabel": "配對連結使用的位址", // Address for pairing links
+  "remote.pairingHostPlaceholder": "host.tailnet.ts.net", // host.tailnet.ts.net
+  "remote.pairingHostNeeded": "用戶端透過通道存取此電腦。請輸入它們使用的主機名稱或 IP。未填寫時，配對連結會指向 127.0.0.1，僅在使用 ssh -L 時有效。", // Clients reach this computer through a tunnel. Enter the host name or IP they use. Without it, pairing links point to 127.0.0.1, which only works with ssh -L.
+  "remote.bindInvalid": (value: string) => `「${value}」不是有效的監聽位址。請選擇所有網路、僅限本機，或此電腦上的一個 IPv4 位址。`, // "${value}" is not a valid listen address. Choose all networks, this computer only, or an IPv4 address of this computer.
+  "remote.bindUnavailable": (ip: string) => `位址 ${ip} 在此電腦上無法使用。請連線對應網路或 VPN，或選擇其他位址。遠端存取不會退回所有網路。`, // The address ${ip} is not available on this computer. Connect the network or VPN, or choose another address. Remote access never falls back to all networks.
+  "remote.pairingHostInvalid": (value: string) => `「${value}」不是有效的配對連結位址。請輸入主機名稱或 IPv4 位址，不要包含通訊協定、連接埠或路徑。`, // "${value}" is not a valid address for pairing links. Enter a host name or an IPv4 address, without scheme, port, or path.
 
   // ── Remote connection panel ──
   "connect.wslUpgrade": "此工作區正在執行其他版本的伺服器。重新啟動伺服器將結束此 WSL 工作區中所有執行中的會話。",
@@ -1060,6 +1177,7 @@ const zhTW: typeof en = {
   "tree.deleteGroup": "刪除群組", // Delete Group
   "tree.deleteSession": "刪除會話", // Delete Session
   "tree.projectRoot": "專案根（無群組）", // Project root (no group)
+  "tree.collectionRoot": (name: string) => `${name}（無群組）`,
   "tree.moveToSession": "移到會話下（成為子會話）", // Move under a session (as child)
   "tree.moveTo": "移動到…", // Move to…
   "tree.openNewTab": "在新分頁開啟", // Open in New Tab
@@ -1166,6 +1284,7 @@ const zhTW: typeof en = {
   "tree.filterStatus": "狀態篩選", // Filter by status
   "tree.refreshStatusFilter": "重新整理狀態篩選",
   "tree.refreshStatusMatch": "重新整理狀態",
+  "tree.setStatus": "設定狀態", // Set Status
   "tree.filterStatusSection": "狀態", // Status
   "tree.filterMarkSection": "標記", // Mark
   "tree.sortSection": "排序", // Order
@@ -1356,6 +1475,9 @@ const zhTW: typeof en = {
 
   // ── Global session-content search ──
   "search.allPlaceholder": "搜尋所有會話內容…", // Search across all session content…
+  "search.inLocationPlaceholder": (name) => `在 ${name} 中搜尋…`, // Search in {name}…
+  "search.allLocations": "所有專案與集合", // All projects & collections
+  "search.filterLocation": "依專案或集合篩選", // Filter by project or collection
   "search.hint":
     "搜尋會話內容。預設不含已封存會話，勾選「同時搜尋封存」可納入。", // Search session content. Archived sessions are excluded by default.
   "search.includeArchived": "同時搜尋封存", // Include archived
@@ -1379,10 +1501,9 @@ const zhTW: typeof en = {
 
   // ── Center pane (tabs, empty state, and background keep-alive) ──
   "center.noSession": "暫無會話", // No session
-  "center.noSessionHintPre": "從左欄選擇會話，或按 ", // Pick a session from the sidebar, or press
-  "center.noSessionHintPost": " 新增終端機", // to create a terminal
   "center.createTerminal": "新增終端機", // Create Terminal
-  "center.splitHint": "開啟會話後，可使用以下快捷鍵分割畫面：",
+  "center.startTitle": "開始會話", // Start a session
+  "center.startHint": "從左欄選擇一個會話，或新增一個。", // Pick one from the sidebar, or start something new.
   "tab.unsavedDot": "有未儲存的修改", // Unsaved changes
   "tab.newTerminal": "新增終端機", // New terminal
   "tab.newGlobalTerminal": "新增全域終端機", // New global terminal
@@ -1580,12 +1701,22 @@ const zhTW: typeof en = {
   "files.nameLabel": "名稱", // Name
   "files.newTooltip": "新增檔案或資料夾", // New file or folder
   "files.openInTerminal": "在終端機中開啟", // Open in Terminal
+  "files.collapseAll": "全部收合", // Collapse All
   "files.revealInFinder": "在檔案管理器中顯示", // Show in File Manager
   "files.copyPath": "複製路徑", // Copy Path
   "files.copyRelPath": "複製相對路徑", // Copy Relative Path
   "files.filterPlaceholder": "篩選檔案…", // Filter files
+  "files.filterTruncated": "僅顯示前段符合項目，請繼續輸入以縮小範圍。",
   "files.dblClickOpen": "雙擊開啟", // Double-click to open
   "files.deleteConfirm": (name) => `確定刪除「${name}」？此操作無法復原。`, // Delete "{name}"? This can't be undone.
+  "files.deleteManyConfirm": (count) => `確定刪除這 ${count} 個項目？此操作無法復原。`, // Delete {count} items? This can't be undone.
+  "files.pasteConflictTitle": "項目已存在", // Item already exists
+  "files.pasteConflictBody": (name) => `目標資料夾中已存在名為「${name}」的項目。`, // An item named "{name}" already exists in the destination folder.
+  "files.pasteConflictProgress": (current, total) => `第 ${current} / ${total} 項`, // {current} of {total}
+  "files.pasteConflictApplyAll": "套用至所有剩餘衝突", // Apply to all remaining conflicts
+  "files.pasteReplace": "取代", // Replace
+  "files.pasteSkip": "略過", // Skip
+  "files.pasteKeepBoth": "保留兩者", // Keep Both
 
   // ── File transfer (remote access) ──
   "transfer.title": "傳輸", // Transfers
@@ -1599,6 +1730,9 @@ const zhTW: typeof en = {
   "transfer.downloading": "正在下載…", // Downloading…
   "transfer.savedToDownloads": "已儲存至下載資料夾", // Saved to Downloads
   "transfer.foldersUnsupported": "資料夾傳不了。", // Folders can't be uploaded.
+  "drop.browserFilesHint": "在瀏覽器中，這裡只能拖入圖片。其他檔案請先上傳到專案中。", // In the browser, only images can be dropped here. To use other files, upload them to the project first.
+  "files.copyFailed": "部分檔案未能複製。請確認這些檔案仍然存在，並且你有權限寫入這個目錄。", // Some files could not be copied. Check that they still exist and that you can write to this folder.
+  "files.pasteFailed": "部分項目未能貼上。請確認來源項目仍然存在，並且您有權限寫入目標資料夾。", // Some items could not be pasted. Check that the sources exist and that you can write to this folder.
 
   // ── Status bar ──
   "statusbar.sessions": (n) => `${n} 會話`, // {n} sessions
@@ -1613,6 +1747,11 @@ const zhTW: typeof en = {
   "statusbar.permSkip": "權限：跳過", // Perms: Skip
   "statusbar.notifyOn": "通知：開", // Notify: On
   "statusbar.notifyOff": "通知：關", // Notify: Off
+  "statusbar.zoomGroup": "介面縮放",
+  "statusbar.zoomOut": "縮小",
+  "statusbar.zoomIn": "放大",
+  "statusbar.zoomEdit": "介面縮放 · 點擊輸入縮放比例（80–200%）",
+  "statusbar.zoomInput": "介面縮放比例，80 到 200",
   "statusbar.permTooltip": "本會話權限模式 · 點擊切換（僅影響本會話）", // This session's permission mode · click to change (this session only)
   "statusbar.permMenuTitle": "本會話權限", // This session's permissions
   "statusbar.permOptAsk": "逐步詢問（預設）", // Ask each time (default)
@@ -1966,6 +2105,8 @@ const zhTW: typeof en = {
   "updater.downloadManually": "手動下載",
   "updater.downloadManuallyHint": "在瀏覽器中開啟下載頁面。",
   "updater.windowsNotice": "安裝期間 VelaTerm 會關閉，安裝完成後自動重新開啟。",
+  "updater.portableNotice":
+    "目前是可攜版，不會自動更新。請下載新版本，用它取代目前的資料夾；設定與會話都會保留。",
   "updater.installingWindows":
     "正在安裝… VelaTerm 即將關閉，安裝程式會完成更新並重新開啟它。",
   // The status-bar new-version segment belongs to automatic updates and stays here for centralized editing.
@@ -1988,6 +2129,7 @@ const zhTW: typeof en = {
   "skills.vstat": "查看哪些會話正在工作或等待輸入。",
   "skills.vtell": "傳送訊息給其他會話。",
   "skills.vkb": "查詢專案的 CodeGraph 和知識庫。",
+  "skills.vapp": "讓智慧體操作 VelaTerm，每項操作都由你確認。",
   "skills.settingsHint": "之後也可以在「設定 > 進階」中安裝。",
   "skills.installFailed": (err) => `安裝失敗：${err}`,
   "skills.dontRemind": "不再提醒",
@@ -2105,6 +2247,7 @@ const zhTW: typeof en = {
   "chat.question.submit": "提交",
   "chat.question.next": "下一題",
   "chat.question.dismiss": "關閉",
+  "chat.question.skip": "略過此題",
   "chat.question.answerPlaceholder": "輸入你的回答",
   "chat.question.otherPlaceholder": "其他回答",
   "chat.question.answeredHeading": (n: number) => `已回答 ${n} 個問題`,
@@ -2158,6 +2301,8 @@ const zhTW: typeof en = {
   "chat.rewind.editWarning": "原訊息及其後的所有訊息將永久刪除，接著從這裡傳送修改後的內容。已修改的檔案不會還原。",
   "chat.rewind.inactive": "對話程序尚未啟動，啟動後即可使用這些操作。",
   "chat.rewind.unsupported": "目前連線的 Agent 尚未提供此操作。",
+  "chat.rewind.latestOnly": "目前連線的 Agent 只能從最新一則訊息回退。",
+  "chat.rewind.appliesOnSend": "傳送下一則訊息時才會真正回退，在此之前對話和檔案都維持不變。",
   "chat.rewind.title": "從這裡回退",
   "chat.rewind.warning": "此操作無法復原。",
   "chat.rewind.conversation": "回退對話",
@@ -2254,6 +2399,10 @@ const zhTW: typeof en = {
   "chat.auth.claude.submit": "提交授權碼",
   "chat.auth.claude.invalidCode": "請貼上本次授權頁面提供的完整授權碼，包括 # 後面的內容。",
   "chat.auth.claude.externalAuth": "API 金鑰及其他已設定的驗證方式不會變更。",
+  "chat.auth.antigravity.pending": "開啟授權頁面並使用 Google 帳號登入，然後將頁面提供的授權碼或完整回呼網址貼到下方。",
+  "chat.auth.antigravity.failed": "無法完成登入，請重試，並確認目前的 Antigravity CLI 支援帳號授權。",
+  "chat.auth.antigravity.code": "授權碼或回呼網址",
+  "chat.auth.antigravity.invalidCode": "請貼上本次登入提供的授權碼或完整回呼網址，且不要包含空白字元。",
   "chat.auth.open": "開啟授權頁面",
   "chat.auth.zcode.required": "登入 ZCode 後才能使用目前的對話，請使用你的 Z.ai 或智譜 BigModel 帳號。",
   "chat.auth.zcode.pending": "請開啟授權頁面並同意授權。登入完成後，此處會自動更新。",
@@ -2348,7 +2497,7 @@ const zhTW: typeof en = {
   "settings.completionTab": "僅 Tab",
   "settings.completionOff": "完全關閉",
   "settings.completionUnavailable": "無法讀取或儲存設定。",
-  "settings.completionHint": "在 Zsh 中輸入時，游標後方會以灰色顯示歷史記錄中最近一筆相符的命令，按 → 或 End 即可採用。Tab 與 shell 原生行為一致：只有一個候選項目時直接填入，候選項目有共同開頭時先補全這部分，仍有多個候選項目時再列出。適用於新建的 Zsh、Bash 4+、Fish 和 PowerShell 終端。",
+  "settings.completionHint": "在 Zsh 中輸入時，游標後方會以灰色顯示歷史記錄中最近一筆相符的命令，按 → 或 End 即可採用。透過遠端連線輸入時不顯示灰色提示。Tab 與 shell 原生行為一致：只有一個候選項目時直接填入，候選項目有共同開頭時先補全這部分，仍有多個候選項目時再列出。適用於新建的 Zsh、Bash 4+、Fish 和 PowerShell 終端。",
   "settings.completionTabOnlyHint": "輸入時不顯示任何提示。按 Tab 補全，與 shell 原生行為一致：只有一個候選項目時直接填入，候選項目有共同開頭時先補全這部分，仍有多個候選項目時再列出。適用於新建的 Zsh、Bash 4+、Fish 和 PowerShell 終端。",
   "settings.completionTabKey": "Tab 鍵",
   "settings.completionTabAccept": "採用行內提示",
@@ -2465,29 +2614,17 @@ const zhTW: typeof en = {
   "chat.antigravity.placeholder": "傳送訊息給 Antigravity，可用 @檔案 引用檔案",
   "chat.antigravity.textOnly": "Antigravity 會話檢視目前僅支援文字訊息。",
   "chat.textOnly": (agent: string) => `${agent} 會話檢視僅支援文字訊息。`,
+  "chat.attach.modelTextOnly": "目前選取的模型不支援圖片。",
   "chat.signInRequired": (agent: string) => `使用會話檢視前需要先登入 ${agent}。請切換到終端機檢視完成登入，然後重新送出訊息。`,
-  "chat.apiKeyRequired": "DeepSeek Harness 需要 API 金鑰。請設定環境變數 DEEPSEEK_API_KEY，或執行 `dsh web` 在「Models」頁面儲存金鑰，然後重新送出訊息。",
+  "chat.apiKeyRequired": "DeepSeek 需要 API 金鑰。請點擊輸入框旁的「API」填寫金鑰，或設定環境變數 `DEEPSEEK_API_KEY`，然後重新送出訊息。",
+  "chat.codex.activeWriter": "另一個 Codex 處理程序正在佔用此會話。請先關閉佔用該會話的其他終端機分頁或 Codex 處理程序，或稍候片刻再重試。",
   "chat.antigravity.permissionsHint": "需要核准的工具必須先在 Antigravity 設定中獲准使用，或在終端機檢視中使用。",
   "chat.antigravity.settingsHint": "請在回合之間變更模型、思考程度或權限。",
-  "ports.title": "連接埠", // Ports
-  "ports.active": "已轉送", // Forwarded
-  "ports.activeEmpty": "沒有已轉送的連接埠", // No forwarded ports
-  "ports.detected": "已偵測", // Detected
-  "ports.detectedEmpty": "找不到正在監聽的連接埠", // No listening ports found
-  "ports.detectionUnavailable": "此主機不支援連接埠偵測", // Port detection is not available on this host
-  "ports.manual": "轉送連接埠", // Forward a port
-  "ports.portPlaceholder": "遠端連接埠", // Remote port
-  "ports.forward": "轉送", // Forward
-  "ports.open": "在瀏覽器中開啟", // Open in browser
-  "ports.stop": "停止", // Stop
-  "ports.localChanged": (port) => `本機連接埠 ${port} 已被占用，已改用其他本機連接埠`, // Local port {port} was busy, so another local port is used
-  "ports.unavailable": "無法使用 — 請更新 VelaTerm", // Unavailable — update VelaTerm
-  "ports.invalidPort": (port) => `無效的連接埠：${port}`, // Invalid port: {port}
-  "ports.missingPort": "請輸入連接埠", // Enter a port
-  "ports.unknownAction": (action) => `未知的操作：${action}`, // Unknown action: {action}
-  "ports.limit": (max) => `每個連線最多可轉送 ${max} 個連接埠`, // At most {max} ports can be forwarded per connection
-  "ports.notForwarded": (port) => `連接埠 ${port} 尚未轉送`, // Port {port} is not forwarded
-  "statusbar.ports": (n) => `已轉送 ${n} 個連接埠`, // {n} forwarded ports
+  "chat.antigravity.rewindTitle": "在終端機檢視中回退",
+  "chat.antigravity.rewindHint": "Antigravity 會話檢視目前尚不支援直接回退或編輯已傳送的訊息。請切換至終端機檢視執行 /rewind，切回後會自動同步。",
+  "chat.antigravity.rewindGuide": "Antigravity 會話檢視目前尚不支援直接回退或編輯已傳送的訊息。請切換至終端機檢視執行 /rewind 以回退對話或還原檔案，切回會話檢視後會自動同步最新狀態。",
+  "chat.antigravity.rewindCommandDescription": "切換至終端機檢視並使用 /rewind 回退對話或還原檔案",
+  "chat.antigravity.switchToTerminal": "切換至終端機檢視",
   "chat.history.imageDownloadRequired": "無法在此開啟這張圖片，請下載原圖檢視。",
   "chat.history.readBody": "讀取完整內容",
   "chat.history.selectDetail": "選擇檔案或欄位",
@@ -2599,6 +2736,8 @@ const zhTW: typeof en = {
   "sidebarSection.nav": "側邊欄分區",
   "sidebarSection.noTasks": "目前還沒有任務會話。",
   "sidebarSection.noChats": "目前還沒有聊天會話。",
+  "sidebarSection.setDefaultView": "設為預設檢視",
+  "sidebarSection.clearDefaultView": "取消預設檢視",
   "artifact.comment": "評論", // Comment
   "artifact.commentTitle": "點選頁面元素，給智慧體留下評論", // Click elements in the page to leave comments for the agent
   "artifact.pickHint": "點選頁面中的元素來評論，按 Esc 結束。", // Click an element in the page to comment on it. Press Esc to stop.
@@ -2663,6 +2802,50 @@ const zhTW: typeof en = {
   "kb.searchEntries": "搜尋條目…",
   "kb.updatedOn": (date: string) => `更新於 ${date}`,
   "archive.sessionsCount": (count: string) => `${count} 個會話`,
+
+
+  ...assist,
+  "plugins.title": "外掛",
+  "plugins.subtitle": "安裝、連結、啟用或重新載入外部 VelaTerm 外掛。每個外掛皆在獨立的後端程序執行，並動態載入介面。",
+  "plugins.installArchive": "從壓縮檔安裝…",
+  "plugins.linkDev": "連結本機外掛目錄…",
+  "plugins.localOnlyHint": "僅允許於本機主機安裝、連結或切換外掛狀態。",
+  "plugins.archivePathPrompt": "請輸入 .vlxplugin 或 .zip 外掛封裝檔的完整路徑：",
+  "plugins.devPathPrompt": "請輸入包含 manifest.json 的本機外掛目錄完整路徑：",
+  "plugins.empty": "尚未安裝任何外掛。請安裝 .vlxplugin 封裝檔或連結本機外掛目錄以開始使用。",
+  "plugins.sourceInstalled": "已安裝",
+  "plugins.sourceDev": "本機開發",
+  "plugins.statusRunning": "執行中",
+  "plugins.statusStarting": "啟動中…",
+  "plugins.statusDisabled": "已停用",
+  "plugins.statusStopped": "已停止",
+  "plugins.statusError": "錯誤",
+  "plugins.enable": "啟用",
+  "plugins.disable": "停用",
+  "plugins.reload": "重新載入",
+  "plugins.uninstall": "解除安裝",
+  "plugins.uninstallConfirm": (name: string) => `確定要解除安裝外掛「${name}」嗎？`,
+  "plugins.removeData": "同時刪除此外掛的本機資料目錄",
+  "plugins.loadFailed": "外掛介面載入失敗",
+  "ports.title": "連接埠", // Ports
+  "ports.active": "已轉送", // Forwarded
+  "ports.activeEmpty": "沒有已轉送的連接埠", // No forwarded ports
+  "ports.detected": "已偵測", // Detected
+  "ports.detectedEmpty": "找不到正在監聽的連接埠", // No listening ports found
+  "ports.detectionUnavailable": "此主機不支援連接埠偵測", // Port detection is not available on this host
+  "ports.manual": "轉送連接埠", // Forward a port
+  "ports.portPlaceholder": "遠端連接埠", // Remote port
+  "ports.forward": "轉送", // Forward
+  "ports.open": "在瀏覽器中開啟", // Open in browser
+  "ports.stop": "停止", // Stop
+  "ports.localChanged": (port) => `本機連接埠 ${port} 已被占用，已改用其他本機連接埠`, // Local port {port} was busy, so another local port is used
+  "ports.unavailable": "無法使用 — 請更新 VelaTerm", // Unavailable — update VelaTerm
+  "ports.invalidPort": (port) => `無效的連接埠：${port}`, // Invalid port: {port}
+  "ports.missingPort": "請輸入連接埠", // Enter a port
+  "ports.unknownAction": (action) => `未知的操作：${action}`, // Unknown action: {action}
+  "ports.limit": (max) => `每個連線最多可轉送 ${max} 個連接埠`, // At most {max} ports can be forwarded per connection
+  "ports.notForwarded": (port) => `連接埠 ${port} 尚未轉送`, // Port {port} is not forwarded
+  "statusbar.ports": (n) => `已轉送 ${n} 個連接埠`, // {n} forwarded ports
 };
 
 export default zhTW;

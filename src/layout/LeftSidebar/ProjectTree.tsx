@@ -28,6 +28,9 @@ import { MARK_LABEL_KEYS, type NodeMark, normalizeMark } from "../../marks";
 import { SessionKindIcon } from "../sessionViewers/sessionMeta";
 import { SESSION_DRAG_MIME, SESSION_MULTI_DRAG_MIME } from "../CenterPane/paneDrop";
 import { DEFAULT_BINDINGS, formatCombo } from "../../hooks/shortcutRegistry";
+import { treeKeyAction, type KeyNavRow } from "./treeKeyNav";
+import { focusTerminal } from "../../terminal/registry";
+import { focusComposer } from "../CenterPane/session/composerFocus";
 import { useGitBranch, useLinkedWorktrees } from "../../hooks/useGitBranch";
 import { stripControlChars, useCtrlCharGuard } from "../../hooks/textInputGuards";
 import { setProjectCollection } from "../../store/projectCollections";
@@ -86,6 +89,8 @@ export interface TreeHandlers {
   view: SidebarTreeView;
   /** Only the primary projection consumes global reveal requests. */
   isPrimary: boolean;
+  /** Active pane of the shown section; it takes explicit session reveal requests. Absent means the primary one. */
+  active?: boolean;
   /** Section of the pane group this tree belongs to; absent means Projects. */
   section?: RailSection;
   onContext: (node: TreeNodeRef, x: number, y: number) => void;
@@ -155,6 +160,18 @@ const sessionItem = (session: Session): TreeItem => ({ kind: "session", session 
 
 function Chevron({ open }: { open: boolean }) {
   return open ? <Icons.chevD size={13} /> : <Icons.chevR size={13} />;
+}
+
+/** Hand the keyboard to a session's own input: its composer for a chat-engine session, which has no
+ *  xterm, and its terminal otherwise. Waits a frame so a session that was just opened is displayed, and its
+ *  chat pane mounted, before focusing; an element under display:none cannot take focus. */
+function focusSessionInput(id: string) {
+  requestAnimationFrame(() => {
+    const { sessions, ephemeralSessions } = useTermStore.getState();
+    const session = ephemeralSessions[id] ?? sessions.find((s) => s.id === id);
+    if (session?.engine === "chat") focusComposer(id);
+    else focusTerminal(id);
+  });
 }
 
 /** Emoji marker rendered between the node icon and its name. Unmarked nodes render nothing and consume no width.
@@ -367,6 +384,7 @@ export function ProjectTree(h: TreeHandlers) {
     onNewCollection,
     view,
     isPrimary,
+    active = isPrimary,
     section = "projects",
   } = h;
 
@@ -522,6 +540,25 @@ export function ProjectTree(h: TreeHandlers) {
   }, [filter, projects, groups, sessions]);
   const nameMatch = (id: string) => filter.length > 0 && nameHitIds.has(id);
 
+  // Collections, projects and groups that appear while the filter conditions stay the same were just created (or
+  // restored) by the user, so they stay visible even though nothing inside them matches yet. Changing any condition
+  // starts over and judges every node by the conditions alone. Nodes present when the tree loads are never fresh.
+  const filterKey = filtering && treeLoaded ? JSON.stringify([filter, statusFilter, markFilter]) : "";
+  const freshRef = useRef<{ key: string; known: Set<string>; fresh: Set<string> }>({
+    key: "", known: new Set(), fresh: new Set(),
+  });
+  const freshIds = useMemo(() => {
+    const ids = [...projects.map((p) => p.id), ...groups.map((g) => g.id)];
+    const prev = freshRef.current;
+    const fresh = new Set<string>();
+    if (filterKey && prev.key === filterKey) {
+      for (const id of prev.fresh) fresh.add(id);
+      for (const id of ids) if (!prev.known.has(id)) fresh.add(id);
+    }
+    freshRef.current = { key: filterKey, known: new Set(ids), fresh };
+    return fresh;
+  }, [filterKey, projects, groups]);
+
   const groupsById = useMemo(
     () => new Map(groups.map((g) => [g.id, g])),
     [groups],
@@ -618,6 +655,7 @@ export function ProjectTree(h: TreeHandlers) {
       const vis =
         nodeSelfMatch(g.id, g.mark) ||
         keptGroup(g) ||
+        freshIds.has(g.id) ||
         sessions.some(
           (s) => !s.parentSessionId && s.groupId === g.id && subtreeVisible(s),
         ) ||
@@ -631,6 +669,7 @@ export function ProjectTree(h: TreeHandlers) {
     for (const p of projects) {
       const vis =
         nodeSelfMatch(p.id, p.mark) ||
+        freshIds.has(p.id) ||
         sessions.some(
           (s) =>
             !s.parentSessionId &&
@@ -661,7 +700,9 @@ export function ProjectTree(h: TreeHandlers) {
     }
     return { visGroups: visG, visProjects: visP };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtering, filter, nameHitIds, statusFiltering, statusFilterIds, markFilter, groups, sessions, projects]);
+  }, [
+    filtering, filter, nameHitIds, statusFiltering, statusFilterIds, markFilter, freshIds, groups, sessions, projects,
+  ]);
 
   // Running terminals and the agents started in them. Each row is the session itself; an agent row shows the
   // agent's icon in place of the terminal's.
@@ -688,10 +729,14 @@ export function ProjectTree(h: TreeHandlers) {
   }, [projects, filtering, visProjects, collapsedOverrides, sectionRoot, liveSection]);
 
   // A status filter hides projects without qualifying sessions; searching still lists them, flat and
-  // collapsed, below the filtered results so they stay reachable.
+  // collapsed, below the filtered results so they stay reachable. Scoped to the Projects section (or
+  // legacy single-tree layouts without fixed sections).
   const otherProjects = useMemo(
-    () => hiddenSearchMatches(projects, filter, visProjects, statusFiltering),
-    [projects, filter, visProjects, statusFiltering],
+    () =>
+      !fixedLayout || section === "projects"
+        ? hiddenSearchMatches(projects, filter, visProjects, statusFiltering)
+        : [],
+    [fixedLayout, section, projects, filter, visProjects, statusFiltering],
   );
 
   // A name match propagates visibility downward so a matching node's complete subtree remains expandable even when
@@ -1042,6 +1087,15 @@ export function ProjectTree(h: TreeHandlers) {
     if (st.revealSuppressId) st.setRevealSuppress(null);
     revealPendingRef.current = suppressed ? null : activeSessionId;
   }, [activeSessionId, isPrimary]);
+  // An explicit request, such as starting a session from the New Session tab, goes to the active pane of the shown
+  // section, which need not be the primary one. Declared after the effect above so a pane mounting with the
+  // section switch keeps the target.
+  const revealSessionId = useTermStore((s) => s.revealSessionId);
+  useEffect(() => {
+    if (!revealSessionId || !active) return;
+    revealPendingRef.current = revealSessionId;
+    useTermStore.getState().setRevealSession(null);
+  }, [revealSessionId, active]);
   useEffect(() => {
     const id = revealPendingRef.current;
     if (!id) return;
@@ -1070,25 +1124,26 @@ export function ProjectTree(h: TreeHandlers) {
       setWtNodeCollapsed(wtId, false);
       changed = true;
     }
+    // Expand through this pane's collapse state: the shared one in the primary pane, its own map in the others.
     let ps = s.parentSessionId ? sessionsById.get(s.parentSessionId) : undefined;
     while (ps) {
-      if (ps.collapsed) {
-        void toggleCollapsed("session", ps.id);
+      if (nodeCollapsed(ps.id, ps.collapsed)) {
+        toggleNodeCollapsed("session", ps.id, ps.collapsed);
         changed = true;
       }
       ps = ps.parentSessionId ? sessionsById.get(ps.parentSessionId) : undefined;
     }
     let g = s.groupId ? groupsById.get(s.groupId) : undefined;
     while (g) {
-      if (g.collapsed) {
-        void toggleCollapsed("group", g.id);
+      if (nodeCollapsed(g.id, g.collapsed)) {
+        toggleNodeCollapsed("group", g.id, g.collapsed);
         changed = true;
       }
       g = g.parentGroupId ? groupsById.get(g.parentGroupId) : undefined;
     }
     const proj = projects.find((p) => p.id === s.projectId);
-    if (proj?.collapsed) {
-      void toggleCollapsed("project", proj.id);
+    if (proj && nodeCollapsed(proj.id, proj.collapsed)) {
+      toggleNodeCollapsed("project", proj.id, proj.collapsed);
       changed = true;
     }
     let parentId = proj?.collectionId;
@@ -1096,13 +1151,16 @@ export function ProjectTree(h: TreeHandlers) {
     while (parentId && !seen.has(parentId)) {
       seen.add(parentId);
       const parent = projects.find(p => p.id === parentId);
-      if (parent?.collapsed) { void toggleCollapsed("project", parent.id); changed = true; }
+      if (parent && nodeCollapsed(parent.id, parent.collapsed)) {
+        toggleNodeCollapsed("project", parent.id, parent.collapsed);
+        changed = true;
+      }
       parentId = parent?.collectionId;
     }
     // If all ancestors are expanded and the row is still absent, clear pending state defensively.
     if (!changed) revealPendingRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId, rows]);
+  }, [activeSessionId, revealSessionId, rows]);
 
   const rangeSelect = (targetId: string) => {
     const anchor = selectionAnchor ?? targetId;
@@ -1115,6 +1173,37 @@ export function ProjectTree(h: TreeHandlers) {
     }
     const [lo, hi] = ai < ti ? [ai, ti] : [ti, ai];
     setSelection(flat.slice(lo, hi + 1), anchor);
+  };
+
+  // Select and open a node. Shared by mouse clicks and by Enter on the keyboard cursor so the two
+  // cannot drift apart; only the modifier gestures below stay mouse-only.
+  const activateNode = (node: SelNode, isSession: boolean, newTab: boolean) => {
+    selectSingle(node);
+    // Activating a node also makes its project the active one, which project-scoped tabs follow.
+    const projectId =
+      node.kind === "project"
+        ? projects.find((p) => p.id === node.id)?.rootPath
+          ? node.id
+          : undefined
+        : node.kind === "group"
+          ? groupsById.get(node.id)?.projectId
+          : sessionsById.get(node.id)?.projectId;
+    if (projectId) setActiveProject(projectId);
+    if (isSession) {
+      // Selecting a session clears project/group inspection so the right pane follows the active session again.
+      setInspectTarget(null);
+      // Option/Alt-click opens a new tab; a normal click reuses the current tab.
+      openSession(node.id, newTab ? { newTab: true } : undefined);
+    } else {
+      // Selecting a project/group makes the right pane inspect its directory instead of the active session.
+      setInspectTarget(node);
+      if (!filtering) {
+        const shared = node.kind === "project"
+          ? projects.find((p) => p.id === node.id)?.collapsed
+          : groupsById.get(node.id)?.collapsed;
+        toggleNodeCollapsed(node.kind, node.id, shared);
+      }
+    }
   };
 
   const handleClick = (
@@ -1130,31 +1219,7 @@ export function ProjectTree(h: TreeHandlers) {
       rangeSelect(node.id);
       return;
     }
-    selectSingle(node);
-    const projectId =
-      node.kind === "project"
-        ? projects.find((p) => p.id === node.id)?.rootPath
-          ? node.id
-          : undefined
-        : node.kind === "group"
-          ? groupsById.get(node.id)?.projectId
-          : sessionsById.get(node.id)?.projectId;
-    if (projectId) setActiveProject(projectId);
-    if (isSession) {
-      // Selecting a session clears project/group inspection so the right pane follows the active session again.
-      setInspectTarget(null);
-      // Option/Alt-click opens a new tab; a normal click reuses the current tab.
-      openSession(node.id, e.altKey ? { newTab: true } : undefined);
-    } else {
-      // Selecting a project/group makes the right pane inspect its directory instead of the active session.
-      setInspectTarget(node);
-      if (!filtering) {
-        const shared = node.kind === "project"
-          ? projects.find((p) => p.id === node.id)?.collapsed
-          : groupsById.get(node.id)?.collapsed;
-        toggleNodeCollapsed(node.kind, node.id, shared);
-      }
-    }
+    activateNode(node, isSession, e.altKey);
   };
 
   // Session rows carry only their ID, so look the shared collapse value up here. Draft sessions live outside the
@@ -1162,6 +1227,123 @@ export function ProjectTree(h: TreeHandlers) {
   const toggleSessionCollapsed = (id: string) => {
     const shared = sessionsById.get(id)?.collapsed ?? ephemeralSessions[id]?.collapsed;
     toggleNodeCollapsed("session", id, shared);
+  };
+
+  // ── Keyboard navigation ─────────────────────────────────────────────────────────────────────
+  // The cursor is stored as a row ID rather than an index so it follows its row when the tree
+  // reorders, and simply goes away when that row is filtered or collapsed out of sight.
+  // DOM focus stays on the scroll container and never moves onto a row: rows are virtualized, so a
+  // focused row unmounts as soon as it scrolls out and focus would fall back to the body. That is
+  // why this is aria-activedescendant rather than a roving tabindex.
+  const [cursorId, setCursorId] = useState<string | null>(null);
+  const cursorIndex = useMemo(
+    () => (cursorId ? rows.findIndex((r) => r.id === cursorId) : -1),
+    [rows, cursorId],
+  );
+
+  // Project rows sit at their collection indent; worktrees, groups and sessions carry nesting depth;
+  // live lists sit at top level with liveSession children at depth 1; section headers are skipped.
+  const navRows = useMemo<KeyNavRow[]>(
+    () =>
+      rows.map((r) => {
+        switch (r.kind) {
+          case "section":
+            return { depth: 0, expandable: false, expanded: false, focusable: false };
+          case "project":
+            return { depth: r.indent, expandable: true, expanded: r.expanded };
+          case "group":
+          case "worktree":
+            return { depth: r.depth, expandable: true, expanded: r.expanded };
+          case "session":
+            return { depth: r.depth, expandable: r.hasKids, expanded: r.expanded };
+          case "live":
+            return { depth: 0, expandable: true, expanded: r.expanded };
+          case "liveSession":
+            return { depth: 1, expandable: false, expanded: false };
+        }
+      }),
+    [rows],
+  );
+
+  const rowDomId = (id: string) => `vlx-row-${view.id}-${id}`;
+
+  const moveCursor = (index: number) => {
+    setCursorId(rows[index].id);
+    virtualizer.scrollToIndex(index, { align: "auto" });
+  };
+
+  const onTreeKeyDown = (e: React.KeyboardEvent) => {
+    // An inline rename field owns the keyboard while it is open, and modified chords belong to the
+    // global shortcut listener.
+    if (renamingId || e.metaKey || e.ctrlKey || e.altKey) return;
+    // Escape is the way back out. Without it the tree is a keyboard trap: once focused there is no
+    // way to return to the session you were already in without reaching for the mouse.
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      const { activeSessionId } = useTermStore.getState();
+      if (activeSessionId) focusSessionInput(activeSessionId);
+      return;
+    }
+    const action = treeKeyAction(navRows, cursorIndex, e.key);
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (action.kind === "move") {
+      moveCursor(action.index);
+      return;
+    }
+    const row = rows[action.index];
+    if (row.kind === "section") return;
+    if (action.kind === "toggle") {
+      if (row.kind === "live") {
+        if (!filter) setWtNodeCollapsed(row.id, row.expanded);
+        return;
+      }
+      // Filtering force-expands every row, so there is nothing to collapse while a filter is on --
+      // the same guard the click path applies.
+      if (filtering) return;
+      if (row.kind === "worktree") setWtNodeCollapsed(row.id, row.expanded);
+      else if (row.kind === "session") toggleSessionCollapsed(row.id);
+      else if (row.kind === "group") toggleNodeCollapsed("group", row.id, row.group.collapsed);
+      else if (row.kind === "project") toggleNodeCollapsed("project", row.id, row.project.collapsed);
+      return;
+    }
+    if (row.kind === "live") {
+      if (!filter) setWtNodeCollapsed(row.id, row.expanded);
+      return;
+    }
+    if (row.kind === "worktree") {
+      if (!filtering) setWtNodeCollapsed(row.id, row.expanded);
+      return;
+    }
+    if (row.kind === "liveSession") {
+      openSession(row.session.id);
+      focusSessionInput(row.session.id);
+      return;
+    }
+    activateNode({ id: row.id, kind: row.kind }, row.kind === "session", false);
+    // Enter means "go to this session", so focus must follow even when it is ALREADY active --
+    // TerminalView only grabs focus on the transition into active, and ChatPane never does, so
+    // re-selecting the session would otherwise leave the keyboard stranded in the tree.
+    if (row.kind === "session") focusSessionInput(row.id);
+  };
+
+  // Entering the tree with nothing current starts at the active session when it is on screen, so
+  // Tab-then-Down continues from where the user already is rather than from the top of the list.
+  const onTreeFocus = () => {
+    if (cursorIndex >= 0) return;
+    const activeIdx = activeSessionId
+      ? rows.findIndex((r) =>
+          r.kind === "liveSession" ? r.session.id === activeSessionId : r.id === activeSessionId,
+        )
+      : -1;
+    if (activeIdx >= 0) {
+      moveCursor(activeIdx);
+      return;
+    }
+    const first = navRows.findIndex((r) => r.focusable !== false);
+    if (first >= 0) setCursorId(rows[first].id);
   };
 
   // Prevent native text selection for Cmd/Ctrl/Shift multi-selection gestures; Shift-click can extend selection
@@ -1207,9 +1389,13 @@ export function ProjectTree(h: TreeHandlers) {
     // The browser snapshots the drag image by the end of dragstart; remove the offscreen clone next frame.
     setTimeout(() => clone.remove(), 0);
   };
+  // The project being dragged, so a project row can refuse an order across kinds while hovering (a drag
+  // payload is unreadable during dragover).
+  const draggedProject = useRef<string | null>(null);
   const onDragStart = (payload: DragPayload) => (e: React.DragEvent) => {
     e.stopPropagation();
     let out = payload;
+    draggedProject.current = out.kind === "project" ? out.id : null;
     // Dragging a selected session carries every selected session in the same project. Mixed-project selection falls
     // back to one item, matching context-menu batch restrictions.
     if (payload.kind === "session" && selectedIds.has(payload.id) && selection.length >= 2) {
@@ -1269,6 +1455,8 @@ export function ProjectTree(h: TreeHandlers) {
     return y < h * 0.5 ? "top" : "bottom";
   };
   const allowDrop = (e: React.DragEvent, id: string, hasCenter: boolean) => {
+    // A dragged project is handled by the project row itself: a collection takes it in, another project
+    // orders it before or after.
     if (hasProjectDrag(e.dataTransfer.types)) return;
     const zone = calcZone(e, hasCenter);
     if (!isDropZoneAllowed(zone, sortByActivity)) {
@@ -1287,14 +1475,29 @@ export function ProjectTree(h: TreeHandlers) {
       prev?.id === id && prev.zone === zone ? prev : { id, zone },
     );
   };
-  // Project drops only change collection membership, so they always highlight the whole row, never an edge.
-  const allowProjectDrop = (e: React.DragEvent, id: string) => {
+  // A project row reads two gestures from a dragged project: its halves order the project before or after
+  // the row, its center moves the project into the row's collection (a loose row takes it out of one).
+  const allowProjectRowDrag = (e: React.DragEvent, id: string) => {
     if (!hasProjectDrag(e.dataTransfer.types)) return;
+    const zone = calcZone(e, true);
+    // Ordering happens only among projects of the same kind; a collection takes any project in.
+    const dragged = draggedProject.current;
+    if (zone !== "center" && dragged && (dragged === id || !sameProjectKind(dragged, id))) return;
+    if (!isDropZoneAllowed(zone, sortByActivity)) {
+      // The activity order would hide a manual project reorder, so the halves refuse the drop visibly, as in
+      // allowDrop; the center still moves the project into the row's collection.
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "none";
+      setDragOver((prev) => (prev?.id === id ? null : prev));
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
-    setDragOver((prev) => (prev?.id === id && prev.zone === "center" ? prev : { id, zone: "center" }));
+    setDragOver((prev) => (prev?.id === id && prev.zone === zone ? prev : { id, zone }));
   };
+  const sameProjectKind = (a: string, b: string) =>
+    isVirtualProject(projects.find((p) => p.id === a)) === isVirtualProject(projects.find((p) => p.id === b));
   const sortBetween = (
     siblings: { id: string; sortOrder: number }[],
     targetId: string,
@@ -1362,6 +1565,18 @@ export function ProjectTree(h: TreeHandlers) {
     if (!p) return;
 
     if (p.kind === "project") {
+      // The halves order the project among its own kind; the center moves it into the row's collection,
+      // which a loose row answers by taking it out. Both are no-ops on itself and across kinds.
+      if (zone !== "center") {
+        if (p.id === projectId || !sameProjectKind(p.id, projectId)) return;
+        const virtual = isVirtualProject(target);
+        const siblings = projects
+          .filter((q) => isVirtualProject(q) === virtual)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        const order = sortBetween(siblings, projectId, zone === "top" ? "before" : "after");
+        void moveNode("project", p.id, null, null, null, order);
+        return;
+      }
       const move = resolveProjectDrop(p, target, projects);
       // Failed moves recover the backend tree and retain a visible error.
       if (move) void setProjectCollection(move.projectId, move.collectionId).catch(() => {});
@@ -1615,8 +1830,12 @@ export function ProjectTree(h: TreeHandlers) {
             style={{ paddingLeft: 6 + row.indent * 13, ...dragStyle(p.id) }}
             draggable={!renaming && !isShareSurface && !fixed}
             onDragStart={onDragStart({ kind: "project", id: p.id, projectId: p.id })}
+            onDragEnd={() => {
+              draggedProject.current = null;
+              setDragOver(null);
+            }}
             onDragOver={(e) =>
-              hasProjectDrag(e.dataTransfer.types) ? allowProjectDrop(e, p.id) : allowDrop(e, p.id, true)
+              hasProjectDrag(e.dataTransfer.types) ? allowProjectRowDrag(e, p.id) : allowDrop(e, p.id, true)
             }
             onDragLeave={() => setDragOver((d) => (d?.id === p.id ? null : d))}
             onDrop={dropOnProject(p)}
@@ -1872,14 +2091,27 @@ export function ProjectTree(h: TreeHandlers) {
     const root = section === "tasks" ? SYSTEM_TASKS : SYSTEM_CHAT;
     return (
       <div className="sidebar-section-empty">
-        <div>{t(section === "tasks" ? "sidebarSection.noTasks" : "sidebarSection.noChats")}</div>
+        <div className="sidebar-section-empty-title">{t(section === "tasks" ? "sidebarSection.noTasks" : "sidebarSection.noChats")}</div>
+        <div className="sidebar-section-empty-desc">{t(section === "tasks" ? "newSession.typeTaskHint" : "newSession.typeChatHint")}</div>
         <button
-          className="empty-action"
+          className="empty-action primary sm block"
           onClick={(e) => onAddSession({ kind: "project", id: root, name: "", projectId: root, groupId: null }, e.clientX, e.clientY)}
         >
           <Icons.plus size={14} />
           {t(section === "tasks" ? "newSession.newTask" : "newSession.newChat")}
         </button>
+        <a
+          className="empty-action ghost"
+          href={newGroupDialogUrl(root)}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onAddGroup({ kind: "project", id: root, name: "", projectId: root, groupId: null });
+          }}
+        >
+          <Icons.newGroup size={14} />
+          {t("tree.newGroup")}
+        </a>
       </div>
     );
   }
@@ -1904,13 +2136,13 @@ export function ProjectTree(h: TreeHandlers) {
           {t("tree.noProjectsPost")}
         </div>
         <div className="project-empty-actions">
+          <button className="empty-action primary" onClick={() => void importProject()}>
+            <Icons.projectOpen size={14} />
+            {t("tree.openProject")}
+          </button>
           <button className="empty-action" onClick={() => setCreateProjectModalOpen(true)}>
             <Icons.projectPlus size={14} />
             {t("tree.createProject")}
-          </button>
-          <button className="empty-action" onClick={() => void importProject()}>
-            <Icons.projectOpen size={14} />
-            {t("tree.openProject")}
           </button>
           <button className="empty-action" onClick={() => setCloneModalOpen(true)}>
             <Icons.projectClone size={14} />
@@ -1931,8 +2163,52 @@ export function ProjectTree(h: TreeHandlers) {
   // Under filtering, empty rows means no visible project because temporary groups are excluded; show an empty hint.
   const showEmptyHint = filtering && rows.length === 0;
 
+  // Tasks and Chats hide their own collection row, so the blank space below the rows stands in for it: right-click
+  // opens the collection's menu and dropping a session or group there takes it out of its group.
+  const typedRoot = sectionRoot === SYSTEM_TASKS || sectionRoot === SYSTEM_CHAT ? sectionRoot : null;
+  const blankTarget = (e: React.SyntheticEvent) => !!typedRoot && e.target === e.currentTarget;
+  const blankProps = typedRoot ? {
+    onContextMenu: (e: React.MouseEvent) => {
+      if (!blankTarget(e)) return;
+      ctx({ kind: "project", id: typedRoot, name: "", projectId: typedRoot, groupId: null })(e);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (!blankTarget(e) || hasProjectDrag(e.dataTransfer.types)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setDragOver((prev) => (prev?.id === typedRoot ? prev : { id: typedRoot, zone: "center" }));
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (blankTarget(e)) setDragOver((d) => (d?.id === typedRoot ? null : d));
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!blankTarget(e)) return;
+      e.preventDefault();
+      setDragOver(null);
+      const p = readPayload(e);
+      // Only items already in this section move here; sessions of another type keep their own collection.
+      if (!p || p.kind === "project" || p.projectId !== typedRoot) return;
+      if (p.ids && p.ids.length >= 2) void moveMany(p.ids, typedRoot, null, null);
+      else void moveNode(p.kind, p.id, typedRoot, null, null, Date.now());
+    },
+  } : {};
+
   return (
-    <div ref={setParent} className="tree">
+    <div
+      ref={setParent}
+      className={typedRoot && dragOver?.id === typedRoot ? "tree drop-root" : "tree"}
+      // Addresses this container for the focusSidebar shortcut, which has no React handle on it.
+      data-session-tree={active ? "active" : isPrimary ? "primary" : "secondary"}
+      role="tree"
+      // Views are user-named and shown in the pane header, so the name is already the label a
+      // multi-view sidebar needs; no new string to translate.
+      aria-label={view.name || undefined}
+      tabIndex={0}
+      aria-activedescendant={cursorIndex >= 0 ? rowDomId(rows[cursorIndex].id) : undefined}
+      onKeyDown={onTreeKeyDown}
+      onFocus={onTreeFocus}
+      {...blankProps}
+    >
       {showEmptyHint ? (
         <div style={{ padding: "12px", fontSize: 12, color: "var(--text-faint)" }}>
           {statusFiltering && !filter ? t("tree.noAttention") : t("tree.noMatch")}
@@ -1942,21 +2218,38 @@ export function ProjectTree(h: TreeHandlers) {
         // instead of a compositor transform: WKWebView can retain stale hit-test coordinates for transformed
         // virtual rows after scrolling or tree updates, making hover/click land on a visually different row.
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-          {virtualizer.getVirtualItems().map((vi) => (
-            <div
-              key={vi.key}
-              data-index={vi.index}
-              ref={virtualizer.measureElement}
-              style={{
-                position: "absolute",
-                top: vi.start,
-                left: 0,
-                right: 0,
-              }}
-            >
-              {renderRow(rows[vi.index])}
-            </div>
-          ))}
+          {virtualizer.getVirtualItems().map((vi) => {
+            const row = rows[vi.index];
+            const nav = navRows[vi.index];
+            const focusable = nav.focusable !== false;
+            return (
+              <div
+                key={vi.key}
+                data-index={vi.index}
+                ref={virtualizer.measureElement}
+                // The positioning wrapper carries the tree semantics because it is the one element
+                // that exists per row for every row kind. The .row inside stays presentational.
+                id={focusable ? rowDomId(row.id) : undefined}
+                role={focusable ? "treeitem" : "presentation"}
+                aria-level={focusable ? nav.depth + 1 : undefined}
+                aria-expanded={focusable && nav.expandable ? nav.expanded : undefined}
+                aria-selected={focusable ? selectedIds.has(row.id) : undefined}
+                data-cursor={focusable && row.id === cursorId ? "true" : undefined}
+                // A click puts the keyboard cursor on its row, so Enter after it acts on what was clicked
+                // rather than on wherever the arrows last left off. Capture phase, because the chevron
+                // stops its click from bubbling. Selection itself stays with the row's own handlers.
+                onClickCapture={focusable ? () => setCursorId(row.id) : undefined}
+                style={{
+                  position: "absolute",
+                  top: vi.start,
+                  left: 0,
+                  right: 0,
+                }}
+              >
+                {renderRow(row)}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

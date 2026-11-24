@@ -66,12 +66,25 @@ const MANAGEMENT_CMDS: &[&str] = &[
     "cloudflare_access_start",
     "cloudflare_access_stop",
     "cloudflare_access_status",
+    // Where the service listens decides who can reach it at all; a paired device must never widen it.
+    "web_server_set_listen",
+];
+
+/// Local-only file clipboard commands: remote clients operate on a remote host filesystem and must
+/// not read or mutate the desktop operator's local OS clipboard.
+const LOCAL_CLIPBOARD_CMDS: &[&str] = &[
+    "clipboard_file_state",
+    "clipboard_write_files",
+    "clipboard_read_files",
+    "clipboard_clear_files",
 ];
 
 /// Commands that read or write stored secrets and are therefore gated to local origins — the class
 /// behind the protected-settings ACL, swept across every dispatch arm:
 /// - `gitea_set_config` writes the Gitea token (keyring, or the plaintext `gitea.token` app-settings
 ///   fallback that `is_protected_setting` hides from remote clients — this arm bypassed that ACL).
+/// - `deepseek_set_config` writes the DeepSeek API key with the same keychain/plaintext policy; its
+///   `deepseek_get_status` is not gated because it returns only whether a key exists.
 /// - `url_host_password` returns a remembered remote-window password from the keyring in plaintext.
 /// - `url_host_record` writes such a password into the keyring.
 /// - `ssh_host_forget` / `url_host_forget` DELETE remembered passwords from the keyring — a secret-store
@@ -87,19 +100,28 @@ const SECRET_CMDS: &[&str] = &[
     "translation_service_save",
     "translation_service_key",
     "translation_service_delete",
+    "deepseek_set_config",
     "gitea_set_config",
     "url_host_password",
     "url_host_record",
     "ssh_host_forget",
     "url_host_forget",
+    "plugin_install_archive",
+    "plugin_link_dev",
+    "plugin_set_enabled",
+    "plugin_reload",
+    "plugin_uninstall",
 ];
 
 /// Whether an app-settings key is security-relevant and therefore hidden from and unwritable by remote
 /// clients: the `remoteAccess.*` namespace carries the Argon2id password verifier (an offline-bruteforce
 /// target) and the autostart port/enabled keys the next restart trusts; `gitea.token` is a plaintext
-/// credential fallback when no keyring is available.
+/// credential fallback when no keyring is available; `colab.secret.*` retains protection for legacy keys.
 fn is_protected_setting(key: &str) -> bool {
-    key.starts_with("remoteAccess.") || key == "gitea.token"
+    key.starts_with("remoteAccess.")
+        || key == "gitea.token"
+        || key == crate::agent::deepseek_config::KEY_API_KEY_FALLBACK
+        || key.starts_with("colab.secret.")
 }
 
 /// Deny remote clients direct file access inside the app data directory, which holds the secret files
@@ -116,7 +138,7 @@ fn is_protected_setting(key: &str) -> bool {
 ///   be swapped for a symlink between the check and the file operation. Closing either gap would
 ///   need openat-style descriptor-anchored traversal, which std::fs does not expose; the threat
 ///   model (a paired remote device already trusted with a shell) accepts both.
-fn guard_remote_path(app: &AppCtx, origin: CallOrigin, path: &str) -> Result<(), String> {
+pub(crate) fn guard_remote_path(app: &AppCtx, origin: CallOrigin, path: &str) -> Result<(), String> {
     if origin != CallOrigin::Remote {
         return Ok(());
     }
@@ -217,12 +239,21 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
     // devices are trusted with a shell (threat model), but not with rotating/revoking the credentials
     // that admit other devices, nor with reading/writing stored secrets. The machine-readable
     // `code:detail` error format is mapped to a localized message in the frontend (wsClient.ts).
-    if origin == CallOrigin::Remote && (MANAGEMENT_CMDS.contains(&cmd) || SECRET_CMDS.contains(&cmd))
+    if origin == CallOrigin::Remote
+        && (MANAGEMENT_CMDS.contains(&cmd)
+            || SECRET_CMDS.contains(&cmd)
+            || LOCAL_CLIPBOARD_CMDS.contains(&cmd))
     {
         return Err(format!("remote_cmd_forbidden:{cmd}"));
     }
     if cmd.starts_with("security_") {
         return crate::security::dispatch(app, cmd, args);
+    }
+    if cmd.starts_with("plugin_") {
+        return crate::plugins::dispatch(app, origin, cmd, args);
+    }
+    if cmd.starts_with("assist_") {
+        return crate::assist::dispatch(app, cmd, args, origin);
     }
     if cmd.starts_with("translation_") {
         return crate::agent::translation::dispatch(app, cmd, args, origin == CallOrigin::Local);
@@ -270,8 +301,10 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         }
         "pty_write" => {
             // Input does not participate in resize-owner arbitration and needs no source identifier.
+            // `remote` comes from the client: serve mode cannot tell an SSH window from the local Electron shell.
+            let remote = args.get("remote").and_then(Value::as_bool).unwrap_or(false);
             app.pty()
-                .write(&req_str(args, "sessionId")?, &req_str(args, "data")?)?;
+                .write(&req_str(args, "sessionId")?, &req_str(args, "data")?, remote)?;
             Ok(Value::Null)
         }
         "pty_resize" => {
@@ -667,9 +700,10 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
             app,
             &req_str(args, "query")?,
             opt_str(args, "scope").as_deref(),
+            opt_str(args, "projectId").as_deref(),
         )?),
         "search_content_start"=>crate::search::jobs::start(app,&req_str(args,"query")?,
-            crate::search::SearchScope::from_arg(opt_str(args,"scope").as_deref().unwrap_or("live")),opt_str(args,"sessionId").as_deref()),
+            crate::search::SearchScope::from_arg(opt_str(args,"scope").as_deref().unwrap_or("live")),opt_str(args,"sessionId").as_deref(),opt_str(args,"projectId").as_deref()),
         "search_content_page"=>crate::search::jobs::page_window(app,&req_str(args,"jobId")?,args.get("cursor").and_then(Value::as_u64),args.get("before").and_then(Value::as_u64),
             args.get("limit").and_then(Value::as_u64),false),
         "search_content_cancel"=>{crate::search::jobs::cancel(app,&req_str(args,"jobId")?)?;Ok(Value::Null)},
@@ -1046,7 +1080,9 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
             let prefer=args.get("preferBounded").and_then(Value::as_bool)==Some(true);
             let history_only=args.get("historyOnly").and_then(Value::as_bool)==Some(true);
             let located=args.get("messageIndex").is_some() || args.get("recordOffset").is_some();
-            if !history_only && !located && crate::agent::history_store::children::path(args)?.is_empty() {
+            let child_path=crate::agent::history_store::children::path(args)?;
+            let child_empty=child_path.is_empty();
+            if !history_only && !located && child_empty {
                 if let Some(live)=app.chat().paged_history(&sid) {
                     // Earlier rows are history pages in front of this process's timeline. The timeline part
                     // is a whole window rather than a delta, so the merged rows replace the client's copy.
@@ -1058,17 +1094,33 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
                     return Ok(value);
                 }
             }
+            let has_pid=!history_only && child_empty
+                && app.chat().snapshot_window(&sid,Some(&crate::agent::chat::engine::ChatWindow {control_only:true,..Default::default()})).pid.is_some();
             let idle_bounded=if prefer {
                 let kind=crate::db::repo::get_session_kind(&app.db().conn.lock().unwrap(),&sid)?;
                 // A Grok conversation view draws its native stream through the ACP mapper, which keeps tool
                 // cards; the paged reader serves its read-only history views.
-                (matches!(kind,Some(SessionKind::Codex|SessionKind::Claude|SessionKind::Pi|SessionKind::Omp|SessionKind::Antigravity|SessionKind::Opencode|SessionKind::Kiro))
+                (matches!(kind,Some(SessionKind::Codex|SessionKind::Claude|SessionKind::Pi|SessionKind::Omp|SessionKind::Antigravity|SessionKind::Opencode|SessionKind::Deepseek|SessionKind::Kiro))
                     || kind==Some(SessionKind::Grok) && history_only)
-                    && (history_only || app.chat().snapshot_window(&sid,Some(&crate::agent::chat::engine::ChatWindow {control_only:true,..Default::default()})).pid.is_none())
+                    && !has_pid
             } else {false};
-            if args.get("protocolVersion").and_then(Value::as_u64)==Some(2) || idle_bounded {
+            let finish_runtime=|mut value:Value| -> Result<Value,String> {
+                app.chat().decorate_runtime_snapshot(&sid,&mut value);
+                crate::agent::tell::decorate(app,&sid,&mut value);
+                if serde_json::to_vec(&value).map_err(|e|e.to_string())?.len()>crate::agent::history_store::limits::PAGE_BYTES {
+                    return Err("detail_requires_paging: this conversation requires the bounded snapshot contract".into());
+                }
+                Ok(value)
+            };
+            // A running process without `paged_history` keeps its entire timeline in memory under v1.
+            // Clients that opened while idle may still pass `protocolVersion: 2` and a stale `historyGeneration`
+            // alongside live row ids such as `acp-*`, so never route them through `history_store`.
+            if (args.get("protocolVersion").and_then(Value::as_u64)==Some(2) && !has_pid) || idle_bounded {
                 let mut value=to_value(core::chat_snapshot_control(app,&sid,Some(window.as_ref().unwrap_or(&Default::default())))?)?;
-                match crate::agent::history_store::children::prepare(app,&sid,&crate::agent::history_store::children::path(args)?) {
+                if value.get("pid").is_some() && !history_only && child_empty {
+                    return finish_runtime(value);
+                }
+                match crate::agent::history_store::children::prepare(app,&sid,&child_path) {
                     Ok(branch)=>{
                         if args.get("historyGeneration").and_then(Value::as_str).is_some_and(|g|g!=branch.generation) {
                             return Err("cursor_expired: history generation changed".into());
@@ -1098,18 +1150,10 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
                         } else {branch.page(window.as_ref().and_then(|w|w.before.as_deref()),opt_str(args,"after").as_deref(),opt_str(args,"anchor").as_deref())?};
                         let read_job=branch.store.subscribe(&sid,&branch.sources,opt_str(args,"readJobId").as_deref())?;
                         page["readJobId"]=serde_json::json!(read_job);
-                        if value.get("pid").is_none() || history_only || !crate::agent::history_store::children::path(args)?.is_empty() {
-                            value.as_object_mut().unwrap().extend(page.as_object().unwrap().clone());
-                            if history_only || !crate::agent::history_store::children::path(args)?.is_empty() {
-                                for key in ["pid","startedAt","turnStartedAt","auth"] {value.as_object_mut().unwrap().remove(key);}
-                                value["permissions"]=serde_json::json!([]);value["queue"]=serde_json::json!([]);value["running"]=serde_json::json!(false);
-                            }
-                        } else {
-                            // Live and historical row identity mapping is introduced at the receive boundary.
-                            // Until that mapping is available, publish control facts without guessing a merge.
-                            for key in ["protocolVersion","historyGeneration","coverage","indexing","pendingLocation","indexedBytes","sourceBytes","knownRows","snapshotRevision","readJobId"] {
-                                value[key]=page[key].clone();
-                            }
+                        value.as_object_mut().unwrap().extend(page.as_object().unwrap().clone());
+                        if history_only || !child_empty {
+                            for key in ["pid","startedAt","turnStartedAt","auth"] {value.as_object_mut().unwrap().remove(key);}
+                            value["permissions"]=serde_json::json!([]);value["queue"]=serde_json::json!([]);value["running"]=serde_json::json!(false);
                         }
                     }
                     Err(error)=>{
@@ -1124,13 +1168,7 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
                 }
                 return Ok(value);
             }
-            let mut value = to_value(core::chat_snapshot_window(app, &sid, window.as_ref())?)?;
-            app.chat().decorate_runtime_snapshot(&sid,&mut value);
-            crate::agent::tell::decorate(app,&sid,&mut value);
-            if serde_json::to_vec(&value).map_err(|e|e.to_string())?.len()>crate::agent::history_store::limits::PAGE_BYTES {
-                return Err("detail_requires_paging: this conversation requires the bounded snapshot contract".into());
-            }
-            Ok(value)
+            finish_runtime(to_value(core::chat_snapshot_window(app, &sid, window.as_ref())?)?)
         }
         "chat_row" => {
             let sid=req_str(args,"sessionId")?;
@@ -1261,7 +1299,7 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         // hand-maintained claim: `remote_path_acl_has_no_ungated_path_arm` below mechanically
         // enumerates every dispatch arm extracting a path-like argument and fails on any arm that is
         // neither gated nor listed as a justified exception. Deliberately NOT gated:
-        // - `list_dir` / `stat_file`: metadata only (names, sizes, mtimes) — no content, no mutation.
+        // - `list_dir` / `search_files` / `stat_file`: metadata only (names, sizes, mtimes) — no content, no mutation.
         // - `git_discover_repos`: metadata only — the paths of repositories below a directory.
         // - `get_git_status` / `git_changed_files` / `git_recent_commits` / `git_branch_list` /
         //   `git_merge_*` / `create_worktree` / `list_worktrees` / `commit_worktree` /
@@ -1272,6 +1310,11 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         //   filesystem, independent of repo status — and is therefore gated above.
         // - `save_pasted_image`: writes only into a temp directory it picks itself — no caller path.
         "list_dir" => to_value(files::list_dir(&req_str(args, "path")?)?),
+        "search_files" => to_value(files::search_files(
+            &req_str(args, "path")?,
+            &req_str(args, "query")?,
+            args.get("includeHidden").and_then(Value::as_bool).unwrap_or(false),
+        )?),
         // Drive letters or `/` plus the OS name; no paths below the roots.
         "list_roots" => to_value(files::list_roots()),
         "preview_destination" => {
@@ -1309,6 +1352,57 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
             let path = req_str(args, "path")?;
             guard_remote_path(app, origin, &path)?;
             to_value(files::delete_path(&path)?)
+        }
+        "copy_into_dir" => {
+            // Both ends are gated like rename_path: copying a secret out is exfiltration, copying in plants files.
+            let dir = req_str(args, "dir")?;
+            let sources = req_str_vec(args, "sources")?;
+            guard_remote_path(app, origin, &dir)?;
+            for source in &sources {
+                guard_remote_path(app, origin, source)?;
+            }
+            to_value(files::copy_into_dir(&sources, &dir)?)
+        }
+        "paste_files_check" => {
+            // Both ends are gated like copy_into_dir: inspecting sources or destination inside the data dir is denied.
+            let dir = req_str(args, "dir")?;
+            let sources = req_str_vec(args, "sources")?;
+            let mode: files::PasteMode = req_kind(args, "mode")?;
+            guard_remote_path(app, origin, &dir)?;
+            for source in &sources {
+                guard_remote_path(app, origin, source)?;
+            }
+            to_value(files::check_paste_into_dir(&sources, &dir, mode)?)
+        }
+        "paste_files" => {
+            let dir = req_str(args, "dir")?;
+            let sources = req_str_vec(args, "sources")?;
+            let mode: files::PasteMode = req_kind(args, "mode")?;
+            let resolutions: std::collections::HashMap<String, files::ConflictResolution> =
+                match args.get("resolutions") {
+                    Some(v) if !v.is_null() => serde_json::from_value(v.clone())
+                        .map_err(|e| format!("Invalid conflict resolutions: {e}"))?,
+                    _ => std::collections::HashMap::new(),
+                };
+            guard_remote_path(app, origin, &dir)?;
+            for source in &sources {
+                guard_remote_path(app, origin, source)?;
+            }
+            to_value(files::paste_into_dir(&sources, &dir, mode, &resolutions)?)
+        }
+        "clipboard_file_state" => to_value(crate::file_clipboard::status()),
+        "clipboard_write_files" => {
+            let paths = req_str_vec(args, "paths")?;
+            for path in &paths {
+                guard_remote_path(app, origin, path)?;
+            }
+            let mode: crate::file_clipboard::FileClipboardMode = req_kind(args, "mode")?;
+            to_value(crate::file_clipboard::write_files(&paths, mode)?)
+        }
+        "clipboard_read_files" => to_value(crate::file_clipboard::read_files()?),
+        "clipboard_clear_files" => {
+            crate::file_clipboard::clear_if_sequence(opt_u64(args, "expectedSequence"))?;
+            Ok(Value::Null)
         }
         // The generic full-content read/write arms are the ones that could hand a remote client the
         // secret files in the data directory (DB with the PHC verifier, pairing/E2EE/TLS keys), so they
@@ -1463,6 +1557,25 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
             &req_str(args, "target")?,
             opt_str(args, "commitMessage").as_deref(),
         )?),
+        // DeepSeek's own endpoint and key. Status returns only whether a key is stored; the save is gated
+        // to local origins because it writes that key to the keychain or its plaintext fallback. The
+        // reply also says whether this client may edit, so a remote settings page disables the form
+        // instead of letting it fail at save time.
+        "deepseek_get_status" => {
+            let mut status = to_value(core::deepseek_get_status(app))?;
+            status["editable"] = Value::Bool(origin != CallOrigin::Remote);
+            Ok(status)
+        }
+        "deepseek_set_config" => {
+            let mut status = to_value(core::deepseek_set_config(
+                app,
+                args.get("baseUrl").and_then(Value::as_str).unwrap_or_default(),
+                args.get("apiKey").and_then(Value::as_str).unwrap_or_default(),
+                args.get("clearKey").and_then(Value::as_bool).unwrap_or(false),
+            )?)?;
+            status["editable"] = Value::Bool(origin != CallOrigin::Remote);
+            Ok(status)
+        }
         "gitea_get_status" => to_value(core::gitea_get_status(app)),
         "gitea_set_config" => to_value(core::gitea_set_config(
             app,
@@ -1475,14 +1588,16 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         )),
         // Web page of `origin` for the project menu's Open Repository; None without a network remote.
         "git_repo_web_url" => to_value(git::web_url::repo_web_url(&req_str(args, "cwd")?)),
-        // Git panel pull requests through Gitea: availability, then push + open into the compare base.
+        // Git panel pull/merge requests through GitHub (`gh`), GitLab (`glab`), or Gitea.
         "git_pr_provider" => to_value(core::git_pr_provider(app, &req_str(args, "cwd")?)),
+        "git_pr_status" => to_value(core::git_pr_status(app, &req_str(args, "cwd")?)?),
         "git_open_pull_request" => to_value(core::git_open_pull_request(
             app,
             &req_str(args, "cwd")?,
             &req_str(args, "base")?,
             &req_str(args, "title")?,
             &req_str(args, "body")?,
+            args.get("draft").and_then(Value::as_bool).unwrap_or(false),
         )?),
         "land_gitea_pr" => to_value(core::land_gitea_pr(
             app,
@@ -1560,6 +1675,13 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
             Ok(Value::Null)
         }
         "cloudflare_access_status" => to_value(core::cloudflare_access_status(app)),
+        // Listen-address change; restarts a running instance with its stored verifier (no password needed).
+        // `pairingHost` absent or null keeps the stored pairing address, an empty string clears it.
+        "web_server_set_listen" => to_value(core::web_server_set_listen(
+            app,
+            &req_str(args, "bind")?,
+            opt_str(args, "pairingHost").as_deref(),
+        )?),
         // UI mirror: every client publishes its layout here and follows what the others publish. `source`
         // comes from the transport, never from the arguments, so the echo filter cannot be spoofed.
         "mirror_get" => Ok(core::mirror_get(app)),
@@ -1594,6 +1716,12 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         // backend raises the marker from its own arbitration instead.
         "session_mark_unread" => {
             crate::session_state::set_unread(app, &req_str(args, "sessionId")?, true);
+            Ok(Value::Null)
+        }
+        // The user marked this session Pending from the session menu. The marker is flagged as manual so
+        // other clients show it without popping a system notification for something nobody new produced.
+        "session_mark_pending" => {
+            crate::session_state::mark_pending(app, &req_str(args, "sessionId")?);
             Ok(Value::Null)
         }
         // A client reports what it sees on the rendered terminal grid, which the backend cannot read for
@@ -1636,11 +1764,17 @@ fn dispatch_inner(app: &AppCtx, cmd: &str, args: &Value, source: &str, origin: C
         "install_spawn_skills" => {
             crate::agent::spawn_cli::install_skills()
                 .map_err(|e| format!("Failed to install spawn skills: {e}"))?;
+            if let Ok(data_dir) = app.data_dir() {
+                app.plugins().sync_artifacts_for(&data_dir);
+            }
             Ok(Value::Null)
         }
         "uninstall_spawn_skills" => {
             crate::agent::spawn_cli::uninstall_skills()
                 .map_err(|e| format!("Failed to uninstall spawn skills: {e}"))?;
+            if let Ok(data_dir) = app.data_dir() {
+                crate::plugins::cli_skills::remove_all_plugin_skills(&data_dir);
+            }
             Ok(Value::Null)
         }
 
@@ -2136,7 +2270,8 @@ mod tests {
         let app = test_ctx();
         // Valid-looking args per command prove the gate fires before extraction, not on missing params.
         let args = json!({
-            "password": "pw", "deviceId": "dev-a", "address": "127.0.0.1", "rotate": true
+            "password": "pw", "deviceId": "dev-a", "address": "127.0.0.1", "rotate": true,
+            "bind": "all"
         });
         // Pin the gated set literally: iterating over the production constant alone would stay green if a
         // command were removed from MANAGEMENT_CMDS, silently un-gating it. The acceptance criterion names
@@ -2156,6 +2291,8 @@ mod tests {
             "cloudflare_access_start",
             "cloudflare_access_stop",
             "cloudflare_access_status",
+            // Added with the listen-address setting: who can reach the service is the host's decision.
+            "web_server_set_listen",
         ];
         assert_eq!(
             MANAGEMENT_CMDS, EXPECTED_GATED,
@@ -2207,11 +2344,17 @@ mod tests {
             "translation_service_save",
             "translation_service_key",
             "translation_service_delete",
+            "deepseek_set_config",
             "gitea_set_config",
             "url_host_password",
             "url_host_record",
             "ssh_host_forget",
             "url_host_forget",
+            "plugin_install_archive",
+            "plugin_link_dev",
+            "plugin_set_enabled",
+            "plugin_reload",
+            "plugin_uninstall",
         ];
         assert_eq!(
             SECRET_CMDS, EXPECTED_SECRET,
@@ -2230,6 +2373,31 @@ mod tests {
                 "{cmd} must be gated for remote origins"
             );
         }
+    }
+
+    /// The DeepSeek settings page reads both values to render its form, but only a local client may
+    /// write them. Reporting that in the reply keeps a remote page from offering a save that will fail.
+    #[test]
+    fn deepseek_settings_report_whether_this_client_may_edit() {
+        let app = test_ctx();
+        let local = dispatch(
+            &app,
+            "deepseek_get_status",
+            &json!({}),
+            DESKTOP_SOURCE,
+            CallOrigin::Local,
+        )
+        .unwrap();
+        assert_eq!(local["editable"], json!(true));
+        let remote = dispatch(
+            &app,
+            "deepseek_get_status",
+            &json!({}),
+            "ws-1",
+            CallOrigin::Remote,
+        )
+        .unwrap();
+        assert_eq!(remote["editable"], json!(false));
     }
 
     /// The local lane keeps working for every newly gated secret command: gitea_set_config reaches core
@@ -2528,6 +2696,13 @@ mod tests {
             // guard on `to` denies).
             ("rename_path", json!({ "from": format!("{}/nonexistent-src.txt", std::env::temp_dir().to_string_lossy()), "to": format!("{dd}/planted.txt") }), format!("{dd}/planted.txt")),
             ("delete_path", json!({ "path": secret_str }), secret_str.clone()),
+            // Copy is gated on both ends, like rename: into the data dir, and a secret out of it.
+            ("copy_into_dir", json!({ "dir": dd.clone(), "sources": [] }), dd.clone()),
+            ("copy_into_dir", json!({ "dir": std::env::temp_dir().to_string_lossy(), "sources": [secret_str.clone()] }), secret_str.clone()),
+            ("paste_files_check", json!({ "dir": dd.clone(), "sources": [], "mode": "copy" }), dd.clone()),
+            ("paste_files_check", json!({ "dir": std::env::temp_dir().to_string_lossy(), "sources": [secret_str.clone()], "mode": "move" }), secret_str.clone()),
+            ("paste_files", json!({ "dir": dd.clone(), "sources": [], "mode": "copy" }), dd.clone()),
+            ("paste_files", json!({ "dir": std::env::temp_dir().to_string_lossy(), "sources": [secret_str.clone()], "mode": "move" }), secret_str.clone()),
             ("save_doc_image", json!({ "docPath": format!("{dd}/doc.md"), "bytesB64": "aGk=", "ext": "png" }), format!("{dd}/doc.md")),
             // Planting direction through clone: a remote client must not clone a fresh repository
             // into the data dir; the gate fires on parentDir before any git/network work starts.
@@ -2556,6 +2731,14 @@ mod tests {
         // of them ever starts returning content, gate it and update this assertion consciously.
         dispatch(&app, "list_dir", &json!({ "path": dd.clone() }), "ws-1", CallOrigin::Remote)
             .expect("list_dir must stay ungated for remote origins (metadata only)");
+        dispatch(
+            &app,
+            "search_files",
+            &json!({ "path": dd.clone(), "query": "vlx-web-access", "includeHidden": false }),
+            "ws-1",
+            CallOrigin::Remote,
+        )
+        .expect("search_files must stay ungated for remote origins (metadata only)");
         dispatch(&app, "stat_file", &json!({ "path": secret_str }), "ws-1", CallOrigin::Remote)
             .expect("stat_file must stay ungated for remote origins (metadata only)");
 
@@ -2774,6 +2957,8 @@ mod tests {
         "args, \"docPath\")",
         // The Git panel's batch arms take repository-relative paths under this key.
         "args, \"paths\")",
+        "args, \"dir\")",
+        "args, \"sources\")",
         "args, \"repoRoot\")",
         "args, \"wtPath\")",
         "args, \"repo\")",
@@ -2795,6 +2980,7 @@ mod tests {
     /// raw bytes of a caller-named file, mutations refused by git on the non-repo data dir.
     const UNGATED_JUSTIFIED: &[&str] = &[
         "list_dir",        // metadata only (names, sizes, mtimes)
+        "search_files",    // metadata only (relative paths and Git badges)
         "stat_file",       // metadata only
         "get_git_status",  // derived repo status, no file content
         "get_git_branch_info", // branch/worktree metadata only, no file content
@@ -2834,6 +3020,7 @@ mod tests {
         "git_range_file_diff",
         // Pull requests read `origin` and push through git; they name no file.
         "git_pr_provider",
+        "git_pr_status",
         "git_open_pull_request",
         "git_repo_web_url", // reads `origin` through git; names no file
         "create_worktree",   // git-mediated, refused outside a repository
@@ -3180,6 +3367,8 @@ mod tests {
             std::collections::HashMap::from([
                 ("remoteAccess.passwordHash".to_string(), "$argon2id$fake".to_string()),
                 ("remoteAccess.port".to_string(), "9123".to_string()),
+                ("remoteAccess.bind".to_string(), "100.100.83.2".to_string()),
+                ("remoteAccess.pairingHost".to_string(), "vela.example.ts.net".to_string()),
                 ("gitea.token".to_string(), "secret-token".to_string()),
                 ("vlx-theme".to_string(), "dark".to_string()),
             ]),
@@ -3191,12 +3380,16 @@ mod tests {
         assert_eq!(remote["vlx-theme"], "dark");
         assert!(remote.get("remoteAccess.passwordHash").is_none());
         assert!(remote.get("remoteAccess.port").is_none());
+        assert!(remote.get("remoteAccess.bind").is_none());
+        assert!(remote.get("remoteAccess.pairingHost").is_none());
         assert!(remote.get("gitea.token").is_none());
 
         let local = dispatch(&app, "get_app_settings", &json!({}), DESKTOP_SOURCE, CallOrigin::Local)
             .expect("local settings read must stay unfiltered");
         assert_eq!(local["remoteAccess.passwordHash"], "$argon2id$fake");
         assert_eq!(local["gitea.token"], "secret-token");
+        assert_eq!(local["remoteAccess.bind"], "100.100.83.2");
+        assert_eq!(local["remoteAccess.pairingHost"], "vela.example.ts.net");
         assert_eq!(local["vlx-theme"], "dark");
     }
 
@@ -3232,6 +3425,22 @@ mod tests {
         .unwrap_err();
         assert_eq!(err, "remote_setting_forbidden:gitea.token");
 
+        // The listen-address keys are protected like the verifier: a remote client can neither widen
+        // the listener nor redirect pairing links.
+        for key in ["remoteAccess.bind", "remoteAccess.pairingHost"] {
+            let err = dispatch(
+                &app,
+                "set_app_settings",
+                &json!({ "entries": { key: "all" } }),
+                "ws-1",
+                CallOrigin::Remote,
+            )
+            .unwrap_err();
+            assert_eq!(err, format!("remote_setting_forbidden:{key}"));
+            let settings = crate::command_core::get_app_settings(&app).unwrap();
+            assert!(settings.get(key).is_none(), "rejected write of {key} must not persist");
+        }
+
         // Unprotected remote writes still work.
         dispatch(
             &app,
@@ -3253,5 +3462,52 @@ mod tests {
         let settings = crate::command_core::get_app_settings(&app).unwrap();
         assert_eq!(settings.get("vlx-theme").map(String::as_str), Some("light"));
         assert_eq!(settings.get("remoteAccess.port").map(String::as_str), Some("9123"));
+    }
+
+    /// web_server_set_listen is wired for local origins: a stopped service persists a valid choice
+    /// canonically, and an invalid one fails with its code and changes nothing. No socket is bound.
+    #[test]
+    fn web_server_set_listen_is_dispatched() {
+        let app = test_ctx();
+        let status = dispatch(
+            &app,
+            "web_server_set_listen",
+            &json!({ "bind": "LOOPBACK", "pairingHost": "vela.example.ts.net" }),
+            DESKTOP_SOURCE,
+            CallOrigin::Local,
+        )
+        .expect("a valid listen change on a stopped service must succeed");
+        assert_eq!(status["running"], false);
+        assert_eq!(status["savedBind"], "loopback");
+        assert_eq!(status["savedPairingHost"], "vela.example.ts.net");
+
+        let err = dispatch(
+            &app,
+            "web_server_set_listen",
+            &json!({ "bind": "host.example" }),
+            DESKTOP_SOURCE,
+            CallOrigin::Local,
+        )
+        .unwrap_err();
+        assert_eq!(err, "remote_bind_invalid:host.example");
+        let err = dispatch(&app, "web_server_set_listen", &json!({}), DESKTOP_SOURCE, CallOrigin::Local)
+            .unwrap_err();
+        assert_eq!(err, "Missing string parameter bind");
+        let settings = crate::command_core::get_app_settings(&app).unwrap();
+        assert_eq!(settings.get("remoteAccess.bind").map(String::as_str), Some("loopback"));
+    }
+
+    #[test]
+    fn file_clipboard_commands_require_local_origin() {
+        let app = test_ctx();
+        for cmd in [
+            "clipboard_file_state",
+            "clipboard_write_files",
+            "clipboard_read_files",
+            "clipboard_clear_files",
+        ] {
+            let err = dispatch(&app, cmd, &json!({}), "ws-1", CallOrigin::Remote).unwrap_err();
+            assert_eq!(err, format!("remote_cmd_forbidden:{cmd}"));
+        }
     }
 }

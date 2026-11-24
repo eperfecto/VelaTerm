@@ -24,6 +24,7 @@ beforeEach(() => {
   // Opening the Ports tab persists visuals, which resolves the OS colour scheme.
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   setLang("en");
+  document.documentElement.dataset.theme = "dark";
   ports.state = { snapshot: null, unavailable: false, error: null };
   useTermStore.setState({ inspectorTab: "info", rightCollapsed: true });
 });

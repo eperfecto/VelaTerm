@@ -63,6 +63,9 @@ const state = {
   /** Open account Remote windows; they close with the application, so the quit confirmation mentions them. */
   /** @type {Set<BrowserWindow>} */
   remoteWindows: new Set(),
+  /** Per-window base titles and pending counts driving window titles and the summed Dock badge. */
+  /** @type {Map<BrowserWindow, { baseTitle: string, count: number }>} */
+  windowBadges: new Map(),
   /** Canonical absolute path from `vela <path>` that the renderer has not consumed yet. */
   pendingOpenProject: null,
 };
@@ -619,11 +622,29 @@ function registerBrowserIpc() {
 
 // ─────────────────────────── Window and menus ───────────────────────────
 
+function formatWindowTitle(baseTitle, count) {
+  return count > 0 ? `${baseTitle} (${count})` : baseTitle;
+}
+
+function refreshDockBadge() {
+  if (typeof app.setBadgeCount !== "function") return;
+  let total = 0;
+  for (const [win, entry] of state.windowBadges) {
+    if (win.isDestroyed()) {
+      state.windowBadges.delete(win);
+      continue;
+    }
+    total += entry.count;
+  }
+  app.setBadgeCount(total);
+}
+
 function createWindow() {
   // Use the same outer-frame policy as Tauri, excluding system bars and accounting for display scaling.
   const layout = windowLayout.windowOptions(windowPolicy, screen.getPrimaryDisplay().workArea);
   const win = new BrowserWindow({
     ...layout,
+    title: "VelaTerm",
     backgroundColor: "#1e1e1e",
     icon: windowIcon(),
     webPreferences: {
@@ -639,7 +660,13 @@ function createWindow() {
     },
   });
   state.win = win;
+  state.windowBadges.set(win, { baseTitle: "VelaTerm", count: 0 });
   state.quitConfirmationEnabled = true;
+
+  // Keep the native title controlled by windowBadges so index.html <title> does not overwrite it.
+  win.on("page-title-updated", (event) => {
+    event.preventDefault();
+  });
 
   // Forward window focus changes to the renderer for platform.window.onFocusChanged.
   win.on("focus", () => win.webContents.send("vlx:window:focus", true));
@@ -656,6 +683,7 @@ function createWindow() {
   win.on("closed", () => {
     // Browser child views are destroyed with the window; remove stale Map references to prevent leaks.
     closeAllBrowserViews();
+    if (state.windowBadges.delete(win)) refreshDockBadge();
     if (state.win === win) state.win = null;
   });
 
@@ -772,6 +800,8 @@ function buildMenu() {
 // Static manifests published as release assets by .github/workflows/release.yml, one per architecture, each
 // carrying {version, url, signature} for that AppImage. A static host cannot answer a query-parameterized API,
 // which is why the arch is part of the file name and the "is this newer" decision happens here instead.
+// This fork publishes its own builds on GitHub only, so the server region (src/ipc/serverRegion.ts) does not
+// change where updates come from: there is no China mirror of these releases.
 const UPDATE_ENDPOINT = "https://github.com/eperfecto/VelaTerm/releases/latest/download";
 
 /** Manifest of the release found by the last check; the renderer never supplies the URL or signature. */
@@ -883,6 +913,8 @@ async function downloadAndInstallUpdate(sender) {
 }
 
 function registerUpdaterIpc() {
+  // The page also passes telemetry headers and the server region; both are ignored on purpose: the manifest is
+  // a GitHub release asset (no install identifier goes to a third-party host) and has no regional mirror.
   ipcMain.handle("vlx:updater:check", () => checkForUpdate());
   ipcMain.handle("vlx:updater:downloadAndInstall", (event) => downloadAndInstallUpdate(event.sender));
   ipcMain.handle("vlx:updater:relaunch", () => {
@@ -993,11 +1025,16 @@ function registerNativeIpc() {
   ipcMain.handle("vlx:shell:revealPath", async (_e, p) => {
     shell.showItemInFolder(String(p));
   });
-  ipcMain.handle("vlx:badge:setCount", (_e, count) => {
-    // macOS/Linux support Dock badges; Windows has no equivalent API, so ignore it there.
-    if (typeof app.setBadgeCount === "function") {
-      app.setBadgeCount(Number(count) || 0);
+  ipcMain.handle("vlx:badge:setCount", (event, count) => {
+    const normalized = Math.max(0, Math.floor(Number(count) || 0));
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      const entry = state.windowBadges.get(win) ?? { baseTitle: win.getTitle() || "VelaTerm", count: 0 };
+      entry.count = normalized;
+      state.windowBadges.set(win, entry);
+      win.setTitle(formatWindowTitle(entry.baseTitle, normalized));
     }
+    refreshDockBadge();
   });
   ipcMain.handle("vlx:window:setFocus", () => {
     if (state.win && !state.win.isDestroyed()) {

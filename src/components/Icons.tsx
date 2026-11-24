@@ -146,6 +146,10 @@ const Icons: Record<string, IconComponent> = {
     r("rect", { key: 1, x: 3.5, y: 7, width: 9, height: 6, rx: 1.2 }),
     r("path", { key: 2, d: "M5.5 7V5.3a2.5 2.5 0 015 0V7" }),
   ]),
+  key: I([
+    r("circle", { key: 1, cx: 5, cy: 8, r: 2.3 }),
+    r("path", { key: 2, d: "M7.3 8h6.2M11.4 8v2.1M13.5 8v2.9" }),
+  ]),
   database: I([
     r("ellipse", { key: 1, cx: 8, cy: 4, rx: 4.5, ry: 1.8 }),
     r("path", { key: 2, d: "M3.5 4v8c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8V4" }),
@@ -198,6 +202,13 @@ const Icons: Record<string, IconComponent> = {
   ]),
   shotText: I(r("path", { key: 1, d: "M3.5 4h9M8 4v8.5M6.2 12.5h3.6" })),
   undo: I(r("path", { key: 1, d: "M5.5 3.8L3 6.3l2.5 2.5M3 6.3h6.5a3.2 3.2 0 010 6.4H7" })),
+  // Generic plugin puzzle piece icon used as fallback when a plugin provides no custom rail SVG.
+  puzzle: I([
+    r("path", {
+      key: 1,
+      d: "M6.5 2.5a1.5 1.5 0 113 0v1h2a1 1 0 011 1v2h1a1.5 1.5 0 110 3h-1v2a1 1 0 01-1 1h-2v-1a1.5 1.5 0 10-3 0v1h-2a1 1 0 01-1-1v-2h1a1.5 1.5 0 100-3h-1v-2a1 1 0 011-1h2v-1z",
+    }),
+  ]),
 };
 
 export default Icons;

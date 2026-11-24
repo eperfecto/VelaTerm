@@ -142,6 +142,8 @@ export interface SpawnRequest {
   } | null;
   parentSessionId: string;
   prompt: string;
+  /** Session name from `vspawn --title`; absent derives the name from the prompt. */
+  title?: string | null;
   kind?: AgentKind | "terminal" | null;
   worktree?: boolean | null;
   /** Directory from which vspawn was invoked; used as the child cwd and worktree repository context. */
@@ -195,6 +197,24 @@ export function onViewRequest(
   cb: (req: ViewRequest) => void,
 ): Promise<UnlistenFn> {
   return listen<ViewRequest>("view://request", (payload) => cb(payload));
+}
+
+/** A session's agent submitted actions with `vapp do`; that session's view shows them for confirmation, or runs window actions directly when `noConfirm` is set. */
+export function onAssistRequest(cb: (request: { id: string; sessionId: string; noConfirm?: boolean }) => void): Promise<UnlistenFn> {
+  return listen<{ id: string; sessionId: string; noConfirm?: boolean }>("assist://request", (payload) => {
+    if (typeof payload?.id === "string" && typeof payload.sessionId === "string") {
+      cb({ id: payload.id, sessionId: payload.sessionId, ...(payload.noConfirm === true ? { noConfirm: true } : {}) });
+    }
+  });
+}
+
+/** Actions of a request were decided in some client; every view of that session reads its list again. */
+export function onAssistChanged(cb: (change: { id: string; sessionId: string; knowledgeChanged?: boolean }) => void): Promise<UnlistenFn> {
+  return listen<{ id: string; sessionId: string; knowledgeChanged?: boolean }>("assist://changed", (payload) => {
+    if (typeof payload?.id === "string" && typeof payload.sessionId === "string") {
+      cb({ id: payload.id, sessionId: payload.sessionId, ...(payload.knowledgeChanged === true ? { knowledgeChanged: true } : {}) });
+    }
+  });
 }
 
 /**
@@ -388,4 +408,9 @@ export function onGitbashDownloadError(
   cb: (msg: string) => void,
 ): Promise<UnlistenFn> {
   return listen<string>("gitbash://download-error", (msg) => cb(msg));
+}
+
+/** Listen for Antigravity model catalogue updates discovered in the background or by another session. */
+export function onAntigravityModelsChanged(cb: () => void): Promise<UnlistenFn> {
+  return listen("antigravity://models-changed", () => cb());
 }

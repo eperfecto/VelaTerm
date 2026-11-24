@@ -37,6 +37,11 @@ afterEach(() => {
 
 const row = (name: string) => within(screen.getByText(name).parentElement!);
 
+it("no longer offers DeepSeek as a settings category", async () => {
+  await act(async () => render(<SettingsModal onClose={() => {}} />));
+  expect(screen.queryByRole("link", { name: "DeepSeek" })).toBeNull();
+});
+
 it("reveals Translation only for an Alt settings opening and hides it on the next normal opening", async () => {
   // The title bar mounts the settings dialog; the gear that opens it lives at the bottom of the activity bar.
   await act(async () => render(<><TitleBar /><SidebarRail /></>));
@@ -57,6 +62,34 @@ it("reveals Translation only for an Alt settings opening and hides it on the nex
   expect(new URL(location.href).searchParams.has("settingsTranslation")).toBe(false);
   await act(async () => fireEvent.click(screen.getByTitle("Settings")));
   expect(screen.queryByRole("link", { name: "Translation" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Plugins" })).toBeNull();
+});
+
+it("reveals Plugins only for an Alt settings opening and hides it on normal openings", async () => {
+  // Even if a prior build saved "plugins" as settingsTab, a normal opening must hide it and fall back cleanly.
+  useTermStore.setState({ settingsTab: "plugins" });
+  await act(async () => render(<><TitleBar /><SidebarRail /></>));
+  await act(async () => fireEvent.click(screen.getByTitle("Settings")));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Plugins" })).toBeNull();
+  fireEvent.click(screen.getByTitle("Settings"));
+  expect(screen.queryByRole("dialog")).toBeNull();
+
+  await act(async () => fireEvent.click(screen.getByTitle("Settings"), { altKey: true }));
+  const plugins = screen.getByRole("link", { name: "Plugins" });
+  expect(new URL(plugins.getAttribute("href")!).searchParams.get("settingsPlugins")).toBe("1");
+  await act(async () => fireEvent.click(plugins));
+  expect(new URL(location.href).searchParams.get("settings")).toBe("plugins");
+  expect(screen.getByText(/Install, link, enable, or reload external VelaTerm plugins/i)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("link", { name: "Appearance" }));
+  expect(screen.getByRole("link", { name: "Plugins" })).toBeTruthy();
+  expect(useTermStore.getState().settingsTab).toBe("appearance");
+
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(new URL(location.href).searchParams.has("settingsPlugins")).toBe(false);
+  await act(async () => fireEvent.click(screen.getByTitle("Settings")));
+  expect(screen.queryByRole("link", { name: "Plugins" })).toBeNull();
 });
 
 it("restores the revealed category from its URL and follows back/forward route state", async () => {
@@ -104,4 +137,18 @@ it("lists every composer chip with a switch and arrows, persisting each change",
   // Enabled rows come first in toolbar order, then the rest in their fixed order.
   const labels = [...document.querySelectorAll("button[aria-label^='Move '][aria-label$=' up']")].map((el) => el.getAttribute("aria-label"));
   expect(labels.slice(0, 4)).toEqual(["Move Thinking effort up", "Move Model up", "Move Account up", "Move Collaboration mode up"]);
+});
+
+it("offers 1 MB, 2 MB, and 4 MB image size choices in Conversation view and persists changes", async () => {
+  await act(async () => render(<SettingsModal onClose={() => {}} />));
+  fireEvent.click(screen.getByRole("link", { name: "Conversation view" }));
+  const imageRow = row("Max image size");
+  expect(imageRow.getByRole("button", { name: "2 MB" }).className).toContain("on");
+  fireEvent.click(imageRow.getByRole("button", { name: "1 MB" }));
+  expect(useTermStore.getState().chatImageMaxMb).toBe(1);
+  expect(pushSetting).toHaveBeenLastCalledWith(SETTINGS_KEY, expect.stringContaining('"chatImageMaxMb":1'));
+  expect(loadSettings().chatImageMaxMb).toBe(1);
+  fireEvent.click(imageRow.getByRole("button", { name: "4 MB" }));
+  expect(useTermStore.getState().chatImageMaxMb).toBe(4);
+  expect(loadSettings().chatImageMaxMb).toBe(4);
 });
