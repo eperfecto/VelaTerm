@@ -70,7 +70,8 @@ mod screenshot;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod server_supply;
 pub use server_supply::run_verify_update;
-// International (velaterm.com) or China mirror (velaterm.cn) for updates, downloads and website links.
+// International (velaterm.com) or China mirror (velaterm.cn) for website links and the model catalog. This fork's
+// updates and vela-server downloads always come from its GitHub releases (see updater_check, server_supply).
 mod server_region;
 // vela-server host subcommands: account linking, full access, service install and self-update.
 mod host_cli;
@@ -1298,7 +1299,7 @@ fn run_with_builder(builder: tauri::Builder<tauri::Wry>, initial_open_project: O
             updater_win::updater_install_windows,
             // Windows: a portable copy (no uninstall.exe beside the exe) is updated from the download page.
             updater_win::updater_windows_portable,
-            // Update check that honors the selected server region (velaterm.com or velaterm.cn).
+            // Update check against the tauri.conf.json endpoint (this fork's GitHub releases).
             updater_check::updater_check,
             commands::record_split_trace,
             commands::take_open_project_request,
@@ -2822,7 +2823,8 @@ mod tests {
         // for hydrate records what its child, the first one of the process, inherits.
         std::env::set_var(SERVE_PASSWORD_ENV, "launcher-pw");
         std::env::set_var(SERVE_PASSWORD_ENV_LEGACY, "legacy-pw");
-        let mut probe_saw = None;
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut probe_saw: Option<String> = None;
         let got = serve_startup_env(|| {
             #[cfg(unix)]
             {

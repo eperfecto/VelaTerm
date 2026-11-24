@@ -3,8 +3,9 @@
 //! and more reliable from inside mainland China.
 //!
 //! The choice is the synchronized preference `vlx-server-region`. The backend reads the same app_settings key
-//! for update checks, update downloads, vela-server downloads and the model catalog (`server_region.rs`); this
-//! module covers the website links the page opens itself.
+//! for the model catalog (`server_region.rs`); this module covers the website links the page opens itself. In
+//! this fork, update checks, update downloads and vela-server downloads ignore the region and use the fork's
+//! GitHub releases.
 //!
 //! Account features (sign-in, Remote, public sharing) stay on velaterm.com in both regions, because their
 //! sessions and relay tunnels are bound to that origin.
@@ -41,7 +42,7 @@ export function saveServerRegion(region: ServerRegion): void {
     /* The backend copy still applies; this shell falls back to the default on its next launch. */
   }
   pushSetting(SERVER_REGION_KEY, region);
-  // Write through now instead of after the debounce, so an update check right after switching already
+  // Write through now instead of after the debounce, so a model catalog fetch right after switching already
   // goes to the chosen server. Bounded: a half-open socket must not leave this pending forever.
   void flushNow(2000);
   notifyServerRegionChanged();

@@ -5,6 +5,10 @@
 //! under the same keys, so both regions serve identical content. Everything fetched from either one is
 //! verified the same way (minisign signatures, SHA-256), so the region only changes where bytes come from.
 //!
+//! In this fork the region only applies to website links and the model catalog: updates and vela-server
+//! downloads come from the fork's GitHub releases, verified with the fork's keys (`updater_check.rs`,
+//! `server_supply.rs`), which neither velaterm.com nor velaterm.cn host.
+//!
 //! The choice is the cross-shell preference `vlx-server-region` in app_settings. It is mirrored in an atomic
 //! here so main-thread callers such as the native menu can read it without touching SQLite: it is loaded
 //! once when the database opens and updated whenever `set_app_settings` writes the key.

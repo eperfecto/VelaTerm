@@ -30,7 +30,6 @@ import { useSyncExternalStore } from "react";
 
 import { getLocale, LOCALES, t, type Locale } from "../i18n";
 import { platform, type UpdateHandle } from "../platform";
-import { siteUrl } from "./serverRegion";
 import { invoke } from "./transport";
 import { compareVersions, localizeReleaseNotes, sliceReleaseNotes } from "./updateNotes";
 
@@ -76,12 +75,14 @@ export interface UpdatePrompt {
   localizedNotes: Partial<Record<Locale, string>>;
 }
 
-/** Website download page on the selected server region, offered when automatic updating fails. The
- * endpoint's own `url` is not used here: it points at an updater payload (a `.app.tar.gz` on macOS) that the
- * plugin unpacks in place, not at something a user can install by hand. The page hands out the real
- * installers, and on velaterm.cn it links them from the dl.velaterm.cn mirror. */
+/** This fork's releases page, offered when automatic updating fails and to Windows copies that update by hand.
+ * The endpoint's own `url` is not used here: it points at an updater payload (a `.app.tar.gz` on macOS) that the
+ * plugin unpacks in place, not at something a user can install by hand. The releases page lists the real
+ * installers. It does not follow the server region: upstream's download page serves upstream-signed builds. */
+const FORK_RELEASES_URL = "https://github.com/eperfecto/VelaTerm/releases/latest";
+
 export function downloadPageUrl(): string {
-  return siteUrl("/download");
+  return FORK_RELEASES_URL;
 }
 
 /** Current update phase, used by both the status bar and modal to select their presentation. */

@@ -32,6 +32,7 @@ vi.mock("../platform", () => ({
 import {
   checkForUpdates,
   dismissUpdate,
+  downloadPageUrl,
   loadSkippedVersion,
   startUpdateSchedule,
   useUpdateState,
@@ -280,5 +281,14 @@ describe("the silent check schedule", () => {
       await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000);
     });
     expect(check).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the manual download link", () => {
+  it("points at this fork's GitHub releases, whatever the server region", () => {
+    localStorage.setItem("vlx-server-region", "cn");
+    expect(downloadPageUrl()).toBe("https://github.com/eperfecto/VelaTerm/releases/latest");
+    localStorage.removeItem("vlx-server-region");
+    expect(downloadPageUrl()).toBe("https://github.com/eperfecto/VelaTerm/releases/latest");
   });
 });

@@ -560,6 +560,7 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.stdout), "unset|unset");
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_malformed_paths() {
         assert!(valid_path(OsStr::new("/usr/bin:/bin")));
