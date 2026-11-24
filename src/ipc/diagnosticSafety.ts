@@ -58,6 +58,15 @@ const commands = new Set([
   "chat_permission",
   "chat_queue_remove",
   "chat_queue_read",
+  "plugin_capabilities",
+  "plugin_install_archive",
+  "plugin_invoke",
+  "plugin_link_dev",
+  "plugin_list",
+  "plugin_read_asset",
+  "plugin_reload",
+  "plugin_set_enabled",
+  "plugin_uninstall",
   "chat_queue_steer",
   "chat_queue_update",
   "chat_restart_permission_mode",
@@ -93,6 +102,10 @@ const commands = new Set([
   "claude",
   "clean_pasted_images",
   "clear_node_worktree",
+  "clipboard_clear_files",
+  "clipboard_file_state",
+  "clipboard_read_files",
+  "clipboard_write_files",
   "clone_project",
   "close",
   "cmd",
@@ -103,6 +116,7 @@ const commands = new Set([
   "commit_worktree",
   "compose_agent_args",
   "connect",
+  "copy_into_dir",
   "create_agent_preset",
   "create_dir",
   "create_download_ticket",
@@ -115,6 +129,8 @@ const commands = new Set([
   "delete_branch",
   "delete_node",
   "delete_path",
+  "deepseek_get_status",
+  "deepseek_set_config",
   "diagnostic_event",
   "diagnostic_health",
   "discover_agent_sessions",
@@ -145,12 +161,13 @@ const commands = new Set([
   "git_merge_preview",
   "git_open_pull_request",
   "git_pr_provider",
-  "git_repo_web_url",
+  "git_pr_status",
   "git_pull",
   "git_push",
   "git_range_file_diff",
   "git_range_files",
   "git_recent_commits",
+  "git_repo_web_url",
   "git_stage",
   "git_unstage",
   "git_watch",
@@ -209,6 +226,8 @@ const commands = new Set([
   "multi_b",
   "name",
   "network_interfaces_list",
+  "paste_files",
+  "paste_files_check",
   "persist_session",
   "plain",
   "process_stats",
@@ -257,6 +276,7 @@ const commands = new Set([
   "security_options",
   "security_start",
   "send",
+  "session_mark_pending",
   "session_mark_read",
   "session_mark_unread",
   "session_permission_state",
@@ -299,6 +319,7 @@ const commands = new Set([
   "web_devices_list",
   "web_pairing_create",
   "web_server_start",
+  "web_server_set_listen",
   "web_server_status",
   "web_server_stop",
   "worktrees_in_subtree",
@@ -306,6 +327,11 @@ const commands = new Set([
   "write_file_chunk",
   "write_text_file"
 ]);
+export function registerDiagnosticCommands(names: readonly string[]): void {
+  for (const name of names) {
+    if (name && /^[a-z0-9_:-]+$/i.test(name)) commands.add(name);
+  }
+}
 export function safeCommand(command: string): string { return commands.has(command) ? command : "unknown"; }
 export function safeError(error: unknown): string {
   const message = (error instanceof Error ? error.message : typeof error === "string" ? error : "").slice(0, 4096).toLowerCase();

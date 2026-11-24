@@ -75,10 +75,15 @@ export interface UpdatePrompt {
   localizedNotes: Partial<Record<Locale, string>>;
 }
 
-/** Website download page, offered when automatic updating fails. The endpoint's own `url` is not used
- * here: it points at an updater payload (a `.app.tar.gz` on macOS) that the plugin unpacks in place,
- * not at something a user can install by hand. The page hands out the real installers. */
-export const DOWNLOAD_PAGE_URL = "https://velaterm.com/download";
+/** This fork's releases page, offered when automatic updating fails and to Windows copies that update by hand.
+ * The endpoint's own `url` is not used here: it points at an updater payload (a `.app.tar.gz` on macOS) that the
+ * plugin unpacks in place, not at something a user can install by hand. The releases page lists the real
+ * installers. It does not follow the server region: upstream's download page serves upstream-signed builds. */
+const FORK_RELEASES_URL = "https://github.com/eperfecto/VelaTerm/releases/latest";
+
+export function downloadPageUrl(): string {
+  return FORK_RELEASES_URL;
+}
 
 /** Current update phase, used by both the status bar and modal to select their presentation. */
 export type UpdateStage =
@@ -156,7 +161,8 @@ export function dismissUpdate({ skip = false }: { skip?: boolean } = {}) {
 /** Download and install in the background, publishing progress to the status bar through the store. */
 export async function startInstall(): Promise<void> {
   const current = state.prompt;
-  if (!current || isBusy()) return;
+  // A portable Windows copy is updated from the download page; running the installer would add a second copy.
+  if (!current || isBusy() || current.update.manualOnly) return;
   setState({ stage: { kind: "downloading", received: 0, total: 0 } });
   try {
     let received = 0;

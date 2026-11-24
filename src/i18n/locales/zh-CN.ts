@@ -1,6 +1,7 @@
 //! Simplified Chinese dictionary based on the original UI copy; en.ts enforces the complete key set.
 
 import type en from "./en";
+import assist from "../assist/zh-CN";
 
 const zhCN: typeof en = {
   "panel.turnStats": "本轮统计",
@@ -8,6 +9,8 @@ const zhCN: typeof en = {
   "panel.showChangedFiles": "查看本轮修改的文件",
   "panel.noFilesChanged": "本轮没有编辑任何文件。",
   "panel.shellEditsNotListed": "通过 Shell 命令所做的修改不会列出。",
+  "panel.usageShowScope": (scope: string) => `显示 ${scope}`,
+  "panel.usageHideScope": (scope: string) => `隐藏 ${scope}`,
   "translation.swap": "交换语言",
   "translation.openai": "OpenAI 兼容接口",
   "translation.bing": "必应翻译（免密钥）",
@@ -373,6 +376,7 @@ const zhCN: typeof en = {
   "common.create": "新建",
   "common.close": "关闭",
   "chat.copyAsMarkdown": "复制为 Markdown",
+  "chat.copyEntireMessage": "复制整条消息",
   "chat.imageViewOriginal": "查看原图",
   "chat.imageCopy": "复制图片",
   "chat.imageSave": "保存图片",
@@ -487,6 +491,7 @@ const zhCN: typeof en = {
   "settings.catTerminal": "终端",
   "settings.catBehavior": "行为",
   "settings.catAgents": "智能体",
+  "settings.catPlugins": "插件",
   "settings.agentDefaultsTitle": "新会话默认设置",
   "settings.referSummaryTitle": "会话引用上下文",
   "settings.referSummaryMode": "上下文方式",
@@ -521,7 +526,23 @@ const zhCN: typeof en = {
   "settings.agentDefaultView": "默认视图",
   "settings.agentDefaultViewHint":
     "该智能体新建会话时打开的视图。已有会话保持创建时的视图。",
+  "settings.deepseekApiTitle": "DeepSeek API",
+  "settings.deepseekApiDesc":
+    "DeepSeek 会话由 OpenCode 驱动。在这里填写 API 地址和密钥，所有会话即可共用同一份登录信息。",
+  "settings.deepseekBaseUrl": "API 地址",
+  "settings.deepseekEndpointHint":
+    "地址留空则使用官方接口。修改后从下一条消息开始生效。",
+  "settings.deepseekApiKey": "API 密钥",
+  "settings.deepseekKeySaved": "已保存（留空保持不变）",
+  "settings.deepseekKeyPlaceholder": "输入 DeepSeek API 密钥",
+  "settings.deepseekRemoveKey": "删除密钥",
+  "settings.deepseekSaved": "已保存。",
+  "settings.deepseekInvalid": "请输入有效的 http(s) API 地址和单行 API 密钥。",
+  "settings.deepseekLocalOnly": "这些凭据保存在运行主机上，因此只能在主机上修改。",
   "settings.appearance": "外观",
+  "settings.darkTheme": "深色主题",
+  "settings.lightTheme": "浅色主题",
+  "settings.themeClassic": "经典",
   "settings.accent": "强调色",
   "settings.accentAuto": "跟随明暗",
   "settings.density": "密度",
@@ -538,12 +559,16 @@ const zhCN: typeof en = {
   "settings.navTree": "标准",
   "settings.navCompact": "紧凑",
   "settings.tabs": "标签页",
+  "settings.tabsHint": "“单标签”会为你打开的每个会话复用同一个标签页，其余会话在后台继续运行。“多标签”则为每个会话单独开一个标签页。",
   "settings.dynamicStatusFilter": "状态筛选动态增加",
+  "settings.dynamicStatusFilterHint": "状态筛选会保留应用筛选那一刻匹配的会话。开启后，之后开始匹配的会话也会被加入。会话状态变化时不会被移出列表。",
   "settings.tabSingle": "单标签",
   "settings.tabMulti": "多标签",
   "settings.maxLiveTabs": "后台保活上限",
+  "settings.maxLiveTabsHint": "单标签模式下可在后台保持运行的会话数量。超过上限时会关闭最久未活动的空闲会话；正在工作、等待你处理或有未读通知的会话会被保留。",
   "settings.defaultShell": "默认 Shell",
   "settings.spawnConfirm": "派生前确认",
+  "settings.spawnConfirmHint": "适用于代理通过 vspawn 派生的会话，而不是你自己打开的标签页。开启后，可在会话启动前查看并修改提示词。",
   "settings.scopeTabsToProject": "仅显示当前项目的标签页",
   "settings.scopeTabsToProjectHint": "在侧边栏中选择项目后，只显示该项目的标签页和全局终端。隐藏的标签页会继续运行。",
   "settings.usageAuto": "额度自动刷新",
@@ -658,6 +683,31 @@ const zhCN: typeof en = {
   "changes.ignoreWhitespace": "忽略空白",
   "changes.collapseUnchanged": "折叠未改动的行",
   "changes.tooLarge": "此文件超过 2 MiB 预览上限。",
+  "changes.review.addLine": (range: string) => `批注 ${range}`,
+  "changes.review.addFile": "添加批注",
+  "changes.review.gutterHint": (line: number) => `在第 ${line} 行添加评审批注`,
+  "changes.review.sideOriginal": "变更前",
+  "changes.review.sideModified": "变更后",
+  "changes.review.fieldLabel": "评审批注",
+  "changes.review.placeholder": "输入给智能体的修改意见（Enter 保存，Shift+Enter 换行）…",
+  "changes.review.save": "保存批注",
+  "changes.review.cancel": "取消",
+  "changes.review.edit": "编辑",
+  "changes.review.remove": "删除",
+  "changes.review.count": (count: number, files: number) =>
+    count === 1 ? "1 条评审批注" : `共 ${files} 个文件、${count} 条评审批注`,
+  "changes.review.showList": "批注清单",
+  "changes.review.hideList": "收起清单",
+  "changes.review.clearAll": "全部清空",
+  "changes.review.targetAgent": "目标会话",
+  "changes.review.sendTo": (agent: string) => `发送给 ${agent}`,
+  "changes.review.pasteTo": (agent: string) => `粘贴到 ${agent}`,
+  "changes.review.sending": "正在发送…",
+  "changes.review.copy": "复制评审内容",
+  "changes.review.copied": "已复制",
+  "changes.review.noAgent": "请先在当前仓库打开或启动一个智能体会话，即可直接发送批注。",
+  "changes.review.promptHeader": "请根据以下针对当前改动的评审批注进行修改：",
+  "changes.review.promptComment": "批注：",
   "git.fileStatus.modified": "已修改",
   "git.fileStatus.added": "已新增",
   "git.fileStatus.deleted": "已删除",
@@ -705,6 +755,39 @@ const zhCN: typeof en = {
   "git.pr.noToken": "请先在设置中添加 Gitea 令牌，才能在这里创建拉取请求。",
   "git.pr.unreachable": "暂时无法连接 Gitea 服务器。",
   "git.pr.opened": "已创建拉取请求",
+  "git.pr.openMr": "创建合并请求",
+  "git.pr.openedMr": "已创建合并请求",
+  "git.pr.formTitleProvider": (provider: string) =>
+    provider === "gitlab"
+      ? "创建 GitLab 合并请求"
+      : provider === "github"
+        ? "创建 GitHub 拉取请求"
+        : "创建 Gitea 拉取请求",
+  "git.pr.formDescriptionMr": (branch: string, base: string) =>
+    `将 ${branch} 推送到 origin，并创建合并到 ${base} 的合并请求。`,
+  "git.pr.draftField": "创建为草稿（Draft）",
+  "git.pr.noGhCli": "请先安装 GitHub CLI（gh），才能在这里创建拉取请求。",
+  "git.pr.noGhAuth": "请在终端运行 gh auth login 登录 GitHub。",
+  "git.pr.noGlabCli": "请先安装 GitLab CLI（glab），才能在这里创建合并请求。",
+  "git.pr.noGlabAuth": "请在终端运行 glab auth login 登录 GitLab。",
+  "git.pr.state.open": "待合并",
+  "git.pr.state.draft": "草稿",
+  "git.pr.state.merged": "已合并",
+  "git.pr.state.closed": "已关闭",
+  "git.pr.checks.passing": "检查通过",
+  "git.pr.checks.failing": "检查失败",
+  "git.pr.checks.pending": "检查运行中",
+  "git.pr.refreshStatus": "刷新状态",
+  "git.pr.cleanupWorktree": "清理工作树…",
+  "git.pr.cleanupTitle": "清理已合并的工作树",
+  "git.pr.cleanupDescription": (branch: string, path: string) =>
+    `分支 ${branch} 已合并，是否删除工作树目录 ${path}？`,
+  "git.pr.cleanupDeleteBranch": (branch: string) => `同时删除本地分支 ${branch}`,
+  "git.pr.cleanupArchiveSession": "归档当前会话",
+  "git.pr.cleanupArchiveHint": "取消勾选则保留该会话，并切回主仓库目录。",
+  "git.pr.cleanupForce": "强制删除未提交改动",
+  "git.pr.cleanupSubmit": "立即清理",
+  "git.pr.cleanupSubmitting": "正在清理…",
   "git.push": "推送",
   "git.pushTitle": (u: string) => `推送到 ${u}`,
   "git.publish": "发布分支",
@@ -823,12 +906,26 @@ const zhCN: typeof en = {
   "settings.termFontSize": "终端字号",
   "settings.termLineHeight": "终端行高",
   "settings.chatTypography": "会话视图",
-  "settings.chatTypographyHint": "字体设置独立于终端视图，修改后立即生效。",
+  "settings.chatTypographyHint": "这些设置独立于终端，修改后立即生效。默认情况下，正文使用界面字体，代码使用界面等宽字体。",
   "settings.chatFont": "会话字体",
   "settings.chatFontSize": "会话字号",
   "settings.chatLineHeight": "会话行高",
+  "settings.chatCodeFont": "会话代码字体",
+  "settings.chatLetterSpacing": "会话字间距",
+  "settings.uiTypography": "界面字体",
+  "settings.uiTypographyHint": "作用于菜单、列表、对话框和文档。等宽字体用于代码、路径和差异对比；终端字体在「终端」中单独设置。",
+  "settings.uiFont": "常规字体",
+  "settings.uiMonoFont": "等宽字体",
+  "settings.fontPreview": "预览",
+  "settings.fontPreviewText": "敏捷的棕色狐狸跳过了那只懒狗。The quick brown fox 0123456789",
+  "settings.fontPreviewChat": "设置页面已更新。每项字体设置都会立即生效，你也可以随时恢复默认值。",
+  "settings.fontResetGroup": "恢复默认字体",
+  "settings.chatImages": "图片",
+  "settings.chatImageMaxMb": "图片大小上限",
+  "settings.chatImageMaxMbHint": "发送前会将长边超过 1568 像素或体积超过该上限的图片自动缩放并压缩。仅当图片无法解码或压缩后仍超出上限时才会跳过。",
+  "settings.chatImageSizeMb": (mb: number) => `${mb} MB`,
   "settings.composerChips": "输入工具栏",
-  "settings.composerChipsHint": "已开启的项目按此处顺序显示在消息旁。功能暂不可用时，例如智能体未运行、没有后台任务或尚未完成登录，项目仍会显示，但为空或不可操作。当前智能体不支持的功能不显示。空间不足时，放不下的项目会移入“更多”菜单。此处关闭的项目仅显示在该菜单中，仍可在此配置。",
+  "settings.composerChipsHint": "已开启的项目按此处顺序显示在消息旁。功能暂不可用时，例如智能体未运行、没有后台任务或尚未完成登录，项目仍会显示，但为空或不可操作。当前智能体不支持的功能不显示。空间不足时，放不下的项目会移入“更多”菜单。此处关闭的项目在重新开启前不会显示在任何位置。",
   "settings.composerChipUp": (chip: string) => `将${chip}上移`,
   "settings.composerChipDown": (chip: string) => `将${chip}下移`,
   "settings.composerChip.model": "模型",
@@ -845,7 +942,8 @@ const zhCN: typeof en = {
   "settings.composerChip.account": "账号",
   "settings.composerChip.codexCredits": "Codex 额度重置券",
   "settings.fontDefault": "默认",
-  "settings.fontCustom": "自定义…",
+  "settings.fontSearch": "搜索字体…",
+  "settings.fontUseCustom": (query: string) => `使用“${query}”`,
   "settings.fontListUnavailable": "无法获取系统字体列表，可手动输入字体名称。",
   "settings.fontUnconfirmed": "无法确认此字体是否可用。",
   "settings.fontAuto": "自动",
@@ -854,6 +952,11 @@ const zhCN: typeof en = {
   "settings.fontReset": "复位",
   "settings.sound": "通知提示音",
   "settings.language": "语言",
+  "settings.serverRegion": "服务器",
+  "settings.serverRegionGlobal": "国际",
+  "settings.serverRegionChina": "中国大陆",
+  "settings.serverRegionHint":
+    "用于官网链接和模型目录。选择「中国大陆」后改用 velaterm.cn，在国内访问更快。更新和 vela-server 始终来自此构建的 GitHub 发布版本。账号相关功能始终使用 velaterm.com。",
   "settings.langAuto": "自动（跟随系统）",
   "settings.skillLabel": "Vela 技能",
   "settings.skillInstall": "安装",
@@ -890,6 +993,7 @@ const zhCN: typeof en = {
   "settings.scCopyTerminal": "复制终端选中内容", // Copy terminal selection
   "settings.scSelectAllTerminal": "全选终端内容", // Select all in terminal
   "settings.scSaveDoc": "保存文档",
+  "settings.scFocusSidebar": "聚焦侧边栏",
   "settings.scRecording": "请按下组合键…",
   "settings.scHint": "点一下某个快捷键，再按下新的组合键（需含 Cmd/Ctrl）。",
   "settings.scScreenshotSection": "截图",
@@ -988,6 +1092,19 @@ const zhCN: typeof en = {
   "remote.cloudflareHelpEmail": "Zero Trust › Integrations › Identity providers › One-time PIN。在应用策略中使用 Allow › Include › Emails。", // Zero Trust › Integrations › Identity providers › One-time PIN. In the app policy, use Allow › Include › Emails.
   "remote.cloudflareHelpDashboard": "控制台", // Dashboard
   "remote.cloudflareHelpDocs": "文档", // Docs
+  "remote.listenLabel": "监听地址", // Listen on
+  "remote.listenAll": "所有网络", // All networks
+  "remote.listenLoopback": "仅本机（隧道）", // This computer only (tunnel)
+  "remote.listenUnavailable": (ip: string) => `${ip}（不可用）`, // ${ip} (not available)
+  "remote.reachAll": "可通过此电脑连接的任意网络访问。", // Reachable from every network this computer is connected to.
+  "remote.reachOnly": (addr: string) => `仅可通过 ${addr} 访问。`, // Reachable only at ${addr}.
+  "remote.reachTunnel": "仅可通过此电脑上的隧道或代理访问，例如 tailscale serve 或 ssh -L。", // Reachable only through a tunnel or proxy on this computer, for example tailscale serve or ssh -L.
+  "remote.pairingHostLabel": "配对链接使用的地址", // Address for pairing links
+  "remote.pairingHostPlaceholder": "host.tailnet.ts.net", // host.tailnet.ts.net
+  "remote.pairingHostNeeded": "客户端通过隧道访问此电脑。请输入它们使用的主机名或 IP。不填写时，配对链接会指向 127.0.0.1，仅在使用 ssh -L 时有效。", // Clients reach this computer through a tunnel. Enter the host name or IP they use. Without it, pairing links point to 127.0.0.1, which only works with ssh -L.
+  "remote.bindInvalid": (value: string) => `“${value}” 不是有效的监听地址。请选择所有网络、仅本机，或此电脑上的一个 IPv4 地址。`, // "${value}" is not a valid listen address. Choose all networks, this computer only, or an IPv4 address of this computer.
+  "remote.bindUnavailable": (ip: string) => `地址 ${ip} 在此电脑上不可用。请连接对应网络或 VPN，或选择其他地址。远程访问不会回退到所有网络。`, // The address ${ip} is not available on this computer. Connect the network or VPN, or choose another address. Remote access never falls back to all networks.
+  "remote.pairingHostInvalid": (value: string) => `“${value}” 不是有效的配对链接地址。请输入主机名或 IPv4 地址，不要包含协议、端口或路径。`, // "${value}" is not a valid address for pairing links. Enter a host name or an IPv4 address, without scheme, port, or path.
 
   // ── Remote connection panel ──
   "connect.wslUpgrade": "此工作区正在运行其他版本的服务端。重启服务端会结束此 WSL 工作区中的所有运行中会话。",
@@ -1059,6 +1176,7 @@ const zhCN: typeof en = {
   "tree.deleteGroup": "删除分组",
   "tree.deleteSession": "删除会话",
   "tree.projectRoot": "项目根（无分组）",
+  "tree.collectionRoot": (name: string) => `${name}（无分组）`,
   "tree.moveToSession": "移到会话下（成为子会话）",
   "tree.moveTo": "移动到…",
   "tree.openNewTab": "在新标签打开",
@@ -1165,6 +1283,7 @@ const zhCN: typeof en = {
   "tree.filterStatus": "状态筛选",
   "tree.refreshStatusFilter": "刷新状态筛选",
   "tree.refreshStatusMatch": "刷新状态",
+  "tree.setStatus": "设置状态",
   "tree.filterStatusSection": "状态",
   "tree.filterMarkSection": "标记",
   "tree.sortSection": "排序",
@@ -1355,6 +1474,9 @@ const zhCN: typeof en = {
 
   // ── Global session-content search ──
   "search.allPlaceholder": "搜索所有会话内容…",
+  "search.inLocationPlaceholder": (name) => `在 ${name} 中搜索…`,
+  "search.allLocations": "全部项目和集合",
+  "search.filterLocation": "按项目或集合筛选",
   "search.hint":
     "搜索会话内容。默认不含已归档会话，勾选「同时搜索归档」可纳入。",
   "search.includeArchived": "同时搜索归档",
@@ -1378,10 +1500,9 @@ const zhCN: typeof en = {
 
   // ── Center pane (tabs, empty state, and background keep-alive) ──
   "center.noSession": "暂无会话",
-  "center.noSessionHintPre": "从左栏选择会话，或按 ",
-  "center.noSessionHintPost": " 新建终端",
   "center.createTerminal": "新建终端",
-  "center.splitHint": "打开会话后，可使用以下快捷键分屏：",
+  "center.startTitle": "开始会话",
+  "center.startHint": "从左栏选择一个会话，或者新建一个。",
   "tab.unsavedDot": "有未保存修改",
   "tab.newTerminal": "新建终端",
   "tab.newGlobalTerminal": "新建全局终端",
@@ -1579,12 +1700,22 @@ const zhCN: typeof en = {
   "files.nameLabel": "名称", // Name
   "files.newTooltip": "新建文件或文件夹", // New file or folder
   "files.openInTerminal": "在终端中打开", // Open in Terminal
+  "files.collapseAll": "全部折叠", // Collapse All
   "files.revealInFinder": "在文件管理器中显示", // Show in File Manager
   "files.copyPath": "复制路径", // Copy Path
   "files.copyRelPath": "复制相对路径", // Copy Relative Path
   "files.filterPlaceholder": "过滤文件…", // Filter files
+  "files.filterTruncated": "仅显示前一部分匹配结果，继续输入可缩小范围。",
   "files.dblClickOpen": "双击打开", // Double-click to open
   "files.deleteConfirm": (name) => `确定删除“${name}”？此操作不可撤销。`, // Delete "{name}"? This can't be undone.
+  "files.deleteManyConfirm": (count) => `确定删除这 ${count} 个项目？此操作不可撤销。`, // Delete {count} items? This can't be undone.
+  "files.pasteConflictTitle": "项目已存在", // Item already exists
+  "files.pasteConflictBody": (name) => `目标目录中已存在名为“${name}”的项目。`, // An item named "{name}" already exists in the destination folder.
+  "files.pasteConflictProgress": (current, total) => `第 ${current} / ${total} 项`, // {current} of {total}
+  "files.pasteConflictApplyAll": "应用于所有剩余冲突", // Apply to all remaining conflicts
+  "files.pasteReplace": "替换", // Replace
+  "files.pasteSkip": "跳过", // Skip
+  "files.pasteKeepBoth": "保留两者", // Keep Both
 
   // ── File transfer (remote access) ──
   "transfer.title": "传输", // Transfers
@@ -1598,6 +1729,9 @@ const zhCN: typeof en = {
   "transfer.downloading": "正在下载…", // Downloading…
   "transfer.savedToDownloads": "已保存到下载文件夹", // Saved to Downloads
   "transfer.foldersUnsupported": "文件夹传不了。", // Folders can't be uploaded.
+  "drop.browserFilesHint": "在浏览器中，这里只能拖入图片。其他文件请先上传到项目中。", // In the browser, only images can be dropped here. To use other files, upload them to the project first.
+  "files.copyFailed": "部分文件未能复制。请确认这些文件仍然存在，并且你有权限写入这个目录。", // Some files could not be copied. Check that they still exist and that you can write to this folder.
+  "files.pasteFailed": "部分项目未能粘贴。请确认源项目仍然存在，并且你有权限写入目标目录。", // Some items could not be pasted. Check that the sources exist and that you can write to this folder.
 
   // ── Status bar ──
   "statusbar.sessions": (n) => `${n} 会话`,
@@ -1612,6 +1746,11 @@ const zhCN: typeof en = {
   "statusbar.permSkip": "权限：跳过",
   "statusbar.notifyOn": "通知：开",
   "statusbar.notifyOff": "通知：关",
+  "statusbar.zoomGroup": "界面缩放",
+  "statusbar.zoomOut": "缩小",
+  "statusbar.zoomIn": "放大",
+  "statusbar.zoomEdit": "界面缩放 · 点击输入缩放比例（80–200%）",
+  "statusbar.zoomInput": "界面缩放比例，80 到 200",
   "statusbar.permTooltip": "本会话权限模式 · 点击切换（仅影响本会话）",
   "statusbar.permMenuTitle": "本会话权限",
   "statusbar.permOptAsk": "逐步询问（默认）",
@@ -1965,6 +2104,8 @@ const zhCN: typeof en = {
   "updater.downloadManually": "手动下载",
   "updater.downloadManuallyHint": "在浏览器中打开下载页面。",
   "updater.windowsNotice": "安装期间 VelaTerm 会关闭，安装完成后自动重新打开。",
+  "updater.portableNotice":
+    "当前是便携版，不会自动更新。请下载新版本，用它替换当前文件夹；设置和会话都会保留。",
   "updater.installingWindows":
     "正在安装… VelaTerm 即将关闭，安装程序会完成更新并重新打开它。",
   // The status-bar new-version segment belongs to automatic updates and stays here for centralized editing.
@@ -1987,6 +2128,7 @@ const zhCN: typeof en = {
   "skills.vstat": "查看哪些会话正在工作或等待输入。",
   "skills.vtell": "向其他会话发送消息。",
   "skills.vkb": "查询项目的 CodeGraph 和知识库。",
+  "skills.vapp": "让智能体操作 VelaTerm，每项操作都由你确认。",
   "skills.settingsHint": "之后也可以在「设置 > 高级」中安装。",
   "skills.installFailed": (err) => `安装失败：${err}`,
   "skills.dontRemind": "不再提醒",
@@ -2104,6 +2246,7 @@ const zhCN: typeof en = {
   "chat.question.submit": "提交",
   "chat.question.next": "下一题",
   "chat.question.dismiss": "关闭",
+  "chat.question.skip": "跳过此题",
   "chat.question.answerPlaceholder": "输入你的回答",
   "chat.question.otherPlaceholder": "其他回答",
   "chat.question.answeredHeading": (n: number) => `已回答 ${n} 个问题`,
@@ -2157,6 +2300,8 @@ const zhCN: typeof en = {
   "chat.rewind.editWarning": "原消息及其后的全部消息将被永久删除，随后从这里发送修改后的内容。已修改的文件不会恢复。",
   "chat.rewind.inactive": "会话进程尚未启动，启动后可使用这些操作。",
   "chat.rewind.unsupported": "当前连接的 Agent 暂未提供此操作。",
+  "chat.rewind.latestOnly": "当前连接的 Agent 只能从最新一条消息回退。",
+  "chat.rewind.appliesOnSend": "发送下一条消息时才会真正回退，在此之前对话和文件都保持不变。",
   "chat.rewind.title": "从这里回退",
   "chat.rewind.warning": "此操作无法撤销。",
   "chat.rewind.conversation": "回退对话",
@@ -2253,6 +2398,10 @@ const zhCN: typeof en = {
   "chat.auth.claude.submit": "提交授权码",
   "chat.auth.claude.invalidCode": "请粘贴本次授权页面提供的完整授权码，包括 # 后面的内容。",
   "chat.auth.claude.externalAuth": "API 密钥及其他已配置的认证方式不会更改。",
+  "chat.auth.antigravity.pending": "打开授权页面并使用 Google 账号登录，然后将页面提供的授权码或完整回调链接粘贴到下方。",
+  "chat.auth.antigravity.failed": "未能完成登录，请重试，并确认当前 Antigravity CLI 支持账号授权。",
+  "chat.auth.antigravity.code": "授权码或回调链接",
+  "chat.auth.antigravity.invalidCode": "请粘贴本次登录提供的授权码或完整回调链接，且不要包含空格。",
   "chat.auth.open": "打开授权页面",
   "chat.auth.zcode.required": "登录 ZCode 后才能使用当前会话，请使用你的 Z.ai 或智谱 BigModel 账号。",
   "chat.auth.zcode.pending": "请打开授权页面并同意授权。登录完成后，此处会自动更新。",
@@ -2347,7 +2496,7 @@ const zhCN: typeof en = {
   "settings.completionTab": "仅 Tab",
   "settings.completionOff": "完全关闭",
   "settings.completionUnavailable": "无法读取或保存设置。",
-  "settings.completionHint": "在 Zsh 中输入时，光标后会以灰色显示历史中最近一条匹配的命令，按 → 或 End 采用。Tab 与 shell 原生行为一致：只有一个候选项时直接填入，候选项有共同开头时先补全这部分，仍有多个候选项时再列出。适用于新建的 Zsh、Bash 4+、Fish 和 PowerShell 终端。",
+  "settings.completionHint": "在 Zsh 中输入时，光标后会以灰色显示历史中最近一条匹配的命令，按 → 或 End 采用。通过远程连接输入时不显示灰色提示。Tab 与 shell 原生行为一致：只有一个候选项时直接填入，候选项有共同开头时先补全这部分，仍有多个候选项时再列出。适用于新建的 Zsh、Bash 4+、Fish 和 PowerShell 终端。",
   "settings.completionTabOnlyHint": "输入时不显示任何提示。按 Tab 补全，与 shell 原生行为一致：只有一个候选项时直接填入，候选项有共同开头时先补全这部分，仍有多个候选项时再列出。适用于新建的 Zsh、Bash 4+、Fish 和 PowerShell 终端。",
   "settings.completionTabKey": "Tab 键",
   "settings.completionTabAccept": "采用行内提示",
@@ -2464,29 +2613,17 @@ const zhCN: typeof en = {
   "chat.antigravity.placeholder": "向 Antigravity 发送消息，可用 @文件 引用文件",
   "chat.antigravity.textOnly": "Antigravity 会话视图目前仅支持文本消息。",
   "chat.textOnly": (agent: string) => `${agent} 会话视图仅支持文本消息。`,
+  "chat.attach.modelTextOnly": "当前选择的模型不支持图片。",
   "chat.signInRequired": (agent: string) => `使用会话视图前需要先登录 ${agent}。请切换到终端视图完成登录，然后重新发送消息。`,
-  "chat.apiKeyRequired": "DeepSeek Harness 需要 API 密钥。请设置环境变量 DEEPSEEK_API_KEY，或运行 `dsh web` 在“Models”页面保存密钥，然后重新发送消息。",
+  "chat.apiKeyRequired": "DeepSeek 需要 API 密钥。请点击输入框旁的「API」填写密钥，或设置环境变量 `DEEPSEEK_API_KEY`，然后重新发送消息。",
+  "chat.codex.activeWriter": "另一个 Codex 进程正在占用此会话。请先关闭占用该会话的其他终端标签页或 Codex 进程，或稍等片刻后重试。",
   "chat.antigravity.permissionsHint": "需要批准的工具必须先在 Antigravity 设置中获准使用，或在终端视图中使用。",
   "chat.antigravity.settingsHint": "请在回合之间修改模型、推理强度或权限。",
-  "ports.title": "端口", // Ports
-  "ports.active": "已转发", // Forwarded
-  "ports.activeEmpty": "没有已转发的端口", // No forwarded ports
-  "ports.detected": "已检测", // Detected
-  "ports.detectedEmpty": "未发现监听中的端口", // No listening ports found
-  "ports.detectionUnavailable": "此主机不支持端口检测", // Port detection is not available on this host
-  "ports.manual": "转发端口", // Forward a port
-  "ports.portPlaceholder": "远程端口", // Remote port
-  "ports.forward": "转发", // Forward
-  "ports.open": "在浏览器中打开", // Open in browser
-  "ports.stop": "停止", // Stop
-  "ports.localChanged": (port) => `本地端口 ${port} 已被占用，已改用其他本地端口`, // Local port {port} was busy, so another local port is used
-  "ports.unavailable": "不可用 — 请更新 VelaTerm", // Unavailable — update VelaTerm
-  "ports.invalidPort": (port) => `无效的端口：${port}`, // Invalid port: {port}
-  "ports.missingPort": "请输入端口", // Enter a port
-  "ports.unknownAction": (action) => `未知操作：${action}`, // Unknown action: {action}
-  "ports.limit": (max) => `每个连接最多可转发 ${max} 个端口`, // At most {max} ports can be forwarded per connection
-  "ports.notForwarded": (port) => `端口 ${port} 未被转发`, // Port {port} is not forwarded
-  "statusbar.ports": (n) => `已转发 ${n} 个端口`, // {n} forwarded ports
+  "chat.antigravity.rewindTitle": "在终端视图中回退",
+  "chat.antigravity.rewindHint": "Antigravity 会话视图暂不支持直接回退或编辑已发送消息。请切换到终端视图执行 /rewind，切回后会自动同步。",
+  "chat.antigravity.rewindGuide": "Antigravity 会话视图暂不支持直接回退或编辑已发送消息。请切换到终端视图运行 /rewind 回退对话或恢复文件，切回会话视图后会自动同步最新状态。",
+  "chat.antigravity.rewindCommandDescription": "切换到终端视图使用 /rewind 回退对话或恢复文件",
+  "chat.antigravity.switchToTerminal": "切换到终端视图",
   "chat.history.imageDownloadRequired": "无法在此打开这张图片，请下载原图查看。",
   "chat.history.readBody": "读取完整内容",
   "chat.history.selectDetail": "选择文件或字段",
@@ -2598,6 +2735,8 @@ const zhCN: typeof en = {
   "sidebarSection.nav": "侧边栏分区",
   "sidebarSection.noTasks": "还没有任务会话。",
   "sidebarSection.noChats": "还没有聊天会话。",
+  "sidebarSection.setDefaultView": "设为默认视图",
+  "sidebarSection.clearDefaultView": "取消默认视图",
   "artifact.comment": "评论",
   "artifact.commentTitle": "点选页面元素，给智能体留评论",
   "artifact.pickHint": "点击页面中的元素来评论，按 Esc 退出。",
@@ -2662,6 +2801,50 @@ const zhCN: typeof en = {
   "kb.searchEntries": "搜索条目…",
   "kb.updatedOn": (date: string) => `更新于 ${date}`,
   "archive.sessionsCount": (count: string) => `${count} 个会话`,
+
+
+  ...assist,
+  "plugins.title": "插件",
+  "plugins.subtitle": "安装、链接、启用或重载外部 VelaTerm 插件。每个插件在独立的后端进程中运行，并动态加载其界面。",
+  "plugins.installArchive": "从压缩包安装…",
+  "plugins.linkDev": "链接本地插件目录…",
+  "plugins.localOnlyHint": "仅允许在本机安装、链接或启停插件。",
+  "plugins.archivePathPrompt": "请输入 .vlxplugin 或 .zip 插件包的完整路径：",
+  "plugins.devPathPrompt": "请输入包含 manifest.json 的本地插件目录路径：",
+  "plugins.empty": "尚未安装任何插件。请安装 .vlxplugin 插件包或链接本地插件目录。",
+  "plugins.sourceInstalled": "已安装",
+  "plugins.sourceDev": "本地开发",
+  "plugins.statusRunning": "运行中",
+  "plugins.statusStarting": "启动中…",
+  "plugins.statusDisabled": "已禁用",
+  "plugins.statusStopped": "已停止",
+  "plugins.statusError": "异常",
+  "plugins.enable": "启用",
+  "plugins.disable": "禁用",
+  "plugins.reload": "重载",
+  "plugins.uninstall": "卸载",
+  "plugins.uninstallConfirm": (name: string) => `确认卸载插件“${name}”？`,
+  "plugins.removeData": "同时删除该插件的本地数据目录",
+  "plugins.loadFailed": "插件界面加载失败",
+  "ports.title": "端口", // Ports
+  "ports.active": "已转发", // Forwarded
+  "ports.activeEmpty": "没有已转发的端口", // No forwarded ports
+  "ports.detected": "已检测", // Detected
+  "ports.detectedEmpty": "未发现监听中的端口", // No listening ports found
+  "ports.detectionUnavailable": "此主机不支持端口检测", // Port detection is not available on this host
+  "ports.manual": "转发端口", // Forward a port
+  "ports.portPlaceholder": "远程端口", // Remote port
+  "ports.forward": "转发", // Forward
+  "ports.open": "在浏览器中打开", // Open in browser
+  "ports.stop": "停止", // Stop
+  "ports.localChanged": (port) => `本地端口 ${port} 已被占用，已改用其他本地端口`, // Local port {port} was busy, so another local port is used
+  "ports.unavailable": "不可用 — 请更新 VelaTerm", // Unavailable — update VelaTerm
+  "ports.invalidPort": (port) => `无效的端口：${port}`, // Invalid port: {port}
+  "ports.missingPort": "请输入端口", // Enter a port
+  "ports.unknownAction": (action) => `未知操作：${action}`, // Unknown action: {action}
+  "ports.limit": (max) => `每个连接最多可转发 ${max} 个端口`, // At most {max} ports can be forwarded per connection
+  "ports.notForwarded": (port) => `端口 ${port} 未被转发`, // Port {port} is not forwarded
+  "statusbar.ports": (n) => `已转发 ${n} 个端口`, // {n} forwarded ports
 };
 
 export default zhCN;

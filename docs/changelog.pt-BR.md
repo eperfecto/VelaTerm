@@ -1,3 +1,88 @@
+## v0.3.6 — 2026-11-24
+
+- 📝 As visualizações de diff agora aceitam comentários de revisão em linha nas linhas selecionadas, com uma barra de resumo para editar, copiar ou enviar todos os comentários diretamente para uma sessão de agente ativa.
+- 🔀 A comparação de branches no painel Git agora permite criar pull ou merge requests (incluindo rascunhos) no GitHub, GitLab e Gitea com dados pré-preenchidos, acompanhar o status e as verificações de CI, e limpar o worktree e a branch após o merge.
+- 🔌 As janelas remotas SSH agora trazem uma aba Portas no painel direito e um contador de portas encaminhadas na barra de status, detectando portas em escuta em hosts Linux para encaminhá-las, abri-las no navegador ou interrompê-las diretamente.
+- 🎨 Configurações ▸ Aparência agora permite escolher temas nomeados separados para o modo escuro (Tokyo Night, Dracula, Nord, Gruvbox Dark, Adventure Time e Campbell PowerShell) e para o modo claro (One Half Light e Solarized Light) além de Clássico, mantendo sua escolha ao alternar entre escuro e claro.
+- ⌨️ A árvore de sessões na barra lateral agora oferece navegação completa pelo teclado com setas, `Home`/`End`, `Enter` e `Escape` para devolver o foco ao terminal ativo ou à caixa de conversa, além do atalho configurável «Focar barra lateral» (`Cmd+Shift+E` no macOS, `Ctrl+Alt+S` no Windows e Linux).
+- 🔎 Pesquisar na barra lateral com um filtro de status ativo agora exibe os projetos correspondentes excluídos pelo filtro em uma seção separada «Outros projetos» abaixo dos resultados filtrados.
+- ⚡ As conversas do Antigravity agora reabrem mais rápido e enviam mensagens imediatamente, sem travar na inicialização a frio ou durante verificações em segundo plano.
+- 🪐 As conversas do Antigravity agora iniciam normalmente mesmo sem um modelo padrão selecionado, recuperam-se automaticamente de travamentos silenciosos, instabilidades de rede e estados de sessão corrompidos, mantêm as perguntas interativas utilizáveis com permissões Bypass e retomam automaticamente após a renovação da cota.
+- 🔑 As conversas do ZCode agora recebem automaticamente os novos modelos publicados na nuvem e oferecem suporte às credenciais criptografadas do ZCode 4.0, incluindo o login pelo chaveiro do sistema.
+- 🤖 Novas conversas do Grok agora começam normalmente sem avisar incorretamente que não foi possível reabrir uma conversa anterior, e conversas do Grok, Copilot, Cursor, Kimi e Antigravity cuja conversa anterior não pode mais ser reaberta se recuperam em uma nova conversa em vez de parar.
+- 🪟 No macOS, a barra de título da janela agora acompanha o tema escuro ou claro selecionado mesmo quando difere da aparência do sistema, e volta corretamente ao retornar ao modo Sistema.
+- 💬 Dispensar a dica da visualização de conversa agora é lembrado após reinicializações e entre janelas desktop, Electron e do navegador, sem reaparecer brevemente na inicialização.
+- 🧩 Sair ou fechar uma visualização de plugin no aplicativo desktop agora funciona normalmente sem voltar à tela anterior, e erros de renderização de plugins ficam isolados com a opção de tentar novamente.
+- 🔧 Alternar entre abas comuns e visualizações sem painel direito, como a base de conhecimento, não trava mais a interface.
+
+## v0.3.5 — 2026-11-23
+
+- 🔎 A pesquisa global de sessões agora permite filtrar resultados por um projeto ou uma coleção específica, incluindo coleções e projetos aninhados.
+- 🪐 Abrir várias conversas do Antigravity ao mesmo tempo não causa mais conflitos de credenciais nem solicitações duplicadas de login, e sessões ociosas renovam automaticamente credenciais expiradas em vez de falhar no meio do turno.
+- 🔄 As conversas do Antigravity agora se recuperam automaticamente de erros de modelo na inicialização a frio e de erros temporários do serviço sem interromper o turno nem perder resultados de ferramentas já concluídos.
+- 🤖 O `vapp` agora aceita `--yes` (`-y` / `--no-confirm`) para executar ações diretamente sem cartão de confirmação, e alterações feitas na base de conhecimento via `vapp` atualizam automaticamente a visualização da base de conhecimento.
+- 💬 O `vtell` agora pode enviar mensagens para qualquer sessão de agente na visualização de conversa — incluindo Antigravity, ZCode, DeepSeek, Copilot, Cursor, Kimi e Grok —, com o Antigravity também aceitando interrupções com `--steer`.
+- ✉️ Enviar uma mensagem enquanto visualiza um histórico anterior da conversa ou após perder uma atualização ao vivo não deixa mais a mensagem presa em «Enviado».
+
+## v0.3.4 — 2026-11-22
+
+- 🪐 As conversas do Antigravity agora trazem uma lista integrada de modelos com Gemini 4 Neon e Orchestrator (Neon), atualizam os modelos disponíveis em segundo plano ao abrir e permitem que sessões de longa duração mudem sem atrito para modelos recém-lançados.
+- 🔑 As conversas do Antigravity agora permitem entrar com o Google e sair diretamente na visualização de conversa.
+- 🛡️ As conversas do Antigravity agora mantêm com confiabilidade as permissões Bypass na inicialização, aguardam a lista de modelos em inicializações a frio em vez de falhar na primeira mensagem e não congelam mais o aplicativo ao abrir uma sessão.
+- 📁 O painel Arquivos agora oferece seleção múltipla, exclusão em lote e recortar, copiar e colar arquivos com o Finder e o Explorador de Arquivos, incluindo resolução de conflitos.
+- 🔎 O filtro do painel Arquivos agora pesquisa recursivamente em pastas recolhidas e expande automaticamente os caminhos encontrados.
+- 🖼️ Imagens muito grandes coladas ou soltas em conversas agora são redimensionadas e comprimidas automaticamente em vez de rejeitadas, com limite configurável de 1, 2 ou 4 MB em Configurações.
+- 🔔 A janela principal e as janelas remotas agora exibem sua própria contagem pendente no título da janela, e o selo do Dock ou da barra de tarefas mostra o total de todas as janelas abertas.
+- 🔍 Janelas remotas de SSH, WSL e URL pareada agora exibem o controle de zoom da interface na barra de status.
+- 🧱 A verificação e a confiança de chaves de host SSH agora respeitam aliases, nomes de host e portas personalizadas definidos em `~/.ssh/config`.
+- 🪟 No macOS, clicar no ícone do Dock quando apenas janelas remotas estão abertas traz essas janelas para a frente em vez de abrir uma nova janela principal, e o menu de contexto do Dock adiciona New Window.
+- 💬 Os erros de conversa agora removem códigos de escape brutos do terminal, exibem uma mensagem clara quando outro processo do Codex está usando a mesma conversa e não duplicam mais erros de inicialização.
+- 🔧 Cancelar o arraste de um projeto na barra lateral limpa imediatamente o indicador de inserção, e as sessões na visualização de conversa não recebem mais atualizações de status conflitantes dos hooks de terminal.
+
+## v0.3.3 — 2026-11-17
+
+- 🌐 O acesso remoto agora pode escutar em todas as redes, em um endereço IPv4 específico como um endereço do Tailscale, ou somente neste computador quando estiver atrás de um túnel ou proxy reverso; `vela-server --serve` aceita a mesma opção com `--bind`.
+- 🔒 A senha de acesso do `vela-server --serve` não é mais repassada a terminais, agentes e outros processos filhos, e `--password-file` a lê de um arquivo que só o proprietário pode acessar.
+- 🪐 As novas sessões do Antigravity abrem na visualização de conversa, enquanto as sessões criadas antes da atualização mantêm a visualização que tinham.
+- 🧭 Clique com o botão direito em uma seção da barra de atividades para defini-la como visualização padrão; sem uma, a barra lateral agora abre em Projetos em vez da seção vista por último.
+- 🤖 As conversas do Grok agora oferecem todos os modelos que a conta pode usar e os níveis de raciocínio de cada modelo, com `none` abaixo da escala.
+- 💬 Aprovações de plano, perguntas e formulários MCP do Grok agora aparecem como os cartões de sempre e podem ser respondidos; uma conversa que o Grok não consegue mais reabrir inicia uma nova, em vez de bloquear cada mensagem.
+- 🏷️ As sessões do Grok seguem o título que o Grok dá à conversa, e conversas muito longas ou de um projeto excluído voltam a iniciar normalmente.
+- 🧱 As conexões SSH no Windows agora respeitam `~/.ssh/config` para aliases de host, portas, usuários, arquivos de identidade e autenticação preferida.
+- 🗂️ Os projetos podem ser reordenados arrastando uma linha de projeto para a metade superior ou inferior de outra.
+- ⚙️ As Configurações reabrem na seção vista por último.
+- 💡 Os ajustes de comportamento difíceis de deduzir pelo nome agora se explicam por um ícone de informação.
+- 📁 Arquivos ganha «Recolher tudo» para fechar de uma vez todas as pastas abertas abaixo da raiz.
+- ⌨️ `Cmd/Ctrl+Tab` e `Cmd/Ctrl+Shift+Tab` vão para a próxima aba e a anterior, voltando ao início e ao fim.
+- ⌨️ Digitar `/` no terminal não o envia mais duas vezes.
+- ⌨️ A entrada no terminal após mover o cursor com as setas e usar o IME não é mais corrompida.
+- 🖥️ Uma janela espelhada que perdeu uma mudança de tamanho volta a corresponder ao tamanho do terminal, em vez de desenhar um prompt embaralhado.
+- 🧩 Os chips desativados nas configurações da barra de ferramentas de mensagens não aparecem mais atrás de More.
+
+## v0.3.2 — 2026-11-16
+
+- 🤖 As sessões do OpenCode v2 voltam a oferecer renomeação por IA e tradução, e uma renomeação por IA que falha agora informa a falha em vez de dizer que o agente não está disponível.
+- 🪐 Nas conversas do Antigravity, Carregar mensagens anteriores continua funcionando depois que o agente é ativado, em vez de não fazer nada.
+
+## v0.3.1 — 2026-11-16
+
+- 🪐 A visualização de conversa do Antigravity agora oferece troca de modelo e nível de raciocínio, acompanhamento de subagentes e tarefas em segundo plano, prompts interativos `ask_question`, permissões em cinco níveis, renomeação por IA e estatísticas de turno, velocidade de saída e uso de cota no painel Info.
+- 🐋 As sessões do DeepSeek agora oferecem tarefas em segundo plano, entrada de imagens por modelo, uso de contexto, renomeação por IA, configuração de URL e chave de API ao lado da caixa de entrada e visualização somente leitura do histórico anterior do `dsh`.
+- 🤖 Os agentes agora podem propor ações do aplicativo VelaTerm com `vapp` (incluindo organizar árvores da barra lateral com referências `$name`), exibindo cada ação ou lote como um cartão de confirmação na visualização de conversa.
+- 📁 Tarefas e Chats na barra lateral esquerda permitem criar grupos, adicionar itens pelo menu de contexto da área vazia e arrastar itens para o nível superior.
+- 📦 Os lançamentos do Windows agora incluem pacotes zip portáteis para as compilações completa e mínima, e as cópias portáteis são atualizadas pela página de download.
+- 🇨🇳 As Configurações permitem alternar o servidor de atualização e download para o espelho da China continental `velaterm.cn`.
+- 🔍 A barra de status adiciona controles de zoom da interface com entrada direta de porcentagem, e as Configurações permitem escolher fontes pesquisáveis separadas para a interface e para as conversas.
+- 📎 Arquivos arrastados do Finder ou do Explorador de Arquivos agora podem ser soltos diretamente em terminais, conversas e na árvore de arquivos do projeto.
+- 🍴 As sessões do ZCode permitem ramificar a partir da última resposta sem modificar o espaço de trabalho, reverter a partir da última mensagem e renomear por IA, enquanto as sessões do Pi e do OMP oferecem autocompletar para comandos com barra.
+- 📋 As mensagens de conversa têm «Copiar mensagem completa» no menu de contexto, a caixa de entrada conta com um menu de contexto Cortar/Copiar/Colar/Selecionar tudo com indicação dos atalhos, e a busca na conversa verifica primeiro a transcrição completa.
+- 📊 A seção Usage do painel Info exibe barras de cota agrupadas por janela de redefinição com escala de 20 divisões e horários de redefinição separados, recolhendo por padrão as cotas do Antigravity que não são Gemini.
+- 🏷️ As sessões contam com «Definir status» (Visualizada / Pendente) no menu de contexto, sessões recém-criadas permanecem visíveis sob filtros de status e `vspawn --title` define títulos personalizados para sessões derivadas e de planejamento.
+- 🪟 O `vartifact` ancora arquivos mesmo quando aberto a partir de abas em segundo plano, o seletor de limite de abas em segundo plano vai até 512 e visitantes de links públicos compartilhados podem expandir ou recolher a árvore esquerda localmente.
+- ⌨️ Confirmar uma composição IME com Enter no macOS não envia mais respostas ou buscas antes da hora, a entrada em terminais remotos oculta sugestões em linha do histórico do Zsh e atualizações sincronizadas do terminal não piscam mais a área visível.
+- 🔔 Clicar em uma notificação de janela remota no macOS traz essa janela diretamente para a frente sem piscar a janela principal antes, e reabrir o aplicativo restaura a janela principal mesmo quando apenas janelas remotas estão abertas.
+- 🔧 Trocar de projeto limpa o filtro da árvore de arquivos, os seletores de permissão salvam padrões imediatamente com Set as default, a renomeação por IA funciona em sessões muito longas e a primeira mensagem de uma nova sessão não pisca mais antes do início da sessão.
+
 ## v0.3.0 — 2026-11-08
 
 - 🔏 A versão para macOS agora é assinada com o certificado da Vlinx Software, Inc. em vez do anterior; após a atualização, talvez seja preciso conceder novamente algumas permissões do macOS, e os itens salvos nas Chaves, como senhas de conexões remotas, precisam ser autorizados de novo: quando solicitado, digite sua senha de login e escolha “Sempre Permitir”.

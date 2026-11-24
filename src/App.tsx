@@ -45,12 +45,15 @@ import { startUpdateSchedule, useUpdateState } from "./ipc/updater";
 import { env, platform } from "./platform";
 import { ConnectionBanner } from "./remote/ConnectionBanner";
 import { ProjectDialogRoutes } from "./remote/ProjectDialogRoutes";
+import { AssistRequestListener } from "./layout/Assist/AssistRequests";
 import { startMirrorSync } from "./store/mirrorSync";
 import { useTermStore } from "./store/termStore";
 import { isArtifactPath, noteArtifactWriter, openBesideSession } from "./layout/CenterPane/doc/artifact/artifactWriters";
 import { startUsageSync } from "./store/usageSync";
 import { watchSystemTheme } from "./theme";
 import { memoryRouteHidesRightPanel, useMemoryLocation } from "./layout/Memory/navigation";
+import { initPluginHost, pluginRouteHidesRightPanel } from "./plugins/host";
+import { usePluginLocation } from "./plugins/navigation";
 
 // Full-screen surfaces driven entirely by query parameters. Each renders null until its parameter is
 // present, so importing them on demand keeps their code and dependencies out of the entry chunk.
@@ -102,7 +105,11 @@ function NotificationsManager() {
 function App() {
   const leftCollapsed = useTermStore((s) => s.leftCollapsed);
   const rightCollapsed = useTermStore((s) => s.rightCollapsed);
-  const noRightPanel = memoryRouteHidesRightPanel(useMemoryLocation());
+  const memoryLocation = useMemoryLocation();
+  const pluginLocation = usePluginLocation();
+  const noRightPanel =
+    memoryRouteHidesRightPanel(memoryLocation) ||
+    pluginRouteHidesRightPanel(pluginLocation);
   const resizeLeft = useTermStore((s) => s.resizeLeft);
   const resizeRight = useTermStore((s) => s.resizeRight);
   const loadTree = useTermStore((s) => s.loadTree);
@@ -195,8 +202,9 @@ function App() {
         useTermStore.getState().openBrowserTab(req.path);
         return;
       }
-      // `vopen` always opens a tab. `vartifact` opens the file beside the calling conversation, and falls
-      // back to a tab when that conversation is not on screen (terminal session, hidden pane, phone).
+      // `vopen` always opens a tab. `vartifact` opens the file beside the calling conversation; a mounted
+      // conversation claims it even from a background tab, and the panel waits there. Only a session with
+      // no conversation pane at all (terminal session, closed tab, phone) falls back to a tab.
       if (isArtifactPath(req.path)) noteArtifactWriter(req.path, req.sessionId);
       if (req.beside && openBesideSession(req.sessionId, req.path)) return;
       useTermStore.getState().openDocTab(req.path);
@@ -231,6 +239,7 @@ function App() {
     // Account usage: read the machine-wide snapshot once, then follow the backend's broadcast. Sessions
     // render from this one copy instead of each querying its provider.
     const stopUsageSync = startUsageSync();
+    initPluginHost();
     // Authoritative session records: read the whole set once, then follow the broadcast. This is a
     // connection-level subscription, so a session this client has never opened still shows its state.
     void useTermStore.getState().syncSessionStates();
@@ -313,6 +322,7 @@ function App() {
         <DirectoryPickerModal />
       </Suspense>
       <ProjectDialogRoutes />
+      {!isShareSurface && <AssistRequestListener />}
       <Suspense fallback={null}>
         <CreateProjectModal />
         <CloneProjectModal />

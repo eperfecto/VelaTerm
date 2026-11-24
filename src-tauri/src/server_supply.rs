@@ -18,7 +18,10 @@ use std::time::Duration;
 use base64::Engine;
 use serde::Deserialize;
 
-/// This fork's GitHub releases, which publish the vela-server artifacts and `server-manifest.json`.
+/// This fork's GitHub releases, which publish the vela-server artifacts and `server-manifest.json`. The
+/// server region setting (`server_region`) does not apply here: upstream's dl.velaterm.com and its China
+/// mirror carry upstream's artifacts, which are signed with upstream's key and never verify against this
+/// fork's, so vela-server always comes from this fork's own release.
 const RELEASES: &str = "https://github.com/eperfecto/VelaTerm/releases";
 
 /// This fork's signing key, which must match `plugins.updater.pubkey` in tauri.conf.json. The fork's release
@@ -448,6 +451,8 @@ fn download_verified(
     signature: &str,
     on_pct: &dyn Fn(u8),
 ) -> Result<Vec<u8>, String> {
+    // The URL comes from this fork's manifest and is fetched as listed: the server region's mirror only
+    // holds upstream's artifacts (see `RELEASES`).
     let data = download(url, on_pct)?;
     verify_signature(&data, signature)?;
     let got = sha256_hex(&data);

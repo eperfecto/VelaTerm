@@ -1,3 +1,88 @@
+## v0.3.6 — 2026-11-24
+
+- 📝 Chế độ xem khác biệt tệp nay hỗ trợ thêm nhận xét đánh giá trực tiếp trên các dòng đã chọn, kèm thanh tổng hợp để chỉnh sửa, sao chép hoặc gửi toàn bộ nhận xét tới phiên agent đang hoạt động.
+- 🔀 Mục so sánh nhánh trong bảng Git nay cho phép tạo pull hoặc merge request (bao gồm bản nháp) trên GitHub, GitLab và Gitea với thông tin điền sẵn, xem trạng thái PR cùng kết quả kiểm tra CI, và dọn dẹp worktree cùng nhánh sau khi hợp nhất.
+- 🔌 Cửa sổ SSH từ xa nay có thêm thẻ Cổng ở bảng bên phải và bộ đếm cổng đang chuyển tiếp trên thanh trạng thái, tự động phát hiện cổng đang lắng nghe trên máy chủ Linux và cho phép chuyển tiếp, mở trong trình duyệt hoặc dừng trực tiếp.
+- 🎨 Cài đặt ▸ Giao diện nay cho phép chọn riêng các chủ đề có tên cho chế độ tối (Tokyo Night, Dracula, Nord, Gruvbox Dark, Adventure Time và Campbell PowerShell) và chế độ sáng (One Half Light và Solarized Light) bên cạnh Cổ điển, đồng thời giữ nguyên lựa chọn khi chuyển giữa sáng và tối.
+- ⌨️ Cây phiên ở thanh bên nay hỗ trợ điều hướng hoàn chỉnh bằng bàn phím với các phím mũi tên, `Home`/`End`, `Enter` và `Escape` để trả tiêu điểm về terminal hoặc ô nhập hội thoại đang mở, kèm phím tắt tùy chỉnh «Chuyển tiêu điểm vào thanh bên» (`Cmd+Shift+E` trên macOS, `Ctrl+Alt+S` trên Windows và Linux).
+- 🔎 Khi tìm kiếm trên thanh bên trong lúc bộ lọc trạng thái đang bật, các dự án khớp từ khóa nhưng bị bộ lọc ẩn nay hiển thị trong mục riêng «Dự án khác» ngay bên dưới kết quả đã lọc.
+- ⚡ Hội thoại Antigravity nay mở lại nhanh hơn và gửi tin nhắn ngay lập tức mà không bị khựng khi khởi động nguội hoặc khi đang kiểm tra nền.
+- 🪐 Hội thoại Antigravity nay khởi chạy ổn định ngay cả khi chưa chọn sẵn mô hình mặc định, tự động khôi phục sau tình trạng đứng im lặng, chập chờn mạng hoặc trạng thái phiên bị hỏng, vẫn giữ các câu hỏi chọn phương án hoạt động dưới quyền Bypass và tự động tiếp tục sau khi hạn mức được đặt lại.
+- 🔑 Hội thoại ZCode nay tự động cập nhật danh sách mô hình mới phát hành trên đám mây và hỗ trợ thông tin đăng nhập mã hóa của ZCode 4.0, bao gồm đăng nhập qua chuỗi khóa hệ thống.
+- 🤖 Các hội thoại Grok mới nay khởi chạy gọn gàng mà không báo nhầm rằng không thể mở lại hội thoại cũ, và các hội thoại Grok, Copilot, Cursor, Kimi, Antigravity không thể mở lại bản ghi trước đó sẽ tự chuyển sang hội thoại mới thay vì dừng hẳn.
+- 🪟 Trên macOS, thanh tiêu đề cửa sổ nay khớp với chủ đề tối hoặc sáng bạn chọn ngay cả khi khác với giao diện hệ thống, và khôi phục chính xác khi chuyển lại chế độ Hệ thống.
+- 💬 Việc đóng gợi ý chế độ xem hội thoại nay được ghi nhớ sau khi khởi động lại và đồng bộ giữa cửa sổ máy tính, Electron và trình duyệt mà không nhấp nháy lại lúc mở ứng dụng.
+- 🧩 Rời khỏi hoặc đóng chế độ xem plugin trên ứng dụng máy tính nay hoạt động bình thường mà không bị bật quay lại, đồng thời lỗi hiển thị của plugin được cô lập kèm nút thử lại.
+- 🔧 Chuyển đổi qua lại giữa các thẻ thông thường và các chế độ xem không có bảng bên phải, chẳng hạn kho tri thức, không còn làm sập giao diện.
+
+## v0.3.5 — 2026-11-23
+
+- 🔎 Tìm kiếm phiên toàn cục giờ cho phép lọc kết quả theo một dự án hoặc bộ sưu tập cụ thể, bao gồm cả các bộ sưu tập và dự án lồng nhau.
+- 🪐 Mở nhiều hội thoại Antigravity cùng lúc không còn gây xung đột thông tin đăng nhập hay hiện trùng lời nhắc đăng nhập, và các phiên nhàn rỗi lâu sẽ tự động gia hạn thông tin đăng nhập hết hạn thay vì báo lỗi giữa lượt.
+- 🔄 Hội thoại Antigravity giờ tự động khôi phục sau lỗi mô hình khi khởi động nguội và các lỗi tạm thời từ dịch vụ phía trên mà không làm gián đoạn lượt chạy hay mất kết quả công cụ đã hoàn thành.
+- 🤖 `vapp` giờ hỗ trợ `--yes` (`-y` / `--no-confirm`) để thực thi trực tiếp thao tác mà không cần thẻ xác nhận, đồng thời các thay đổi kho tri thức qua `vapp` sẽ tự động làm mới chế độ xem kho tri thức.
+- 💬 `vtell` giờ có thể gửi tin nhắn tới mọi phiên agent ở chế độ xem hội thoại — gồm Antigravity, ZCode, DeepSeek, Copilot, Cursor, Kimi và Grok — trong đó Antigravity hỗ trợ thêm chen ngang bằng `--steer`.
+- ✉️ Gửi tin nhắn khi đang xem lịch sử hội thoại cũ hơn hoặc sau khi bị lỡ cập nhật trực tiếp không còn khiến tin nhắn kẹt ở trạng thái «Đã gửi».
+
+## v0.3.4 — 2026-11-22
+
+- 🪐 Hội thoại Antigravity giờ đi kèm danh sách mô hình tích hợp gồm Gemini 4 Neon và Orchestrator (Neon), tự động làm mới danh sách mô hình khả dụng ở nền khi mở phiên và chuyển mượt các phiên đang chạy lâu sang mô hình mới phát hành.
+- 🔑 Hội thoại Antigravity giờ cho phép đăng nhập bằng Google và đăng xuất trực tiếp ngay trong chế độ xem hội thoại.
+- 🛡️ Hội thoại Antigravity giờ giữ ổn định quyền Bypass khi khởi động, chờ danh sách mô hình sẵn sàng khi khởi động nguội thay vì báo lỗi ngay tin nhắn đầu tiên, và không còn làm treo ứng dụng khi mở phiên.
+- 📁 Bảng Tệp giờ hỗ trợ chọn nhiều mục, xóa hàng loạt và cắt, sao chép, dán tệp đồng bộ với Finder và File Explorer, kèm xử lý xung đột trùng tên.
+- 🔎 Bộ lọc trong bảng Tệp giờ tìm kiếm đệ quy xuyên qua các thư mục đang thu gọn và tự động mở rộng đường dẫn khớp.
+- 🖼️ Ảnh quá lớn khi dán hoặc kéo thả vào hội thoại giờ được tự động thu nhỏ và nén thay vì bị từ chối, với tùy chọn giới hạn 1, 2 hoặc 4 MB trong Cài đặt.
+- 🔔 Cửa sổ chính và các cửa sổ từ xa giờ hiển thị số mục đang chờ riêng trên thanh tiêu đề từng cửa sổ, còn huy hiệu trên Dock hoặc thanh tác vụ hiển thị tổng số của mọi cửa sổ đang mở.
+- 🔍 Các cửa sổ từ xa qua SSH, WSL và URL ghép nối giờ có điều khiển thu phóng giao diện trên thanh trạng thái.
+- 🧱 Việc thăm dò và tin cậy khóa máy chủ SSH giờ tuân theo bí danh, tên máy chủ và cổng tùy chỉnh trong `~/.ssh/config`.
+- 🪟 Trên macOS, bấm biểu tượng Dock khi chỉ có cửa sổ từ xa đang mở sẽ đưa các cửa sổ đó lên trước thay vì mở cửa sổ chính mới, và menu chuột phải của Dock bổ sung New Window.
+- 💬 Thông báo lỗi trong hội thoại giờ loại bỏ mã điều khiển thô của terminal, hiển thị lời nhắc rõ ràng khi một tiến trình Codex khác đang giữ cùng hội thoại và không còn lặp lại lỗi khởi động.
+- 🔧 Hủy thao tác kéo dự án ở thanh bên sẽ xóa ngay đường chỉ báo chèn, và các phiên ở chế độ xem hội thoại không còn nhận cập nhật trạng thái xung đột từ hook của terminal.
+
+## v0.3.3 — 2026-11-17
+
+- 🌐 Truy cập từ xa giờ có thể lắng nghe trên mọi mạng, một địa chỉ IPv4 cụ thể như địa chỉ Tailscale, hoặc chỉ máy này khi đặt sau đường hầm hay proxy ngược; `vela-server --serve` nhận lựa chọn tương tự qua `--bind`.
+- 🔒 Mật khẩu truy cập của `vela-server --serve` không còn được truyền cho terminal, agent và các tiến trình con khác, và `--password-file` đọc mật khẩu từ tệp chỉ chủ sở hữu mới truy cập được.
+- 🪐 Các phiên Antigravity mới mở ở chế độ xem hội thoại, còn các phiên tạo trước khi cập nhật vẫn giữ chế độ xem cũ.
+- 🧭 Bấm chuột phải vào một mục trên thanh hoạt động để đặt làm chế độ xem mặc định; nếu chưa đặt, thanh bên giờ mở ở Dự án thay vì mục xem gần nhất.
+- 🤖 Hội thoại Grok giờ hiển thị mọi mô hình mà tài khoản có thể dùng cùng các mức suy luận riêng của từng mô hình, với `none` nằm dưới danh sách mức.
+- 💬 Phê duyệt kế hoạch, câu hỏi và biểu mẫu MCP của Grok giờ hiện thành các thẻ quen thuộc và có thể trả lời; hội thoại mà Grok không thể mở lại sẽ bắt đầu hội thoại mới thay vì chặn mọi tin nhắn.
+- 🏷️ Phiên Grok theo tiêu đề mà Grok đặt cho hội thoại, và các hội thoại rất dài hoặc thuộc dự án đã xóa lại khởi động bình thường.
+- 🧱 Kết nối SSH trên Windows giờ tuân theo `~/.ssh/config` cho bí danh máy chủ, cổng, người dùng, tệp khóa và phương thức xác thực ưu tiên.
+- 🗂️ Có thể sắp xếp lại dự án bằng cách kéo một dòng dự án lên nửa trên hoặc nửa dưới của dòng khác.
+- ⚙️ Cài đặt mở lại tại mục bạn xem gần nhất.
+- 💡 Các mục cài đặt Hành vi khó hiểu từ tên giờ có biểu tượng thông tin giải thích khi di chuột.
+- 📁 Mục Tệp có thêm Thu gọn tất cả để đóng mọi thư mục đang mở dưới thư mục gốc cùng lúc.
+- ⌨️ `Cmd/Ctrl+Tab` và `Cmd/Ctrl+Shift+Tab` chuyển sang thẻ tiếp theo và trước đó, quay vòng ở hai đầu.
+- ⌨️ Nhập `/` trong terminal không còn bị gửi hai lần.
+- ⌨️ Nhập trong terminal sau khi di chuyển con trỏ bằng phím mũi tên rồi dùng IME không còn bị lỗi ký tự.
+- 🖥️ Cửa sổ phản chiếu bỏ lỡ thay đổi kích thước nay khớp lại với kích thước terminal thay vì vẽ dấu nhắc bị lệch.
+- 🧩 Các chip đã tắt trong cài đặt thanh công cụ soạn tin không còn xuất hiện sau nút More.
+
+## v0.3.2 — 2026-11-16
+
+- 🤖 Các phiên OpenCode v2 có thể dùng lại đổi tên bằng AI và dịch, và khi đổi tên bằng AI thất bại, thông báo sẽ nêu rõ lỗi thay vì báo agent không khả dụng.
+- 🪐 Trong hội thoại Antigravity, Tải tin nhắn trước đó vẫn hoạt động sau khi agent thức dậy, thay vì không phản hồi khi bấm.
+
+## v0.3.1 — 2026-11-16
+
+- 🪐 Chế độ xem hội thoại của Antigravity nay hỗ trợ chuyển đổi mô hình và mức suy luận, theo dõi tác nhân phụ và tác vụ nền, lời nhắc tương tác `ask_question`, năm mức quyền, đổi tên bằng AI cùng thống kê lượt, tốc độ xuất và hạn mức sử dụng trong bảng Info.
+- 🐋 Các phiên DeepSeek nay hỗ trợ tác vụ nền, nhập hình ảnh theo từng mô hình, mức sử dụng ngữ cảnh, đổi tên bằng AI, cấu hình URL và khóa API ngay cạnh ô nhập liệu, và xem chỉ đọc lịch sử `dsh` trước đây.
+- 🤖 Các agent nay có thể đề xuất thao tác ứng dụng VelaTerm bằng `vapp` (bao gồm sắp xếp cây thanh bên với tham chiếu `$name`), mỗi thao tác hoặc lô thao tác hiển thị thành thẻ xác nhận trong chế độ xem hội thoại.
+- 📁 Mục Tác vụ và Trò chuyện ở thanh bên trái hỗ trợ tạo nhóm, thêm mục từ menu ngữ cảnh vùng trống và kéo thả mục ra cấp cao nhất.
+- 📦 Bản phát hành Windows nay có thêm gói zip portable cho cả bản đầy đủ và bản tối giản, và bản portable cập nhật từ trang tải xuống.
+- 🇨🇳 Phần Cài đặt cho phép chuyển máy chủ cập nhật và tải xuống sang máy chủ phản chiếu tại Trung Quốc đại lục `velaterm.cn`.
+- 🔍 Thanh trạng thái bổ sung điều khiển thu phóng giao diện hỗ trợ nhập trực tiếp phần trăm, và phần Cài đặt cho phép tìm kiếm và chọn riêng phông chữ cho giao diện và hội thoại.
+- 📎 Tệp kéo từ Finder hoặc File Explorer nay có thể thả trực tiếp vào terminal, hội thoại và cây tệp dự án.
+- 🍴 Phiên ZCode hỗ trợ rẽ nhánh từ phản hồi mới nhất mà không sửa vùng làm việc, hoàn tác từ tin nhắn mới nhất và đổi tên bằng AI, còn phiên Pi và OMP hỗ trợ tự hoàn thành lệnh gạch chéo.
+- 📋 Menu ngữ cảnh của tin nhắn hội thoại có thêm mục Sao chép toàn bộ tin nhắn, ô nhập liệu có menu Cắt/Sao chép/Dán/Chọn tất cả kèm nhãn phím tắt, và tìm kiếm trong hội thoại sẽ quét toàn bộ bản ghi trước.
+- 📊 Mục Usage trong bảng Info hiển thị các thanh hạn mức được nhóm theo chu kỳ đặt lại với thước chia 20 vạch cùng thời gian đặt lại riêng, và mặc định thu gọn các hạn mức Antigravity không phải Gemini.
+- 🏷️ Menu ngữ cảnh của phiên có thêm Đặt trạng thái (Đã xem / Đang chờ), các phiên mới tạo vẫn hiển thị khi đang bật bộ lọc trạng thái, và `vspawn --title` đặt tiêu đề tùy chỉnh cho phiên tách nhánh và phiên lập kế hoạch.
+- 🪟 `vartifact` neo tệp ngay cả khi mở từ thẻ nền, danh sách giới hạn thẻ nền mở rộng lên đến 512, và người xem liên kết chia sẻ công khai có thể mở rộng hoặc thu gọn cây bên trái cục bộ.
+- ⌨️ Xác nhận tổ hợp IME bằng Enter trên macOS không còn gửi nhầm câu trả lời hay tìm kiếm trước khi hoàn tất, nhập liệu trên terminal từ xa ẩn gợi ý lịch sử nội tuyến của Zsh, và các cập nhật đồng bộ trên terminal không còn làm nhấp nháy khung nhìn.
+- 🔔 Nhấp vào thông báo của cửa sổ từ xa trên macOS sẽ đưa thẳng cửa sổ đó lên trước mà không làm lóe cửa sổ chính trước, và mở lại ứng dụng sẽ khôi phục cửa sổ chính ngay cả khi chỉ có các cửa sổ từ xa đang mở.
+- 🔧 Chuyển dự án sẽ xóa bộ lọc cây tệp, bộ chọn quyền lưu ngay mặc định khi chọn Set as default, đổi tên bằng AI hoạt động với các phiên rất dài, và tin nhắn đầu tiên trong phiên mới không còn nhấp nháy trước khi phiên bắt đầu.
+
 ## v0.3.0 — 2026-11-08
 
 - 🔏 Bản macOS nay được ký bằng chứng chỉ của Vlinx Software, Inc. thay cho chứng chỉ trước đây, nên sau khi cập nhật có thể bạn cần cấp lại một số quyền của macOS, và các mục lưu trong Chuỗi khóa, như mật khẩu kết nối từ xa, cần được cho phép lại: khi được hỏi, hãy nhập mật khẩu đăng nhập và chọn “Luôn cho phép”.

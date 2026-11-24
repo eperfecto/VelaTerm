@@ -1,6 +1,7 @@
 //! Korean dictionary. Each entry includes its English source in a trailing review comment; en.ts enforces the complete key set.
 
 import type en from "./en";
+import assist from "../assist/ko";
 
 const ko: typeof en = {
   "panel.turnStats": "턴 통계",
@@ -8,6 +9,8 @@ const ko: typeof en = {
   "panel.showChangedFiles": "이번 턴에서 변경된 파일 보기",
   "panel.noFilesChanged": "이번 턴에서 편집된 파일이 없습니다.",
   "panel.shellEditsNotListed": "셸 명령으로 변경한 내용은 목록에 표시되지 않습니다.",
+  "panel.usageShowScope": (scope: string) => `${scope} 표시`,
+  "panel.usageHideScope": (scope: string) => `${scope} 숨기기`,
   "translation.swap": "언어 바꾸기",
   "translation.openai": "OpenAI 호환",
   "translation.bing": "Bing 번역(API 키 불필요)",
@@ -373,6 +376,7 @@ const ko: typeof en = {
   "common.create": "생성", // Create
   "common.close": "닫기", // Close
   "chat.copyAsMarkdown": "Markdown 형식으로 복사",
+  "chat.copyEntireMessage": "메시지 전체 복사",
   "chat.imageViewOriginal": "원본 이미지 보기",
   "chat.imageCopy": "이미지 복사",
   "chat.imageSave": "이미지 저장",
@@ -490,6 +494,7 @@ const ko: typeof en = {
   "settings.catTerminal": "터미널", // Terminal
   "settings.catBehavior": "동작", // Behavior
   "settings.catAgents": "에이전트", // Agents
+  "settings.catPlugins": "플러그인",
   "settings.agentDefaultsTitle": "새 세션 기본값",
   "settings.referSummaryTitle": "세션 참조 컨텍스트",
   "settings.referSummaryMode": "컨텍스트 방식",
@@ -525,7 +530,23 @@ const ko: typeof en = {
   "settings.agentDefaultView": "기본 보기", // Default view
   "settings.agentDefaultViewHint":
     "이 에이전트의 새 세션이 열리는 보기입니다. 기존 세션은 만들 때의 보기를 유지합니다.", // Agent default view hint
+  "settings.deepseekApiTitle": "DeepSeek API",
+  "settings.deepseekApiDesc":
+    "DeepSeek 대화는 OpenCode를 통해 실행됩니다. 여기에 API 주소와 키를 입력하면 모든 대화에서 동일한 로그인 정보를 사용합니다.",
+  "settings.deepseekBaseUrl": "API 주소",
+  "settings.deepseekEndpointHint":
+    "주소를 비워 두면 공식 엔드포인트를 사용합니다. 변경 사항은 다음 메시지부터 적용됩니다.",
+  "settings.deepseekApiKey": "API 키",
+  "settings.deepseekKeySaved": "저장됨(비워 두면 유지)",
+  "settings.deepseekKeyPlaceholder": "DeepSeek API 키 입력",
+  "settings.deepseekRemoveKey": "키 삭제",
+  "settings.deepseekSaved": "저장했습니다.",
+  "settings.deepseekInvalid": "유효한 http(s) API 주소와 한 줄짜리 API 키를 입력하세요.",
+  "settings.deepseekLocalOnly": "이 자격 증명은 실행 호스트에 저장되므로 호스트에서만 변경할 수 있습니다.",
   "settings.appearance": "외관", // Appearance
+  "settings.darkTheme": "다크 테마", // Dark theme
+  "settings.lightTheme": "라이트 테마", // Light theme
+  "settings.themeClassic": "클래식", // Classic
   "settings.accent": "강조색", // Accent
   "settings.accentAuto": "테마 따름", // Follow theme
   "settings.density": "밀도", // Density
@@ -542,12 +563,16 @@ const ko: typeof en = {
   "settings.navTree": "표준", // Tree
   "settings.navCompact": "조밀", // Compact
   "settings.tabs": "탭", // Tabs
+  "settings.tabsHint": "'단일'은 여는 세션마다 같은 탭을 재사용하고 나머지는 백그라운드에서 계속 실행합니다. '다중'은 각 세션에 고유한 탭을 부여합니다.", // Single reuses one tab for every session you open, keeping the others running in the background. Multi gives each session its own tab.
   "settings.dynamicStatusFilter": "상태 필터 동적 추가",
+  "settings.dynamicStatusFilterHint": "상태 필터는 적용한 시점에 일치했던 세션을 유지합니다. 켜면 이후에 일치하기 시작한 세션도 추가됩니다. 상태가 바뀌어도 세션이 목록에서 제거되지는 않습니다.", // A status filter keeps the sessions that matched when you applied it. When on, sessions that begin matching later are added as well. Sessions are never removed as their status changes.
   "settings.tabSingle": "단일", // Single
   "settings.tabMulti": "다중", // Multi
   "settings.maxLiveTabs": "Background limit", // Background limit
+  "settings.maxLiveTabsHint": "단일 탭 모드에서 백그라운드로 계속 실행할 세션 수입니다. 한도를 넘으면 가장 오래된 유휴 세션이 닫히며, 작업 중이거나 응답을 기다리거나 읽지 않은 알림이 있는 세션은 유지됩니다.", // How many sessions keep running in the background in single-tab mode. Beyond the limit the oldest idle session is closed; ones that are working, waiting for you, or holding an unread notification are kept.
   "settings.defaultShell": "기본 셸", // Default shell
   "settings.spawnConfirm": "Confirm before spawn", // Confirm before spawn
+  "settings.spawnConfirmHint": "직접 여는 탭이 아니라 에이전트가 vspawn으로 파생시키는 세션에 적용됩니다. 켜면 세션이 시작되기 전에 프롬프트를 검토하고 편집할 수 있습니다.", // Applies to sessions an agent derives with vspawn, not to tabs you open yourself. When on, you can review and edit the prompt before the session starts.
   "settings.scopeTabsToProject": "활성 프로젝트의 탭만 표시", // Show only the active project's tabs
   "settings.scopeTabsToProjectHint": "사이드바에서 프로젝트를 선택하면 해당 프로젝트의 탭과 전역 터미널만 표시됩니다. 숨겨진 탭은 계속 실행됩니다.", // Selecting a project in the sidebar shows only its tabs plus global terminals. Hidden tabs keep running.
   "settings.usageAuto": "Usage auto-refresh", // Usage auto-refresh
@@ -662,6 +687,31 @@ const ko: typeof en = {
   "changes.ignoreWhitespace": "공백 무시",
   "changes.collapseUnchanged": "변경되지 않은 줄 접기",
   "changes.tooLarge": "이 파일은 미리 보기 한도인 2 MiB를 초과합니다.",
+  "changes.review.addLine": (range: string) => `${range}에 코멘트`,
+  "changes.review.addFile": "코멘트 추가",
+  "changes.review.gutterHint": (line: number) => `${line}번째 줄에 리뷰 코멘트 추가`,
+  "changes.review.sideOriginal": "변경 전",
+  "changes.review.sideModified": "변경 후",
+  "changes.review.fieldLabel": "리뷰 코멘트",
+  "changes.review.placeholder": "에이전트에게 전달할 피드백을 입력하세요 (Enter로 저장, Shift+Enter로 줄 바꿈)…",
+  "changes.review.save": "코멘트 저장",
+  "changes.review.cancel": "취소",
+  "changes.review.edit": "편집",
+  "changes.review.remove": "삭제",
+  "changes.review.count": (count: number, files: number) =>
+    count === 1 ? "리뷰 코멘트 1개" : `파일 ${files}개에 리뷰 코멘트 ${count}개`,
+  "changes.review.showList": "코멘트 목록",
+  "changes.review.hideList": "목록 접기",
+  "changes.review.clearAll": "모두 지우기",
+  "changes.review.targetAgent": "대상 세션",
+  "changes.review.sendTo": (agent: string) => `${agent}에 보내기`,
+  "changes.review.pasteTo": (agent: string) => `${agent}에 붙여넣기`,
+  "changes.review.sending": "보내는 중…",
+  "changes.review.copy": "리뷰 복사",
+  "changes.review.copied": "복사됨",
+  "changes.review.noAgent": "코멘트를 바로 보내려면 이 저장소에서 에이전트 세션을 열거나 시작하세요.",
+  "changes.review.promptHeader": "현재 변경 사항에 대한 다음 코드 리뷰 코멘트를 반영해 주세요:",
+  "changes.review.promptComment": "코멘트:",
   "git.fileStatus.modified": "수정됨",
   "git.fileStatus.added": "추가됨",
   "git.fileStatus.deleted": "삭제됨",
@@ -709,6 +759,39 @@ const ko: typeof en = {
   "git.pr.noToken": "여기서 풀 리퀘스트를 만들려면 설정에서 Gitea 토큰을 추가하세요.",
   "git.pr.unreachable": "지금은 Gitea 서버에 연결할 수 없습니다.",
   "git.pr.opened": "풀 리퀘스트를 만들었습니다",
+  "git.pr.openMr": "머지 리퀘스트 만들기",
+  "git.pr.openedMr": "머지 리퀘스트를 만들었습니다",
+  "git.pr.formTitleProvider": (provider: string) =>
+    provider === "gitlab"
+      ? "GitLab 머지 리퀘스트 만들기"
+      : provider === "github"
+        ? "GitHub 풀 리퀘스트 만들기"
+        : "Gitea 풀 리퀘스트 만들기",
+  "git.pr.formDescriptionMr": (branch: string, base: string) =>
+    `${branch}을(를) origin에 푸시하고 ${base}(으)로 병합하는 머지 리퀘스트를 만듭니다.`,
+  "git.pr.draftField": "초안(Draft)으로 만들기",
+  "git.pr.noGhCli": "여기서 풀 리퀘스트를 만들려면 GitHub CLI(gh)를 설치하세요.",
+  "git.pr.noGhAuth": "GitHub에 연결하려면 터미널에서 gh auth login을 실행하세요.",
+  "git.pr.noGlabCli": "여기서 머지 리퀘스트를 만들려면 GitLab CLI(glab)를 설치하세요.",
+  "git.pr.noGlabAuth": "GitLab에 연결하려면 터미널에서 glab auth login을 실행하세요.",
+  "git.pr.state.open": "열림",
+  "git.pr.state.draft": "초안",
+  "git.pr.state.merged": "병합됨",
+  "git.pr.state.closed": "닫힘",
+  "git.pr.checks.passing": "검사 통과",
+  "git.pr.checks.failing": "검사 실패",
+  "git.pr.checks.pending": "검사 진행 중",
+  "git.pr.refreshStatus": "상태 새로 고침",
+  "git.pr.cleanupWorktree": "워크트리 정리…",
+  "git.pr.cleanupTitle": "병합된 워크트리 정리",
+  "git.pr.cleanupDescription": (branch: string, path: string) =>
+    `브랜치 ${branch}이(가) 병합되었습니다. 워크트리 ${path}을(를) 삭제하시겠습니까?`,
+  "git.pr.cleanupDeleteBranch": (branch: string) => `로컬 브랜치 ${branch} 삭제`,
+  "git.pr.cleanupArchiveSession": "이 세션 보관",
+  "git.pr.cleanupArchiveHint": "선택을 해제하면 기본 저장소 디렉터리에서 세션을 계속 유지합니다.",
+  "git.pr.cleanupForce": "커밋되지 않은 변경 사항 강제 삭제",
+  "git.pr.cleanupSubmit": "정리",
+  "git.pr.cleanupSubmitting": "정리 중…",
   "git.push": "푸시",
   "git.pushTitle": (u: string) => `${u}(으)로 푸시`,
   "git.publish": "브랜치 게시",
@@ -826,18 +909,32 @@ const ko: typeof en = {
   "settings.recordSessions": "세션 로그 기록", // Record session logs
   "settings.recordSessionsHint":
     "기본값은 끔. 켜면 터미널 출력을 로그 파일로 저장해 보관 재생과 검색에 사용합니다. 일반 터미널 세션은 기록하지 않으며, 에이전트 세션은 자체 대화 기록을 읽습니다.", // Record session logs hint
-  "settings.fonts": "Fonts", // TODO translate
+  "settings.fonts": "글꼴",
   "settings.uiFontSize": "인터페이스 글꼴 크기",
   "settings.termFont": "터미널 글꼴",
   "settings.termFontSize": "터미널 글꼴 크기",
   "settings.termLineHeight": "터미널 줄 높이",
   "settings.chatTypography": "대화 보기",
-  "settings.chatTypographyHint": "글꼴 설정은 터미널과 별도로 저장되며 변경 사항은 즉시 적용됩니다.",
+  "settings.chatTypographyHint": "이 설정은 터미널과 별도로 저장되며 변경 사항은 즉시 적용됩니다. 기본적으로 본문에는 인터페이스 글꼴이, 코드에는 인터페이스 고정폭 글꼴이 사용됩니다.",
   "settings.chatFont": "대화 글꼴",
   "settings.chatFontSize": "대화 글꼴 크기",
   "settings.chatLineHeight": "대화 줄 높이",
+  "settings.chatCodeFont": "대화 코드 글꼴",
+  "settings.chatLetterSpacing": "대화 자간",
+  "settings.uiTypography": "인터페이스 글꼴",
+  "settings.uiTypographyHint": "메뉴, 목록, 대화상자, 문서에 적용됩니다. 고정폭 글꼴은 코드, 경로, 변경 비교에 사용되며 터미널 글꼴은 따로 설정합니다.",
+  "settings.uiFont": "일반 글꼴",
+  "settings.uiMonoFont": "고정폭 글꼴",
+  "settings.fontPreview": "미리 보기",
+  "settings.fontPreviewText": "다람쥐 헌 쳇바퀴에 타고파. The quick brown fox 0123456789",
+  "settings.fontPreviewChat": "설정 화면을 업데이트했습니다. 각 글꼴 설정은 즉시 적용되며 언제든지 기본값으로 되돌릴 수 있습니다.",
+  "settings.fontResetGroup": "글꼴 기본값 복원",
+  "settings.chatImages": "이미지",
+  "settings.chatImageMaxMb": "이미지 크기 상한",
+  "settings.chatImageMaxMbHint": "전송하기 전에 긴 변이 1568픽셀을 넘거나 이 한도를 초과하는 이미지는 자동으로 크기를 조절하고 압축합니다. 디코딩할 수 없거나 압축 후에도 한도를 넘는 경우에만 첨부하지 않습니다.",
+  "settings.chatImageSizeMb": (mb: number) => `${mb} MB`,
   "settings.composerChips": "메시지 입력 도구 모음",
-  "settings.composerChipsHint": "켜진 항목은 여기에 표시된 순서대로 메시지 옆에 나타납니다. 에이전트가 실행 중이 아니거나, 백그라운드 작업이 없거나, 로그인이 완료되지 않아 기능을 일시적으로 사용할 수 없을 때도 해당 항목은 비어 있거나 비활성화된 상태로 표시됩니다. 현재 에이전트가 지원하지 않는 기능은 표시하지 않습니다. 공간이 부족한 항목은 더 보기 메뉴로 이동합니다. 여기서 끈 항목은 해당 메뉴에만 표시되며, 설정은 계속 여기서 변경할 수 있습니다.",
+  "settings.composerChipsHint": "켜진 항목은 여기에 표시된 순서대로 메시지 옆에 나타납니다. 에이전트가 실행 중이 아니거나, 백그라운드 작업이 없거나, 로그인이 완료되지 않아 기능을 일시적으로 사용할 수 없을 때도 해당 항목은 비어 있거나 비활성화된 상태로 표시됩니다. 현재 에이전트가 지원하지 않는 기능은 표시하지 않습니다. 공간이 부족한 항목은 더 보기 메뉴로 이동합니다. 여기서 끈 항목은 다시 켤 때까지 어디에도 표시되지 않습니다.",
   "settings.composerChipUp": (chip: string) => `${chip} 위로 이동`,
   "settings.composerChipDown": (chip: string) => `${chip} 아래로 이동`,
   "settings.composerChip.model": "모델",
@@ -854,15 +951,21 @@ const ko: typeof en = {
   "settings.composerChip.account": "계정",
   "settings.composerChip.codexCredits": "Codex 초기화 이용권",
   "settings.fontDefault": "기본값",
-  "settings.fontCustom": "Custom…", // TODO translate
+  "settings.fontSearch": "글꼴 검색…",
+  "settings.fontUseCustom": (query: string) => `${query} 사용`,
   "settings.fontListUnavailable": "시스템 글꼴 목록을 가져올 수 없습니다. 글꼴 이름을 직접 입력할 수 있습니다.",
   "settings.fontUnconfirmed": "이 글꼴을 사용할 수 있는지 확인할 수 없습니다.",
-  "settings.fontAuto": "Auto", // TODO translate
-  "settings.fontSmaller": "Smaller", // TODO translate
-  "settings.fontLarger": "Larger", // TODO translate
-  "settings.fontReset": "Reset", // TODO translate
+  "settings.fontAuto": "자동",
+  "settings.fontSmaller": "작게",
+  "settings.fontLarger": "크게",
+  "settings.fontReset": "초기화",
   "settings.sound": "알림음", // Notification sound
   "settings.language": "언어", // Language
+  "settings.serverRegion": "서버", // Server
+  "settings.serverRegionGlobal": "국제", // International
+  "settings.serverRegionChina": "중국 본토", // Mainland China
+  "settings.serverRegionHint":
+    "웹사이트 링크와 모델 카탈로그에 사용됩니다. ‘중국 본토’를 선택하면 velaterm.cn을 사용하며, 중국 내에서 더 빠르게 접속할 수 있습니다. 업데이트와 vela-server는 항상 이 빌드의 GitHub 릴리스에서 받습니다. 계정 관련 기능은 항상 velaterm.com을 사용합니다.",
   "settings.langAuto": "자동 (시스템)", // Auto (system)
   "settings.skillLabel": "Vela Skills",
   "settings.skillInstall": "Install", // Install
@@ -901,6 +1004,7 @@ const ko: typeof en = {
   "settings.scCopyTerminal": "터미널 선택 내용 복사", // Copy terminal selection
   "settings.scSelectAllTerminal": "터미널에서 모두 선택", // Select all in terminal
   "settings.scSaveDoc": "문서 저장", // Save document
+  "settings.scFocusSidebar": "사이드바로 포커스", // Focus sidebar
   "settings.scRecording": "키를 누르세요…", // Press keys…
   "settings.scHint": "단축키를 클릭한 다음 새 조합을 누르세요(Cmd/Ctrl 필요).", // hint
   "settings.scScreenshotSection": "스크린샷",
@@ -999,6 +1103,19 @@ const ko: typeof en = {
   "remote.cloudflareHelpEmail": "Zero Trust › Integrations › Identity providers › One-time PIN. 앱 정책에서는 Allow › Include › Emails를 사용하세요.", // Zero Trust › Integrations › Identity providers › One-time PIN. In the app policy, use Allow › Include › Emails.
   "remote.cloudflareHelpDashboard": "대시보드", // Dashboard
   "remote.cloudflareHelpDocs": "문서", // Docs
+  "remote.listenLabel": "수신 주소", // Listen on
+  "remote.listenAll": "모든 네트워크", // All networks
+  "remote.listenLoopback": "이 컴퓨터만 (터널)", // This computer only (tunnel)
+  "remote.listenUnavailable": (ip: string) => `${ip}(사용 불가)`, // ${ip} (not available)
+  "remote.reachAll": "이 컴퓨터가 연결된 모든 네트워크에서 접속할 수 있습니다.", // Reachable from every network this computer is connected to.
+  "remote.reachOnly": (addr: string) => `${addr}에서만 접속할 수 있습니다.`, // Reachable only at ${addr}.
+  "remote.reachTunnel": "이 컴퓨터의 터널이나 프록시를 통해서만 접속할 수 있습니다(예: tailscale serve, ssh -L).", // Reachable only through a tunnel or proxy on this computer, for example tailscale serve or ssh -L.
+  "remote.pairingHostLabel": "페어링 링크 주소", // Address for pairing links
+  "remote.pairingHostPlaceholder": "host.tailnet.ts.net", // host.tailnet.ts.net
+  "remote.pairingHostNeeded": "클라이언트가 터널을 통해 이 컴퓨터에 접속합니다. 클라이언트가 사용하는 호스트 이름 또는 IP를 입력하세요. 입력하지 않으면 페어링 링크가 127.0.0.1을 가리키며 ssh -L에서만 동작합니다.", // Clients reach this computer through a tunnel. Enter the host name or IP they use. Without it, pairing links point to 127.0.0.1, which only works with ssh -L.
+  "remote.bindInvalid": (value: string) => `“${value}”은(는) 올바른 수신 주소가 아닙니다. 모든 네트워크, 이 컴퓨터만, 또는 이 컴퓨터의 IPv4 주소를 선택하세요.`, // "${value}" is not a valid listen address. Choose all networks, this computer only, or an IPv4 address of this computer.
+  "remote.bindUnavailable": (ip: string) => `${ip} 주소는 이 컴퓨터에서 사용할 수 없습니다. 네트워크나 VPN에 연결하거나 다른 주소를 선택하세요. 원격 접속이 모든 네트워크로 대체되는 일은 없습니다.`, // The address ${ip} is not available on this computer. Connect the network or VPN, or choose another address. Remote access never falls back to all networks.
+  "remote.pairingHostInvalid": (value: string) => `“${value}”은(는) 올바른 페어링 링크 주소가 아닙니다. 스킴, 포트, 경로 없이 호스트 이름 또는 IPv4 주소를 입력하세요.`, // "${value}" is not a valid address for pairing links. Enter a host name or an IPv4 address, without scheme, port, or path.
 
   // ── Remote connection panel ──
   "connect.wslUpgrade": "이 작업 공간에서 다른 버전의 서버가 실행 중입니다. 서버를 다시 시작하면 이 WSL 작업 공간의 모든 실행 중인 세션이 종료됩니다.",
@@ -1072,6 +1189,7 @@ const ko: typeof en = {
   "tree.deleteGroup": "그룹 삭제", // Delete Group
   "tree.deleteSession": "세션 삭제", // Delete Session
   "tree.projectRoot": "프로젝트 루트 (그룹 없음)", // Project root (no group)
+  "tree.collectionRoot": (name: string) => `${name} (그룹 없음)`,
   "tree.moveToSession": "세션 아래로 이동 (하위로)", // Move under a session (as child)
   "tree.moveTo": "이동…", // Move to…
   "tree.openNewTab": "새 탭에서 열기", // Open in New Tab
@@ -1178,6 +1296,7 @@ const ko: typeof en = {
   "tree.filterStatus": "상태로 필터", // Filter by status
   "tree.refreshStatusFilter": "상태 필터 새로 고침",
   "tree.refreshStatusMatch": "상태 새로 고침",
+  "tree.setStatus": "상태 설정", // Set Status
   "tree.filterStatusSection": "상태", // Status
   "tree.filterMarkSection": "표시", // Mark
   "tree.sortSection": "정렬", // Order
@@ -1373,6 +1492,9 @@ const ko: typeof en = {
 
   // ── Global session-content search ──
   "search.allPlaceholder": "모든 세션 내용 검색…", // Search across all session content…
+  "search.inLocationPlaceholder": (name) => `${name}에서 검색…`, // Search in {name}…
+  "search.allLocations": "모든 프로젝트 및 컬렉션", // All projects & collections
+  "search.filterLocation": "프로젝트 또는 컬렉션으로 필터", // Filter by project or collection
   "search.hint":
     "세션 내용을 검색합니다. 보관된 세션은 기본적으로 제외되며 '보관 세션 포함'을 선택하면 추가됩니다.", // Search session content. Archived sessions are excluded by default.
   "search.includeArchived": "보관 세션 포함", // Include archived
@@ -1396,10 +1518,9 @@ const ko: typeof en = {
 
   // ── Center pane ──
   "center.noSession": "세션 없음", // No session
-  "center.noSessionHintPre": "사이드바에서 세션을 선택하거나 ", // Pick a session from the sidebar, or press
-  "center.noSessionHintPost": " 로 터미널을 만드세요", // to create a terminal
   "center.createTerminal": "터미널 만들기", // Create Terminal
-  "center.splitHint": "세션을 연 후 다음 단축키로 화면을 분할할 수 있습니다:",
+  "center.startTitle": "세션 시작", // Start a session
+  "center.startHint": "사이드바에서 세션을 선택하거나 새로 시작하세요.", // Pick one from the sidebar, or start something new.
   "tab.unsavedDot": "저장되지 않은 변경", // Unsaved changes
   "tab.newTerminal": "새 터미널", // New terminal
   "tab.newGlobalTerminal": "새 전역 터미널", // New global terminal
@@ -1605,13 +1726,25 @@ const ko: typeof en = {
   "files.nameLabel": "이름", // Name
   "files.newTooltip": "새 파일 또는 폴더", // New file or folder
   "files.openInTerminal": "Open in Terminal",
+  "files.collapseAll": "모두 접기", // Collapse All
   "files.revealInFinder": "Show in File Manager",
   "files.copyPath": "경로 복사", // Copy Path
   "files.copyRelPath": "상대 경로 복사", // Copy Relative Path
   "files.filterPlaceholder": "Filter files…",
+  "files.filterTruncated": "일부 상위 결과만 표시됩니다. 검색어를 더 입력해 범위를 좁히세요.",
   "files.dblClickOpen": "두 번 클릭하여 열기",
   "files.deleteConfirm": (name) =>
     `"${name}"을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.`, // Delete "{name}"? This can't be undone.
+  "files.deleteManyConfirm": (count) =>
+    `항목 ${count}개를 삭제할까요? 이 작업은 되돌릴 수 없습니다.`, // Delete {count} items? This can't be undone.
+  "files.pasteConflictTitle": "항목이 이미 존재합니다", // Item already exists
+  "files.pasteConflictBody": (name) =>
+    `대상 폴더에 "${name}" 항목이 이미 있습니다.`, // An item named "{name}" already exists in the destination folder.
+  "files.pasteConflictProgress": (current, total) => `${current} / ${total}`, // {current} of {total}
+  "files.pasteConflictApplyAll": "남은 충돌 항목에 모두 적용", // Apply to all remaining conflicts
+  "files.pasteReplace": "바꾸기", // Replace
+  "files.pasteSkip": "건너뛰기", // Skip
+  "files.pasteKeepBoth": "둘 다 유지", // Keep Both
 
   // ── File transfer (remote access) ──
   "transfer.title": "전송", // Transfers
@@ -1625,6 +1758,9 @@ const ko: typeof en = {
   "transfer.downloading": "다운로드 중…", // Downloading…
   "transfer.savedToDownloads": "다운로드 폴더에 저장됨", // Saved to Downloads
   "transfer.foldersUnsupported": "폴더는 업로드할 수 없습니다.", // Folders can't be uploaded.
+  "drop.browserFilesHint": "브라우저에서는 여기에 이미지만 놓을 수 있습니다. 다른 파일은 먼저 프로젝트에 업로드하세요.", // In the browser, only images can be dropped here. To use other files, upload them to the project first.
+  "files.copyFailed": "일부 파일을 복사하지 못했습니다. 파일이 아직 있는지, 이 폴더에 쓰기 권한이 있는지 확인하세요.", // Some files could not be copied. Check that they still exist and that you can write to this folder.
+  "files.pasteFailed": "일부 항목을 붙여넣지 못했습니다. 원본 항목이 있는지, 이 폴더에 쓰기 권한이 있는지 확인하세요.", // Some items could not be pasted. Check that the sources exist and that you can write to this folder.
 
   // ── Status bar ──
   "statusbar.sessions": (n) => `세션 ${n}개`, // {n} sessions
@@ -1640,6 +1776,11 @@ const ko: typeof en = {
   "statusbar.permSkip": "권한: 건너뛰기", // Perms: Skip
   "statusbar.notifyOn": "Notify: On", // TODO translate
   "statusbar.notifyOff": "Notify: Off", // TODO translate
+  "statusbar.zoomGroup": "화면 배율",
+  "statusbar.zoomOut": "축소",
+  "statusbar.zoomIn": "확대",
+  "statusbar.zoomEdit": "화면 배율 · 클릭하여 배율 입력(80~200%)",
+  "statusbar.zoomInput": "화면 배율(80~200)",
   "statusbar.permTooltip": "이 세션의 권한 모드 · 클릭하여 변경 (이 세션만)", // This session's permission mode · click to change (this session only)
   "statusbar.permMenuTitle": "이 세션의 권한", // This session's permissions
   "statusbar.permOptAsk": "매번 확인 (기본값)", // Ask each time (default)
@@ -1995,10 +2136,12 @@ const ko: typeof en = {
   "updater.hide": "Hide", // TODO translate
   "updater.hideHint":
     "Keep downloading in the background. Progress stays in the status bar.", // TODO translate
-  "updater.downloadManually": "Download manually", // TODO translate
-  "updater.downloadManuallyHint": "Open the download page in your browser.", // TODO translate
+  "updater.downloadManually": "직접 다운로드",
+  "updater.downloadManuallyHint": "브라우저에서 다운로드 페이지를 엽니다.",
   "updater.windowsNotice":
     "VelaTerm will close while the installer runs, then reopen on its own.", // TODO translate
+  "updater.portableNotice":
+    "이 포터블 버전은 자동으로 업데이트되지 않습니다. 새 버전을 다운로드한 후 현재 폴더를 교체하세요. 설정과 세션은 그대로 유지됩니다.",
   "updater.installingWindows":
     "Installing… VelaTerm is about to close. The installer will finish the update and reopen it.", // TODO translate
   "statusbar.updateAvailable": (version) => `Update ${version}`, // TODO translate
@@ -2020,6 +2163,7 @@ const ko: typeof en = {
   "skills.vstat": "작업 중이거나 입력을 기다리는 세션을 확인합니다.",
   "skills.vtell": "다른 세션에 메시지를 보냅니다.",
   "skills.vkb": "프로젝트의 CodeGraph와 지식 베이스를 조회합니다.",
+  "skills.vapp": "에이전트가 VelaTerm을 조작하게 합니다. 각 작업은 사용자가 확인해야 실행됩니다.",
   "skills.settingsHint": "나중에 설정 > 고급에서도 설치할 수 있습니다.",
   "skills.installFailed": (err) => `설치하지 못했습니다: ${err}`,
   "skills.dontRemind": "다시 알리지 않음",
@@ -2137,6 +2281,7 @@ const ko: typeof en = {
   "chat.question.submit": "제출",
   "chat.question.next": "다음",
   "chat.question.dismiss": "닫기",
+  "chat.question.skip": "건너뛰기",
   "chat.question.answerPlaceholder": "답변을 입력하세요",
   "chat.question.otherPlaceholder": "다른 답변",
   "chat.question.answeredHeading": (n: number) => `질문 ${n}개에 답변함`,
@@ -2190,6 +2335,8 @@ const ko: typeof en = {
   "chat.rewind.editWarning": "원본 메시지와 이후의 모든 메시지가 영구적으로 삭제되고, 수정한 내용이 이 지점에서 전송됩니다. 변경된 파일은 복원되지 않습니다.",
   "chat.rewind.inactive": "대화 프로세스가 실행 중이 아닙니다. 시작된 후 이 작업을 사용할 수 있습니다.",
   "chat.rewind.unsupported": "현재 연결된 에이전트는 이 작업을 제공하지 않습니다.",
+  "chat.rewind.latestOnly": "현재 연결된 에이전트는 최신 메시지에서만 되돌릴 수 있습니다.",
+  "chat.rewind.appliesOnSend": "되돌리기는 다음 메시지를 전송할 때 적용됩니다. 그전까지 대화와 파일은 변경되지 않습니다.",
   "chat.rewind.title": "여기서부터 되돌리기",
   "chat.rewind.warning": "이 작업은 실행 후 되돌릴 수 없습니다.",
   "chat.rewind.conversation": "대화 되돌리기",
@@ -2286,6 +2433,10 @@ const ko: typeof en = {
   "chat.auth.claude.submit": "코드 제출",
   "chat.auth.claude.invalidCode": "이번 인증 페이지에 표시된 코드를 # 뒤의 내용까지 모두 붙여 넣으세요.",
   "chat.auth.claude.externalAuth": "API 키와 그 밖에 설정된 인증 방식은 변경되지 않습니다.",
+  "chat.auth.antigravity.pending": "인증 페이지를 열어 Google 계정으로 로그인한 다음, 표시된 인증 코드 또는 콜백 URL을 붙여 넣으세요.",
+  "chat.auth.antigravity.failed": "로그인을 완료하지 못했습니다. 현재 Antigravity CLI가 계정 인증을 지원하는지 확인하고 다시 시도하세요.",
+  "chat.auth.antigravity.code": "인증 코드 또는 콜백 URL",
+  "chat.auth.antigravity.invalidCode": "이번 로그인에서 받은 인증 코드 또는 콜백 URL을 공백 없이 붙여 넣으세요.",
   "chat.auth.open": "인증 페이지 열기",
   "chat.auth.zcode.required": "현재 대화를 사용하려면 Z.ai 또는 BigModel 계정으로 ZCode에 로그인하세요.",
   "chat.auth.zcode.pending": "인증 페이지를 열고 접근을 허용하세요. 로그인이 완료되면 이 화면이 자동으로 업데이트됩니다.",
@@ -2380,7 +2531,7 @@ const ko: typeof en = {
   "settings.completionTab": "Tab만",
   "settings.completionOff": "끄기",
   "settings.completionUnavailable": "설정을 불러오거나 저장할 수 없습니다.",
-  "settings.completionHint": "Zsh에서 입력하는 동안 기록에서 가장 최근에 일치한 명령이 커서 뒤에 흐리게 표시되며, → 또는 End 키로 적용할 수 있습니다. Tab은 셸 기본 동작과 같습니다. 후보가 하나면 바로 입력하고, 후보에 공통된 부분이 있으면 먼저 채우며, 후보가 여러 개 남으면 목록을 표시합니다. 새로 연 Zsh, Bash 4+, Fish 및 PowerShell 터미널에 적용됩니다.",
+  "settings.completionHint": "Zsh에서 입력하는 동안 기록에서 가장 최근에 일치한 명령이 커서 뒤에 흐리게 표시되며, → 또는 End 키로 적용할 수 있습니다. 원격 연결에서 입력할 때는 표시되지 않습니다. Tab은 셸 기본 동작과 같습니다. 후보가 하나면 바로 입력하고, 후보에 공통된 부분이 있으면 먼저 채우며, 후보가 여러 개 남으면 목록을 표시합니다. 새로 연 Zsh, Bash 4+, Fish 및 PowerShell 터미널에 적용됩니다.",
   "settings.completionTabOnlyHint": "입력하는 동안에는 제안이 표시되지 않습니다. Tab을 누르면 셸 기본 동작과 같이 완성합니다. 후보가 하나면 바로 입력하고, 후보에 공통된 부분이 있으면 먼저 채우며, 후보가 여러 개 남으면 목록을 표시합니다. 새로 연 Zsh, Bash 4+, Fish 및 PowerShell 터미널에 적용됩니다.",
   "settings.completionTabKey": "Tab 키",
   "settings.completionTabAccept": "제안 적용",
@@ -2497,29 +2648,17 @@ const ko: typeof en = {
   "chat.antigravity.placeholder": "Antigravity에 메시지를 보내세요. @파일로 파일을 참조할 수 있습니다",
   "chat.antigravity.textOnly": "Antigravity 대화 보기는 현재 텍스트 메시지만 지원합니다.",
   "chat.textOnly": (agent: string) => `${agent} 대화 보기는 텍스트 메시지만 지원합니다.`,
+  "chat.attach.modelTextOnly": "선택한 모델은 이미지를 지원하지 않습니다.",
   "chat.signInRequired": (agent: string) => `대화 보기를 사용하려면 ${agent}에 로그인해야 합니다. 터미널 보기로 전환해 로그인한 다음 메시지를 다시 보내세요.`,
-  "chat.apiKeyRequired": "DeepSeek Harness를 사용하려면 API 키가 필요합니다. DEEPSEEK_API_KEY 환경 변수를 설정하거나 `dsh web`을 실행해 Models 페이지에서 키를 저장한 다음 메시지를 다시 보내세요.",
+  "chat.apiKeyRequired": "DeepSeek에는 API 키가 필요합니다. 입력란 옆의 'API'를 열어 입력하거나 `DEEPSEEK_API_KEY` 환경 변수를 설정한 다음 메시지를 다시 보내세요.",
+  "chat.codex.activeWriter": "다른 Codex 프로세스가 현재 이 대화를 사용 중입니다. 이 대화를 열고 있는 다른 터미널 탭이나 Codex 프로세스를 종료하거나 잠시 기다린 후 다시 시도하세요.",
   "chat.antigravity.permissionsHint": "승인이 필요한 도구는 Antigravity 설정에서 미리 허용하거나 터미널 보기에서 사용해야 합니다.",
   "chat.antigravity.settingsHint": "모델, 추론 강도 또는 권한은 턴 사이에 변경하세요.",
-  "ports.title": "포트", // Ports
-  "ports.active": "전달됨", // Forwarded
-  "ports.activeEmpty": "전달된 포트가 없습니다", // No forwarded ports
-  "ports.detected": "감지됨", // Detected
-  "ports.detectedEmpty": "수신 대기 중인 포트가 없습니다", // No listening ports found
-  "ports.detectionUnavailable": "이 호스트에서는 포트 감지를 사용할 수 없습니다", // Port detection is not available on this host
-  "ports.manual": "포트 전달", // Forward a port
-  "ports.portPlaceholder": "원격 포트", // Remote port
-  "ports.forward": "전달", // Forward
-  "ports.open": "브라우저에서 열기", // Open in browser
-  "ports.stop": "중지", // Stop
-  "ports.localChanged": (port) => `로컬 포트 ${port}이(가) 사용 중이어서 다른 로컬 포트를 사용합니다`, // Local port {port} was busy, so another local port is used
-  "ports.unavailable": "사용할 수 없음 — VelaTerm을 업데이트하세요", // Unavailable — update VelaTerm
-  "ports.invalidPort": (port) => `잘못된 포트: ${port}`, // Invalid port: {port}
-  "ports.missingPort": "포트를 입력하세요", // Enter a port
-  "ports.unknownAction": (action) => `알 수 없는 작업: ${action}`, // Unknown action: {action}
-  "ports.limit": (max) => `연결당 최대 ${max}개의 포트를 전달할 수 있습니다`, // At most {max} ports can be forwarded per connection
-  "ports.notForwarded": (port) => `포트 ${port}은(는) 전달되지 않았습니다`, // Port {port} is not forwarded
-  "statusbar.ports": (n) => `전달된 포트 ${n}개`, // {n} forwarded ports
+  "chat.antigravity.rewindTitle": "터미널 보기에서 되돌리기",
+  "chat.antigravity.rewindHint": "Antigravity 대화 보기에서는 아직 전송된 메시지를 직접 되돌리거나 편집할 수 없습니다. 터미널 보기로 전환해 /rewind를 실행하면 돌아왔을 때 자동으로 반영됩니다.",
+  "chat.antigravity.rewindGuide": "Antigravity 대화 보기에서는 아직 전송된 메시지를 직접 되돌리거나 편집할 수 없습니다. 터미널 보기로 전환하여 /rewind로 대화를 되돌리거나 파일을 복원하세요. 대화 보기로 돌아오면 최신 상태가 자동으로 반영됩니다.",
+  "chat.antigravity.rewindCommandDescription": "터미널 보기로 전환하여 /rewind로 되돌리기",
+  "chat.antigravity.switchToTerminal": "터미널 보기로 전환",
   "chat.history.imageDownloadRequired": "이 이미지는 여기에서 열 수 없습니다. 원본을 다운로드하여 확인하세요.",
   "chat.history.readBody": "전체 내용 읽기",
   "chat.history.selectDetail": "파일 또는 필드 선택",
@@ -2631,6 +2770,8 @@ const ko: typeof en = {
   "sidebarSection.nav": "사이드바 섹션",
   "sidebarSection.noTasks": "아직 작업 세션이 없습니다.",
   "sidebarSection.noChats": "아직 채팅 세션이 없습니다.",
+  "sidebarSection.setDefaultView": "기본 보기로 설정",
+  "sidebarSection.clearDefaultView": "기본 보기 해제",
   "artifact.comment": "댓글", // Comment
   "artifact.commentTitle": "페이지 요소를 선택해 에이전트에게 댓글을 남깁니다", // Click elements in the page to leave comments for the agent
   "artifact.pickHint": "페이지에서 요소를 클릭해 댓글을 답니다. Esc로 종료합니다.", // Click an element in the page to comment on it. Press Esc to stop.
@@ -2695,6 +2836,50 @@ const ko: typeof en = {
   "kb.searchEntries": "항목 검색…",
   "kb.updatedOn": (date: string) => `${date} 업데이트`,
   "archive.sessionsCount": (count: string) => `세션 ${count}개`,
+
+
+  ...assist,
+  "plugins.title": "플러그인",
+  "plugins.subtitle": "외부 VelaTerm 플러그인을 설치, 연결, 활성화 또는 다시 로드합니다. 각 플러그인은 독립된 백엔드 프로세스에서 실행되며 인터페이스를 동적으로 불러옵니다.",
+  "plugins.installArchive": "아카이브에서 설치…",
+  "plugins.linkDev": "로컬 플러그인 연결…",
+  "plugins.localOnlyHint": "플러그인 설치, 연결 및 상태 전환은 로컬 호스트에서만 사용할 수 있습니다.",
+  "plugins.archivePathPrompt": ".vlxplugin 또는 .zip 아카이브의 전체 경로를 입력하세요:",
+  "plugins.devPathPrompt": "manifest.json이 포함된 로컬 플러그인 디렉터리의 전체 경로를 입력하세요:",
+  "plugins.empty": "설치된 플러그인이 없습니다. .vlxplugin 아카이브를 설치하거나 로컬 플러그인 디렉터리를 연결해 시작하세요.",
+  "plugins.sourceInstalled": "설치됨",
+  "plugins.sourceDev": "로컬 개발",
+  "plugins.statusRunning": "실행 중",
+  "plugins.statusStarting": "시작 중…",
+  "plugins.statusDisabled": "비활성화됨",
+  "plugins.statusStopped": "중지됨",
+  "plugins.statusError": "오류",
+  "plugins.enable": "활성화",
+  "plugins.disable": "비활성화",
+  "plugins.reload": "다시 로드",
+  "plugins.uninstall": "제거",
+  "plugins.uninstallConfirm": (name: string) => `"${name}" 플러그인을 제거하시겠습니까?`,
+  "plugins.removeData": "이 플러그인의 로컬 데이터 디렉터리도 함께 삭제",
+  "plugins.loadFailed": "플러그인 인터페이스를 불러오지 못했습니다",
+  "ports.title": "포트", // Ports
+  "ports.active": "전달됨", // Forwarded
+  "ports.activeEmpty": "전달된 포트가 없습니다", // No forwarded ports
+  "ports.detected": "감지됨", // Detected
+  "ports.detectedEmpty": "수신 대기 중인 포트가 없습니다", // No listening ports found
+  "ports.detectionUnavailable": "이 호스트에서는 포트 감지를 사용할 수 없습니다", // Port detection is not available on this host
+  "ports.manual": "포트 전달", // Forward a port
+  "ports.portPlaceholder": "원격 포트", // Remote port
+  "ports.forward": "전달", // Forward
+  "ports.open": "브라우저에서 열기", // Open in browser
+  "ports.stop": "중지", // Stop
+  "ports.localChanged": (port) => `로컬 포트 ${port}이(가) 사용 중이어서 다른 로컬 포트를 사용합니다`, // Local port {port} was busy, so another local port is used
+  "ports.unavailable": "사용할 수 없음 — VelaTerm을 업데이트하세요", // Unavailable — update VelaTerm
+  "ports.invalidPort": (port) => `잘못된 포트: ${port}`, // Invalid port: {port}
+  "ports.missingPort": "포트를 입력하세요", // Enter a port
+  "ports.unknownAction": (action) => `알 수 없는 작업: ${action}`, // Unknown action: {action}
+  "ports.limit": (max) => `연결당 최대 ${max}개의 포트를 전달할 수 있습니다`, // At most {max} ports can be forwarded per connection
+  "ports.notForwarded": (port) => `포트 ${port}은(는) 전달되지 않았습니다`, // Port {port} is not forwarded
+  "statusbar.ports": (n) => `전달된 포트 ${n}개`, // {n} forwarded ports
 };
 
 export default ko;

@@ -15,9 +15,13 @@ export interface Submission {
   originalFallback?: boolean;
   error?: string;
   observed?: boolean;
+  confirmedAt?: number;
+  reconciled?: boolean;
   startedAt?: number | null;
   durationMs?: number | null;
 }
+
+export const SENT_RECONCILE_MS = 800;
 
 const EMPTY: Submission[] = [];
 export const useOutbox = create<{ sessions: Record<string, Submission[]> }>(() => ({ sessions: {} }));
@@ -28,12 +32,32 @@ function change(session: string, update: (items: Submission[]) => Submission[]) 
   useOutbox.setState(state => ({ sessions: { ...state.sessions, [session]: update(state.sessions[session] ?? EMPTY) } }));
 }
 
+/** Drop a submission the backend returned to the composer, so no optimistic row outlives it. */
+export function discardSubmission(session: string, id: string) {
+  change(session, items => items.filter(item => item.id !== id));
+}
+
 export function acknowledgeSubmissions(session: string, ids: string[]) {
   const confirmed = new Set(ids);
   if (submissionsFor(session).some(item => confirmed.has(item.id) && (!item.observed || item.status === "sent" || item.status === "queued"))) {
     change(session, items => items.flatMap(item => !confirmed.has(item.id) ? [item]
       : item.status === "sent" || item.status === "queued" ? [] : [{ ...item, observed: true }]));
   }
+}
+
+/** Settle confirmed submissions against an authoritative snapshot started at or after their receipt arrived. */
+export function reconcileConfirmedSubmissions(session: string, syncStartedAt: number, presentIds: readonly string[], authoritativeTail: boolean) {
+  const present = new Set(presentIds);
+  if (!submissionsFor(session).some(item => (item.status === "sent" || item.status === "queued") && item.confirmedAt !== undefined && item.confirmedAt <= syncStartedAt && (present.has(item.id) || authoritativeTail || !item.reconciled))) {
+    return;
+  }
+  change(session, items => items.flatMap(item => {
+    if ((item.status !== "sent" && item.status !== "queued") || item.confirmedAt === undefined || item.confirmedAt > syncStartedAt) {
+      return [item];
+    }
+    if (present.has(item.id) || authoritativeTail) return [];
+    return item.reconciled ? [item] : [{ ...item, reconciled: true }];
+  }));
 }
 
 /** Keep the optimistic and confirmed message in one keyed list; identity is never inferred from text. */
@@ -88,8 +112,9 @@ export async function deliverSubmission(session: string, item: Submission, start
     // A steered message is one that went out, whether or not the recipient is free to read it yet; the
     // composer draws it like any other sent message.
     const status = receipt === "steered" || receipt === "blocked" ? "sent" : receipt;
+    const confirmedAt = status === "sent" || status === "queued" ? Date.now() : undefined;
     change(session, items => items.flatMap(value => value.id !== item.id ? [value]
-      : status === "command" || value.observed ? [] : [{ ...value, status }]));
+      : status === "command" || value.observed ? [] : [{ ...value, status, confirmedAt, reconciled: false }]));
     return receipt;
   } catch (error) {
     if (!current()) return;

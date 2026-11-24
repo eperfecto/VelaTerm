@@ -1,6 +1,7 @@
 //! Từ điển tiếng Việt. Tập khóa và kiểu giá trị được ràng buộc bởi en.ts.
 
 import type en from "./en";
+import assist from "../assist/vi";
 
 const vi: typeof en = {
   "panel.turnStats": "Thống kê lượt",
@@ -8,6 +9,8 @@ const vi: typeof en = {
   "panel.showChangedFiles": "Xem các tệp đã sửa trong lượt này",
   "panel.noFilesChanged": "Không có tệp nào được chỉnh sửa trong lượt này.",
   "panel.shellEditsNotListed": "Các thay đổi thực hiện bằng lệnh shell không được liệt kê.",
+  "panel.usageShowScope": (scope: string) => `Hiện ${scope}`,
+  "panel.usageHideScope": (scope: string) => `Ẩn ${scope}`,
   "translation.swap": "Đổi ngôn ngữ",
   "translation.openai": "Tương thích OpenAI",
   "translation.bing": "Bing Dịch (không cần khóa API)",
@@ -373,6 +376,7 @@ const vi: typeof en = {
   "common.create": "Tạo",
   "common.close": "Đóng",
   "chat.copyAsMarkdown": "Sao chép dưới dạng Markdown",
+  "chat.copyEntireMessage": "Sao chép toàn bộ tin nhắn",
   "chat.imageViewOriginal": "Xem ảnh gốc",
   "chat.imageCopy": "Sao chép ảnh",
   "chat.imageSave": "Lưu ảnh",
@@ -490,6 +494,7 @@ const vi: typeof en = {
   "settings.catTerminal": "Terminal",
   "settings.catBehavior": "Hành vi",
   "settings.catAgents": "Tác nhân",
+  "settings.catPlugins": "Plugin",
   "settings.agentDefaultsTitle": "Mặc định cho phiên mới",
   "settings.referSummaryTitle": "Ngữ cảnh tham chiếu phiên",
   "settings.referSummaryMode": "Chế độ ngữ cảnh",
@@ -525,7 +530,23 @@ const vi: typeof en = {
   "settings.agentDefaultView": "Chế độ xem mặc định",
   "settings.agentDefaultViewHint":
     "Chế độ xem mà các phiên mới của tác nhân này sẽ mở. Các phiên đã có giữ nguyên chế độ xem lúc tạo.",
+  "settings.deepseekApiTitle": "DeepSeek API",
+  "settings.deepseekApiDesc":
+    "Các cuộc trò chuyện DeepSeek chạy qua OpenCode. Nhập địa chỉ và khóa API tại đây để dùng chung một đăng nhập cho mọi cuộc trò chuyện.",
+  "settings.deepseekBaseUrl": "Địa chỉ API",
+  "settings.deepseekEndpointHint":
+    "Để trống địa chỉ để dùng điểm cuối chính thức. Thay đổi có hiệu lực từ tin nhắn tiếp theo.",
+  "settings.deepseekApiKey": "Khóa API",
+  "settings.deepseekKeySaved": "Đã lưu (để trống để giữ nguyên)",
+  "settings.deepseekKeyPlaceholder": "Nhập khóa API DeepSeek của bạn",
+  "settings.deepseekRemoveKey": "Xóa khóa",
+  "settings.deepseekSaved": "Đã lưu.",
+  "settings.deepseekInvalid": "Nhập địa chỉ API http(s) hợp lệ và khóa API trên một dòng.",
+  "settings.deepseekLocalOnly": "Thông tin đăng nhập này được lưu trên thiết bị chủ, nên chỉ có thể thay đổi tại đó.",
   "settings.appearance": "Giao diện",
+  "settings.darkTheme": "Chủ đề tối",
+  "settings.lightTheme": "Chủ đề sáng",
+  "settings.themeClassic": "Cổ điển",
   "settings.accent": "Màu nhấn",
   "settings.accentAuto": "Theo chủ đề",
   "settings.density": "Mật độ",
@@ -542,12 +563,16 @@ const vi: typeof en = {
   "settings.navTree": "Dạng cây",
   "settings.navCompact": "Gọn",
   "settings.tabs": "Thẻ",
+  "settings.tabsHint": "“Đơn” dùng lại cùng một thẻ cho mọi phiên bạn mở và giữ các phiên còn lại chạy nền. “Nhiều” cấp cho mỗi phiên một thẻ riêng.",
   "settings.dynamicStatusFilter": "Tự động thêm vào bộ lọc trạng thái",
+  "settings.dynamicStatusFilterHint": "Bộ lọc trạng thái giữ lại những phiên khớp tại thời điểm bạn áp dụng. Khi bật, những phiên bắt đầu khớp về sau cũng được thêm vào. Phiên không bao giờ bị loại bỏ khi trạng thái thay đổi.",
   "settings.tabSingle": "Đơn",
   "settings.tabMulti": "Nhiều",
   "settings.maxLiveTabs": "Giới hạn nền",
+  "settings.maxLiveTabsHint": "Số phiên tiếp tục chạy nền ở chế độ một thẻ. Vượt giới hạn, phiên rảnh lâu nhất sẽ bị đóng; những phiên đang chạy, đang chờ bạn phản hồi hoặc có thông báo chưa đọc thì được giữ lại.",
   "settings.defaultShell": "Shell mặc định",
   "settings.spawnConfirm": "Xác nhận trước khi tạo phiên",
+  "settings.spawnConfirmHint": "Áp dụng cho các phiên mà tác nhân sinh ra bằng vspawn, không phải thẻ bạn tự mở. Khi bật, bạn có thể xem lại và sửa lời nhắc trước khi phiên khởi chạy.",
   "settings.scopeTabsToProject": "Chỉ hiển thị các thẻ của dự án đang hoạt động",
   "settings.scopeTabsToProjectHint": "Khi chọn một dự án trong thanh bên, chỉ các thẻ của dự án đó và terminal toàn cục được hiển thị. Các thẻ bị ẩn vẫn tiếp tục chạy.",
   "settings.usageAuto": "Tự động làm mới mức sử dụng",
@@ -662,6 +687,31 @@ const vi: typeof en = {
   "changes.ignoreWhitespace": "Bỏ qua khoảng trắng",
   "changes.collapseUnchanged": "Thu gọn các dòng không đổi",
   "changes.tooLarge": "Tệp này vượt quá giới hạn xem trước 2 MiB.",
+  "changes.review.addLine": (range: string) => `Nhận xét ${range}`,
+  "changes.review.addFile": "Thêm nhận xét",
+  "changes.review.gutterHint": (line: number) => `Thêm nhận xét đánh giá tại dòng ${line}`,
+  "changes.review.sideOriginal": "Bản gốc",
+  "changes.review.sideModified": "Bản sửa đổi",
+  "changes.review.fieldLabel": "Nhận xét đánh giá",
+  "changes.review.placeholder": "Nhập phản hồi cho tác tử (Enter để lưu, Shift+Enter để xuống dòng)…",
+  "changes.review.save": "Lưu nhận xét",
+  "changes.review.cancel": "Hủy",
+  "changes.review.edit": "Sửa",
+  "changes.review.remove": "Xóa",
+  "changes.review.count": (count: number, files: number) =>
+    count === 1 ? "1 nhận xét đánh giá" : `${count} nhận xét đánh giá trên ${files} tệp`,
+  "changes.review.showList": "Danh sách nhận xét",
+  "changes.review.hideList": "Ẩn danh sách",
+  "changes.review.clearAll": "Xóa tất cả",
+  "changes.review.targetAgent": "Phiên đích",
+  "changes.review.sendTo": (agent: string) => `Gửi tới ${agent}`,
+  "changes.review.pasteTo": (agent: string) => `Dán vào ${agent}`,
+  "changes.review.sending": "Đang gửi…",
+  "changes.review.copy": "Sao chép đánh giá",
+  "changes.review.copied": "Đã sao chép",
+  "changes.review.noAgent": "Hãy mở hoặc khởi chạy một phiên tác tử trong kho mã này để gửi nhận xét trực tiếp.",
+  "changes.review.promptHeader": "Vui lòng xử lý các nhận xét đánh giá mã sau đối với các thay đổi hiện tại:",
+  "changes.review.promptComment": "Nhận xét:",
   "git.fileStatus.modified": "Đã sửa đổi",
   "git.fileStatus.added": "Đã thêm",
   "git.fileStatus.deleted": "Đã xóa",
@@ -709,6 +759,39 @@ const vi: typeof en = {
   "git.pr.noToken": "Hãy thêm token Gitea trong Cài đặt để tạo pull request tại đây.",
   "git.pr.unreachable": "Hiện không kết nối được máy chủ Gitea.",
   "git.pr.opened": "Đã tạo pull request",
+  "git.pr.openMr": "Tạo merge request",
+  "git.pr.openedMr": "Đã tạo merge request",
+  "git.pr.formTitleProvider": (provider: string) =>
+    provider === "gitlab"
+      ? "Tạo merge request trên GitLab"
+      : provider === "github"
+        ? "Tạo pull request trên GitHub"
+        : "Tạo pull request trên Gitea",
+  "git.pr.formDescriptionMr": (branch: string, base: string) =>
+    `Push ${branch} lên origin và tạo merge request vào ${base}.`,
+  "git.pr.draftField": "Tạo dưới dạng bản nháp",
+  "git.pr.noGhCli": "Hãy cài đặt GitHub CLI (gh) để tạo pull request tại đây.",
+  "git.pr.noGhAuth": "Hãy chạy gh auth login trong thiết bị đầu cuối để kết nối GitHub.",
+  "git.pr.noGlabCli": "Hãy cài đặt GitLab CLI (glab) để tạo merge request tại đây.",
+  "git.pr.noGlabAuth": "Hãy chạy glab auth login trong thiết bị đầu cuối để kết nối GitLab.",
+  "git.pr.state.open": "Đang mở",
+  "git.pr.state.draft": "Bản nháp",
+  "git.pr.state.merged": "Đã hợp nhất",
+  "git.pr.state.closed": "Đã đóng",
+  "git.pr.checks.passing": "Kiểm tra đạt",
+  "git.pr.checks.failing": "Kiểm tra lỗi",
+  "git.pr.checks.pending": "Đang kiểm tra",
+  "git.pr.refreshStatus": "Làm mới trạng thái",
+  "git.pr.cleanupWorktree": "Dọn dẹp worktree…",
+  "git.pr.cleanupTitle": "Dọn dẹp worktree đã hợp nhất",
+  "git.pr.cleanupDescription": (branch: string, path: string) =>
+    `Nhánh ${branch} đã được hợp nhất. Xóa worktree ${path}?`,
+  "git.pr.cleanupDeleteBranch": (branch: string) => `Xóa nhánh cục bộ ${branch}`,
+  "git.pr.cleanupArchiveSession": "Lưu trữ phiên này",
+  "git.pr.cleanupArchiveHint": "Bỏ chọn để giữ lại phiên trong thư mục kho mã chính.",
+  "git.pr.cleanupForce": "Buộc xóa các thay đổi chưa commit",
+  "git.pr.cleanupSubmit": "Dọn dẹp",
+  "git.pr.cleanupSubmitting": "Đang dọn dẹp…",
   "git.push": "Push",
   "git.pushTitle": (u: string) => `Push lên ${u}`,
   "git.publish": "Xuất bản nhánh",
@@ -830,12 +913,26 @@ const vi: typeof en = {
   "settings.termFontSize": "Cỡ chữ terminal",
   "settings.termLineHeight": "Chiều cao dòng terminal",
   "settings.chatTypography": "Chế độ xem hội thoại",
-  "settings.chatTypographyHint": "Các thiết lập phông chữ này độc lập với terminal và có hiệu lực ngay lập tức.",
+  "settings.chatTypographyHint": "Các thiết lập này độc lập với terminal và có hiệu lực ngay lập tức. Theo mặc định, văn bản dùng phông chữ giao diện và mã dùng phông chữ đơn cách của giao diện.",
   "settings.chatFont": "Phông chữ hội thoại",
   "settings.chatFontSize": "Cỡ chữ hội thoại",
   "settings.chatLineHeight": "Chiều cao dòng hội thoại",
+  "settings.chatCodeFont": "Phông chữ mã trong hội thoại",
+  "settings.chatLetterSpacing": "Khoảng cách chữ trong hội thoại",
+  "settings.uiTypography": "Phông chữ giao diện",
+  "settings.uiTypographyHint": "Áp dụng cho menu, danh sách, hộp thoại và tài liệu. Phông chữ đơn cách dùng cho mã, đường dẫn và so sánh thay đổi; terminal có thiết lập phông chữ riêng.",
+  "settings.uiFont": "Phông chữ chính",
+  "settings.uiMonoFont": "Phông chữ đơn cách",
+  "settings.fontPreview": "Xem trước",
+  "settings.fontPreviewText": "Con cáo nâu nhanh nhẹn nhảy qua chú chó lười. 0123456789",
+  "settings.fontPreviewChat": "Trang cài đặt đã được cập nhật. Mỗi thiết lập phông chữ có hiệu lực ngay và bạn có thể khôi phục giá trị mặc định bất cứ lúc nào.",
+  "settings.fontResetGroup": "Khôi phục phông chữ mặc định",
+  "settings.chatImages": "Hình ảnh",
+  "settings.chatImageMaxMb": "Giới hạn kích thước ảnh",
+  "settings.chatImageMaxMbHint": "Trước khi gửi, hình ảnh có cạnh dài hơn 1568 pixel hoặc vượt quá giới hạn này sẽ được tự động thu nhỏ và nén lại. Chỉ bỏ qua những ảnh không thể giải mã hoặc vẫn vượt giới hạn sau khi nén.",
+  "settings.chatImageSizeMb": (mb: number) => `${mb} MB`,
   "settings.composerChips": "Thanh công cụ soạn tin",
-  "settings.composerChipsHint": "Các mục được bật xuất hiện cạnh tin nhắn theo thứ tự hiển thị ở đây. Khi một tính năng tạm thời không dùng được (tác nhân chưa chạy, không có tác vụ nền hoặc chưa đăng nhập xong), mục đó vẫn hiển thị nhưng trống hoặc bị vô hiệu hóa. Các tính năng mà tác nhân hiện tại không hỗ trợ sẽ không xuất hiện. Những mục không đủ chỗ sẽ chuyển vào menu Thêm. Các mục được tắt ở đây chỉ xuất hiện trong menu đó và vẫn có thể được cấu hình tại đây.",
+  "settings.composerChipsHint": "Các mục được bật xuất hiện cạnh tin nhắn theo thứ tự hiển thị ở đây. Khi một tính năng tạm thời không dùng được (tác nhân chưa chạy, không có tác vụ nền hoặc chưa đăng nhập xong), mục đó vẫn hiển thị nhưng trống hoặc bị vô hiệu hóa. Các tính năng mà tác nhân hiện tại không hỗ trợ sẽ không xuất hiện. Những mục không đủ chỗ sẽ chuyển vào menu Thêm. Các mục được tắt ở đây sẽ không hiển thị ở bất kỳ đâu cho đến khi bạn bật lại.",
   "settings.composerChipUp": (chip: string) => `Đưa ${chip} lên trên`,
   "settings.composerChipDown": (chip: string) => `Đưa ${chip} xuống dưới`,
   "settings.composerChip.model": "Mô hình",
@@ -852,7 +949,8 @@ const vi: typeof en = {
   "settings.composerChip.account": "Tài khoản",
   "settings.composerChip.codexCredits": "Lượt đặt lại giới hạn Codex",
   "settings.fontDefault": "Mặc định",
-  "settings.fontCustom": "Tùy chỉnh…",
+  "settings.fontSearch": "Tìm phông chữ…",
+  "settings.fontUseCustom": (query: string) => `Dùng “${query}”`,
   "settings.fontListUnavailable": "Không thể lấy danh sách phông chữ hệ thống. Bạn có thể nhập tên phông chữ theo cách thủ công.",
   "settings.fontUnconfirmed": "Không thể xác nhận phông chữ này có sẵn hay không.",
   "settings.fontAuto": "Tự động",
@@ -861,6 +959,11 @@ const vi: typeof en = {
   "settings.fontReset": "Đặt lại",
   "settings.sound": "Âm báo",
   "settings.language": "Ngôn ngữ",
+  "settings.serverRegion": "Máy chủ",
+  "settings.serverRegionGlobal": "Quốc tế",
+  "settings.serverRegionChina": "Trung Quốc đại lục",
+  "settings.serverRegionHint":
+    "Dùng cho liên kết đến trang web và danh mục mô hình. Khi chọn “Trung Quốc đại lục”, VelaTerm dùng velaterm.cn, truy cập nhanh hơn từ trong Trung Quốc. Bản cập nhật và vela-server luôn lấy từ các bản phát hành GitHub của bản dựng này. Các tính năng tài khoản luôn dùng velaterm.com.",
   "settings.langAuto": "Tự động (hệ thống)",
   "settings.skillLabel": "Kỹ năng Vela",
   "settings.skillInstall": "Cài đặt",
@@ -896,6 +999,7 @@ const vi: typeof en = {
   "settings.scCopyTerminal": "Sao chép vùng chọn trong terminal", // Copy terminal selection
   "settings.scSelectAllTerminal": "Chọn tất cả trong terminal", // Select all in terminal
   "settings.scSaveDoc": "Lưu tài liệu",
+  "settings.scFocusSidebar": "Chuyển tiêu điểm vào thanh bên",
   "settings.scRecording": "Nhấn phím…",
   "settings.scHint":
     "Nhấp vào phím tắt, rồi nhấn tổ hợp mới (bắt buộc Cmd/Ctrl).",
@@ -1007,6 +1111,19 @@ const vi: typeof en = {
   "connect.wslSetup": "Khi kết nối, phiên bản máy chủ VelaTerm tương ứng sẽ được tải xuống và khởi chạy trong WSL nếu cần. Không cần cấu hình SSH.",
   "conn.wslReconnecting": "Đang kết nối lại với không gian làm việc WSL…",
   "conn.wslDown": "Không gian làm việc WSL hiện không khả dụng. Chọn “Kết nối lại ngay” để thử lại.",
+  "remote.listenLabel": "Lắng nghe trên", // Listen on
+  "remote.listenAll": "Mọi mạng", // All networks
+  "remote.listenLoopback": "Chỉ máy này (đường hầm)", // This computer only (tunnel)
+  "remote.listenUnavailable": (ip: string) => `${ip} (không khả dụng)`, // ${ip} (not available)
+  "remote.reachAll": "Truy cập được từ mọi mạng mà máy này đang kết nối.", // Reachable from every network this computer is connected to.
+  "remote.reachOnly": (addr: string) => `Chỉ truy cập được tại ${addr}.`, // Reachable only at ${addr}.
+  "remote.reachTunnel": "Chỉ truy cập được qua đường hầm hoặc proxy trên máy này, ví dụ tailscale serve hoặc ssh -L.", // Reachable only through a tunnel or proxy on this computer, for example tailscale serve or ssh -L.
+  "remote.pairingHostLabel": "Địa chỉ cho liên kết ghép nối", // Address for pairing links
+  "remote.pairingHostPlaceholder": "host.tailnet.ts.net", // host.tailnet.ts.net
+  "remote.pairingHostNeeded": "Máy khách kết nối tới máy này qua đường hầm. Hãy nhập tên máy chủ hoặc IP mà chúng sử dụng. Nếu để trống, liên kết ghép nối sẽ trỏ tới 127.0.0.1, chỉ dùng được với ssh -L.", // Clients reach this computer through a tunnel. Enter the host name or IP they use. Without it, pairing links point to 127.0.0.1, which only works with ssh -L.
+  "remote.bindInvalid": (value: string) => `“${value}” không phải địa chỉ lắng nghe hợp lệ. Hãy chọn mọi mạng, chỉ máy này, hoặc một địa chỉ IPv4 của máy này.`, // "${value}" is not a valid listen address. Choose all networks, this computer only, or an IPv4 address of this computer.
+  "remote.bindUnavailable": (ip: string) => `Địa chỉ ${ip} không khả dụng trên máy này. Hãy kết nối mạng hoặc VPN, hoặc chọn địa chỉ khác. Truy cập từ xa không bao giờ tự chuyển sang mọi mạng.`, // The address ${ip} is not available on this computer. Connect the network or VPN, or choose another address. Remote access never falls back to all networks.
+  "remote.pairingHostInvalid": (value: string) => `“${value}” không phải địa chỉ hợp lệ cho liên kết ghép nối. Hãy nhập tên máy chủ hoặc địa chỉ IPv4, không kèm giao thức, cổng hay đường dẫn.`, // "${value}" is not a valid address for pairing links. Enter a host name or an IPv4 address, without scheme, port, or path.
   "connect.title": "Kết nối máy chủ từ xa",
   "connect.pairingPlaceholder": "Dán liên kết ghép đôi",
   "connect.confirmConnect": "Dấu vân tay khớp, kết nối",
@@ -1066,6 +1183,7 @@ const vi: typeof en = {
   "tree.deleteGroup": "Xóa nhóm",
   "tree.deleteSession": "Xóa phiên",
   "tree.projectRoot": "Gốc dự án (không có nhóm)",
+  "tree.collectionRoot": (name: string) => `${name} (không có nhóm)`,
   "tree.moveToSession": "Chuyển xuống dưới một phiên (làm phiên con)",
   "tree.moveTo": "Di chuyển đến…",
   "tree.openNewTab": "Mở trong thẻ mới",
@@ -1171,6 +1289,7 @@ const vi: typeof en = {
   "tree.filterStatus": "Lọc theo trạng thái",
   "tree.refreshStatusFilter": "Làm mới bộ lọc trạng thái",
   "tree.refreshStatusMatch": "Làm mới trạng thái",
+  "tree.setStatus": "Đặt trạng thái",
   "tree.filterStatusSection": "Trạng thái", // Status
   "tree.filterMarkSection": "Dấu", // Mark
   "tree.sortSection": "Thứ tự", // Order
@@ -1357,6 +1476,9 @@ const vi: typeof en = {
   "archive.emptyTranscript": "Bản ghi hội thoại trống",
   "archive.loadingTranscript": "Đang tải bản ghi hội thoại…",
   "search.allPlaceholder": "Tìm trong nội dung của mọi phiên…",
+  "search.inLocationPlaceholder": (name) => `Tìm trong ${name}…`,
+  "search.allLocations": "Tất cả dự án và bộ sưu tập",
+  "search.filterLocation": "Lọc theo dự án hoặc bộ sưu tập",
   "search.hint":
     "Tìm nội dung phiên. Phiên đã lưu trữ mặc định bị loại trừ — chọn “Bao gồm đã lưu trữ” để thêm chúng.",
   "search.includeArchived": "Bao gồm đã lưu trữ",
@@ -1382,10 +1504,9 @@ const vi: typeof en = {
 
   // Khung giữa và trình duyệt
   "center.noSession": "Không có phiên",
-  "center.noSessionHintPre": "Chọn một phiên từ thanh bên hoặc nhấn ",
-  "center.noSessionHintPost": " để tạo terminal",
   "center.createTerminal": "Tạo terminal",
-  "center.splitHint": "Mở một phiên để chia màn hình bằng các phím tắt sau:",
+  "center.startTitle": "Bắt đầu một phiên",
+  "center.startHint": "Chọn một phiên từ thanh bên hoặc bắt đầu phiên mới.",
   "tab.unsavedDot": "Thay đổi chưa lưu",
   "tab.newTerminal": "Terminal mới",
   "tab.newGlobalTerminal": "Terminal toàn cục mới",
@@ -1599,12 +1720,23 @@ const vi: typeof en = {
   "files.nameLabel": "Tên",
   "files.newTooltip": "Tệp hoặc thư mục mới",
   "files.openInTerminal": "Mở trong terminal",
+  "files.collapseAll": "Thu gọn tất cả",
   "files.revealInFinder": "Hiện trong trình quản lý tệp",
   "files.copyPath": "Sao chép đường dẫn",
   "files.copyRelPath": "Sao chép đường dẫn tương đối",
   "files.filterPlaceholder": "Lọc tệp…",
+  "files.filterTruncated": "Chỉ hiển thị những kết quả đầu tiên. Hãy nhập thêm để thu hẹp phạm vi.",
   "files.dblClickOpen": "Nhấp đúp để mở",
   "files.deleteConfirm": (name: string) => `Xóa “${name}”? Không thể hoàn tác.`,
+  "files.deleteManyConfirm": (count: number) => `Xóa ${count} mục? Không thể hoàn tác.`,
+  "files.pasteConflictTitle": "Mục đã tồn tại",
+  "files.pasteConflictBody": (name: string) =>
+    `Mục có tên “${name}” đã tồn tại trong thư mục đích.`,
+  "files.pasteConflictProgress": (current: number, total: number) => `${current} / ${total}`,
+  "files.pasteConflictApplyAll": "Áp dụng cho tất cả xung đột còn lại",
+  "files.pasteReplace": "Thay thế",
+  "files.pasteSkip": "Bỏ qua",
+  "files.pasteKeepBoth": "Giữ cả hai",
 
   // ── File transfer (remote access) ──
   "transfer.title": "Truyền tệp", // Transfers
@@ -1618,6 +1750,9 @@ const vi: typeof en = {
   "transfer.downloading": "Đang tải xuống…", // Downloading…
   "transfer.savedToDownloads": "Đã lưu vào thư mục Tải về", // Saved to Downloads
   "transfer.foldersUnsupported": "Không thể tải thư mục lên.", // Folders can't be uploaded.
+  "drop.browserFilesHint": "Trong trình duyệt, bạn chỉ có thể thả hình ảnh vào đây. Với các tệp khác, hãy tải chúng lên dự án trước.", // In the browser, only images can be dropped here. To use other files, upload them to the project first.
+  "files.copyFailed": "Không thể sao chép một số tệp. Hãy kiểm tra xem các tệp vẫn còn tồn tại và bạn có quyền ghi vào thư mục này.", // Some files could not be copied. Check that they still exist and that you can write to this folder.
+  "files.pasteFailed": "Không thể dán một số mục. Hãy kiểm tra xem nguồn vẫn còn tồn tại và bạn có quyền ghi vào thư mục này.", // Some items could not be pasted. Check that the sources exist and that you can write to this folder.
 
   // Thanh trạng thái
   "statusbar.sessions": (n: number) => `${n} phiên`,
@@ -1634,6 +1769,11 @@ const vi: typeof en = {
   "statusbar.permSkip": "Quyền: Bỏ qua",
   "statusbar.notifyOn": "Thông báo: Bật",
   "statusbar.notifyOff": "Thông báo: Tắt",
+  "statusbar.zoomGroup": "Thu phóng giao diện",
+  "statusbar.zoomOut": "Thu nhỏ",
+  "statusbar.zoomIn": "Phóng to",
+  "statusbar.zoomEdit": "Thu phóng giao diện · Nhấp để nhập tỷ lệ phần trăm (80–200%)",
+  "statusbar.zoomInput": "Tỷ lệ thu phóng giao diện, từ 80 đến 200",
   "statusbar.permTooltip":
     "Chế độ quyền của phiên này · nhấp để đổi (chỉ phiên này)",
   "statusbar.permMenuTitle": "Quyền của phiên này",
@@ -1975,6 +2115,8 @@ const vi: typeof en = {
   "updater.downloadManuallyHint": "Mở trang tải xuống trong trình duyệt.",
   "updater.windowsNotice":
     "VelaTerm sẽ đóng khi trình cài đặt chạy rồi tự mở lại.",
+  "updater.portableNotice":
+    "Bản di động này không tự cập nhật. Hãy tải phiên bản mới về và dùng nó thay thế thư mục này; cài đặt và các phiên của bạn vẫn được giữ nguyên.",
   "updater.installingWindows":
     "Đang cài đặt… VelaTerm sắp đóng. Trình cài đặt sẽ hoàn tất cập nhật và mở lại ứng dụng.",
   "statusbar.updateAvailable": (version: string) => `Cập nhật ${version}`,
@@ -1996,6 +2138,7 @@ const vi: typeof en = {
   "skills.vstat": "Xem phiên nào đang làm việc hoặc đang chờ nhập liệu.",
   "skills.vtell": "Gửi tin nhắn đến phiên khác.",
   "skills.vkb": "Truy vấn CodeGraph và cơ sở tri thức của dự án.",
+  "skills.vapp": "Cho phép tác nhân thao tác VelaTerm; bạn xác nhận từng thao tác.",
   "skills.settingsHint": "Bạn cũng có thể cài đặt sau trong Cài đặt > Nâng cao.",
   "skills.installFailed": (err) => `Cài đặt thất bại: ${err}`,
   "skills.dontRemind": "Không nhắc lại",
@@ -2114,6 +2257,7 @@ const vi: typeof en = {
   "chat.question.submit": "Gửi",
   "chat.question.next": "Tiếp",
   "chat.question.dismiss": "Bỏ qua",
+  "chat.question.skip": "Bỏ qua câu này",
   "chat.question.answerPlaceholder": "Nhập câu trả lời của bạn",
   "chat.question.otherPlaceholder": "Câu trả lời khác",
   "chat.question.answeredHeading": (n: number) => `Đã trả lời ${n} câu hỏi`,
@@ -2167,6 +2311,8 @@ const vi: typeof en = {
   "chat.rewind.editWarning": "Tin nhắn gốc và tất cả tin nhắn sau đó sẽ bị xóa vĩnh viễn. Nội dung đã chỉnh sửa sẽ được gửi từ vị trí này. Các thay đổi đối với tệp sẽ không được hoàn tác.",
   "chat.rewind.inactive": "Tiến trình hội thoại chưa chạy. Các thao tác này sẽ khả dụng sau khi tiến trình khởi động.",
   "chat.rewind.unsupported": "Tác nhân đang kết nối hiện chưa cung cấp thao tác này.",
+  "chat.rewind.latestOnly": "Tác nhân đang kết nối chỉ có thể quay lại từ tin nhắn mới nhất.",
+  "chat.rewind.appliesOnSend": "Tác nhân chỉ quay lại khi bạn gửi tin nhắn tiếp theo. Trước đó, hội thoại và tệp vẫn giữ nguyên.",
   "chat.rewind.title": "Quay lại từ đây",
   "chat.rewind.warning": "Không thể hoàn tác thao tác này.",
   "chat.rewind.conversation": "Quay lại hội thoại",
@@ -2263,6 +2409,10 @@ const vi: typeof en = {
   "chat.auth.claude.submit": "Gửi mã",
   "chat.auth.claude.invalidCode": "Dán toàn bộ mã của lần ủy quyền này, bao gồm cả phần sau dấu #.",
   "chat.auth.claude.externalAuth": "Khóa API và các phương thức xác thực khác đã cấu hình sẽ không thay đổi.",
+  "chat.auth.antigravity.pending": "Mở trang ủy quyền, đăng nhập bằng tài khoản Google rồi dán mã ủy quyền hoặc đường dẫn chuyển hướng đầy đủ hiển thị trên trang đó.",
+  "chat.auth.antigravity.failed": "Không thể hoàn tất đăng nhập. Hãy thử lại và kiểm tra xem phiên bản Antigravity CLI hiện tại có hỗ trợ ủy quyền tài khoản hay không.",
+  "chat.auth.antigravity.code": "Mã ủy quyền hoặc URL chuyển hướng",
+  "chat.auth.antigravity.invalidCode": "Dán mã ủy quyền hoặc URL chuyển hướng của lần đăng nhập này, không chứa khoảng trắng.",
   "chat.auth.open": "Mở trang cấp quyền",
   "chat.auth.zcode.required": "Hãy đăng nhập ZCode bằng tài khoản Z.ai hoặc BigModel để dùng cuộc hội thoại này.",
   "chat.auth.zcode.pending": "Mở trang cấp quyền và cho phép truy cập. Giao diện sẽ tự động cập nhật khi đăng nhập hoàn tất.",
@@ -2358,7 +2508,7 @@ const vi: typeof en = {
   "settings.completionTab": "Chỉ Tab",
   "settings.completionOff": "Tắt",
   "settings.completionUnavailable": "Không thể tải hoặc lưu cài đặt.",
-  "settings.completionHint": "Khi gõ trong Zsh, lệnh khớp gần nhất trong lịch sử sẽ hiện mờ sau con trỏ; nhấn → hoặc End để chấp nhận. Tab hoạt động giống shell: nếu chỉ có một kết quả thì chèn ngay, nếu các kết quả có phần chung thì điền phần đó trước, và hiện danh sách khi vẫn còn nhiều lựa chọn. Áp dụng cho các terminal Zsh, Bash 4+, Fish và PowerShell mới mở.",
+  "settings.completionHint": "Khi gõ trong Zsh, lệnh khớp gần nhất trong lịch sử sẽ hiện mờ sau con trỏ; nhấn → hoặc End để chấp nhận. Gợi ý này không hiện khi gõ qua kết nối từ xa. Tab hoạt động giống shell: nếu chỉ có một kết quả thì chèn ngay, nếu các kết quả có phần chung thì điền phần đó trước, và hiện danh sách khi vẫn còn nhiều lựa chọn. Áp dụng cho các terminal Zsh, Bash 4+, Fish và PowerShell mới mở.",
   "settings.completionTabOnlyHint": "Không có gợi ý nào hiện ra khi bạn gõ. Nhấn Tab để hoàn thành giống shell: nếu chỉ có một kết quả thì chèn ngay, nếu các kết quả có phần chung thì điền phần đó trước, và hiện danh sách khi vẫn còn nhiều lựa chọn. Áp dụng cho các terminal Zsh, Bash 4+, Fish và PowerShell mới mở.",
   "settings.completionTabKey": "Phím Tab",
   "settings.completionTabAccept": "Chấp nhận gợi ý",
@@ -2475,29 +2625,17 @@ const vi: typeof en = {
   "chat.antigravity.placeholder": "Nhắn cho Antigravity hoặc dùng @tệp để tham chiếu tệp",
   "chat.antigravity.textOnly": "Chế độ hội thoại của Antigravity hiện chỉ hỗ trợ tin nhắn văn bản.",
   "chat.textOnly": (agent: string) => `Chế độ hội thoại của ${agent} chỉ hỗ trợ tin nhắn văn bản.`,
+  "chat.attach.modelTextOnly": "Mô hình đã chọn không hỗ trợ hình ảnh.",
   "chat.signInRequired": (agent: string) => `Bạn cần đăng nhập ${agent} để dùng chế độ hội thoại. Hãy chuyển sang chế độ thiết bị đầu cuối để đăng nhập, sau đó gửi lại tin nhắn.`,
-  "chat.apiKeyRequired": "DeepSeek Harness cần khóa API. Hãy đặt biến môi trường DEEPSEEK_API_KEY, hoặc chạy `dsh web` rồi lưu khóa ở trang Models, sau đó gửi lại tin nhắn.",
+  "chat.apiKeyRequired": "DeepSeek cần khóa API. Mở «API» bên cạnh ô tin nhắn và nhập khóa, hoặc đặt biến môi trường `DEEPSEEK_API_KEY`, sau đó gửi lại tin nhắn.",
+  "chat.codex.activeWriter": "Một tiến trình Codex khác hiện đang sử dụng cuộc hội thoại này. Hãy đóng tab thiết bị đầu cuối hoặc tiến trình Codex khác đang giữ cuộc hội thoại này, hoặc đợi một lát rồi thử lại.",
   "chat.antigravity.permissionsHint": "Các công cụ cần phê duyệt phải được cho phép trước trong cài đặt Antigravity hoặc sử dụng ở chế độ thiết bị đầu cuối.",
   "chat.antigravity.settingsHint": "Thay đổi mô hình, mức độ suy luận hoặc quyền giữa các lượt.",
-  "ports.title": "Cổng", // Ports
-  "ports.active": "Đã chuyển tiếp", // Forwarded
-  "ports.activeEmpty": "Không có cổng nào được chuyển tiếp", // No forwarded ports
-  "ports.detected": "Đã phát hiện", // Detected
-  "ports.detectedEmpty": "Không tìm thấy cổng đang lắng nghe", // No listening ports found
-  "ports.detectionUnavailable": "Không thể phát hiện cổng trên máy chủ này", // Port detection is not available on this host
-  "ports.manual": "Chuyển tiếp một cổng", // Forward a port
-  "ports.portPlaceholder": "Cổng từ xa", // Remote port
-  "ports.forward": "Chuyển tiếp", // Forward
-  "ports.open": "Mở trong trình duyệt", // Open in browser
-  "ports.stop": "Dừng", // Stop
-  "ports.localChanged": (port) => `Cổng cục bộ ${port} đang bận nên đã dùng một cổng cục bộ khác`, // Local port {port} was busy, so another local port is used
-  "ports.unavailable": "Không khả dụng — hãy cập nhật VelaTerm", // Unavailable — update VelaTerm
-  "ports.invalidPort": (port) => `Cổng không hợp lệ: ${port}`, // Invalid port: {port}
-  "ports.missingPort": "Hãy nhập một cổng", // Enter a port
-  "ports.unknownAction": (action) => `Thao tác không xác định: ${action}`, // Unknown action: {action}
-  "ports.limit": (max) => `Mỗi kết nối chỉ có thể chuyển tiếp tối đa ${max} cổng`, // At most {max} ports can be forwarded per connection
-  "ports.notForwarded": (port) => `Cổng ${port} chưa được chuyển tiếp`, // Port {port} is not forwarded
-  "statusbar.ports": (n) => `${n} cổng đã chuyển tiếp`, // {n} forwarded ports
+  "chat.antigravity.rewindTitle": "Quay lại trong chế độ terminal",
+  "chat.antigravity.rewindHint": "Chế độ hội thoại của Antigravity hiện chưa hỗ trợ quay lại hoặc chỉnh sửa tin nhắn đã gửi. Hãy chuyển sang chế độ terminal và chạy /rewind; trạng thái sẽ tự động đồng bộ khi bạn quay về.",
+  "chat.antigravity.rewindGuide": "Chế độ hội thoại của Antigravity hiện chưa hỗ trợ quay lại trực tiếp hoặc chỉnh sửa tin nhắn đã gửi. Hãy chuyển sang chế độ terminal và chạy /rewind để quay lại hội thoại hoặc khôi phục tệp; trạng thái mới nhất sẽ tự động tải khi bạn quay về.",
+  "chat.antigravity.rewindCommandDescription": "Chuyển sang chế độ terminal để quay lại bằng /rewind",
+  "chat.antigravity.switchToTerminal": "Chuyển sang chế độ terminal",
   "chat.history.imageDownloadRequired": "Không thể mở hình ảnh này tại đây. Hãy tải bản gốc xuống để xem.",
   "chat.history.readBody": "Đọc toàn bộ nội dung",
   "chat.history.selectDetail": "Chọn tệp hoặc trường",
@@ -2609,6 +2747,8 @@ const vi: typeof en = {
   "sidebarSection.nav": "Các mục thanh bên",
   "sidebarSection.noTasks": "Chưa có phiên nhiệm vụ nào.",
   "sidebarSection.noChats": "Chưa có phiên trò chuyện nào.",
+  "sidebarSection.setDefaultView": "Đặt làm chế độ xem mặc định",
+  "sidebarSection.clearDefaultView": "Bỏ chế độ xem mặc định",
   "artifact.comment": "Bình luận",
   "artifact.commentTitle": "Chọn các phần tử trên trang để để lại bình luận cho tác nhân",
   "artifact.pickHint": "Nhấp vào một phần tử trên trang để bình luận. Nhấn Esc để dừng.",
@@ -2673,6 +2813,50 @@ const vi: typeof en = {
   "kb.searchEntries": "Tìm bài viết…",
   "kb.updatedOn": (date: string) => `Cập nhật ${date}`,
   "archive.sessionsCount": (count: string) => `${count} phiên`,
+
+
+  ...assist,
+  "plugins.title": "Plugin",
+  "plugins.subtitle": "Cài đặt, liên kết, bật hoặc tải lại các plugin bên ngoài cho VelaTerm. Mỗi plugin chạy trong tiến trình backend độc lập và tải giao diện động.",
+  "plugins.installArchive": "Cài đặt từ gói nén…",
+  "plugins.linkDev": "Liên kết plugin cục bộ…",
+  "plugins.localOnlyHint": "Việc cài đặt, liên kết hoặc bật/tắt plugin chỉ khả dụng trên máy chủ cục bộ.",
+  "plugins.archivePathPrompt": "Nhập đường dẫn đầy đủ đến tệp .vlxplugin hoặc .zip:",
+  "plugins.devPathPrompt": "Nhập đường dẫn đầy đủ đến thư mục plugin cục bộ chứa manifest.json:",
+  "plugins.empty": "Chưa có plugin nào được cài đặt. Hãy cài gói .vlxplugin hoặc liên kết thư mục plugin cục bộ để bắt đầu.",
+  "plugins.sourceInstalled": "Đã cài đặt",
+  "plugins.sourceDev": "Phát triển cục bộ",
+  "plugins.statusRunning": "Đang chạy",
+  "plugins.statusStarting": "Đang khởi động…",
+  "plugins.statusDisabled": "Đã tắt",
+  "plugins.statusStopped": "Đã dừng",
+  "plugins.statusError": "Lỗi",
+  "plugins.enable": "Bật",
+  "plugins.disable": "Tắt",
+  "plugins.reload": "Tải lại",
+  "plugins.uninstall": "Gỡ cài đặt",
+  "plugins.uninstallConfirm": (name: string) => `Gỡ cài đặt plugin "${name}"?`,
+  "plugins.removeData": "Đồng thời xóa thư mục dữ liệu cục bộ của plugin này",
+  "plugins.loadFailed": "Không thể tải giao diện plugin",
+  "ports.title": "Cổng", // Ports
+  "ports.active": "Đã chuyển tiếp", // Forwarded
+  "ports.activeEmpty": "Không có cổng nào được chuyển tiếp", // No forwarded ports
+  "ports.detected": "Đã phát hiện", // Detected
+  "ports.detectedEmpty": "Không tìm thấy cổng đang lắng nghe", // No listening ports found
+  "ports.detectionUnavailable": "Không thể phát hiện cổng trên máy chủ này", // Port detection is not available on this host
+  "ports.manual": "Chuyển tiếp một cổng", // Forward a port
+  "ports.portPlaceholder": "Cổng từ xa", // Remote port
+  "ports.forward": "Chuyển tiếp", // Forward
+  "ports.open": "Mở trong trình duyệt", // Open in browser
+  "ports.stop": "Dừng", // Stop
+  "ports.localChanged": (port) => `Cổng cục bộ ${port} đang bận nên đã dùng một cổng cục bộ khác`, // Local port {port} was busy, so another local port is used
+  "ports.unavailable": "Không khả dụng — hãy cập nhật VelaTerm", // Unavailable — update VelaTerm
+  "ports.invalidPort": (port) => `Cổng không hợp lệ: ${port}`, // Invalid port: {port}
+  "ports.missingPort": "Hãy nhập một cổng", // Enter a port
+  "ports.unknownAction": (action) => `Thao tác không xác định: ${action}`, // Unknown action: {action}
+  "ports.limit": (max) => `Mỗi kết nối chỉ có thể chuyển tiếp tối đa ${max} cổng`, // At most {max} ports can be forwarded per connection
+  "ports.notForwarded": (port) => `Cổng ${port} chưa được chuyển tiếp`, // Port {port} is not forwarded
+  "statusbar.ports": (n) => `${n} cổng đã chuyển tiếp`, // {n} forwarded ports
 };
 
 export default vi;

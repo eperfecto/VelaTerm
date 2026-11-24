@@ -13,6 +13,10 @@ import { gitRepoWebUrl } from "../../ipc/commands";
 import { knowledgeUrl } from "../Knowledge/navigation";
 import { securityUrl } from "../Security/navigation";
 import { memoryNavigate, COLLECTIONS_CHANGED, COLLECTIONS_COLLAPSE, MemoryLink } from "../Memory/navigation";
+import { PluginLink } from "../../plugins/navigation";
+import { translatePluginKey, usePlugins } from "../../plugins/host";
+import { PluginSidebarHost } from "../../plugins/PluginViews";
+import { isPluginRailSection, pluginIdFromSection } from "./systemCollections";
 import { knowledgeSelection } from "../Notebook/KnowledgeTreeRow";
 import { showVaultAction } from "../Notebook/VaultActions";
 import {
@@ -30,7 +34,7 @@ import {
   type NodeKind,
 } from "../../types";
 import { MARK_LABEL_KEYS, NODE_MARKS, normalizeMark } from "../../marks";
-import { useSessionMenu } from "../sessionMenu";
+import { sessionStatusItem, useSessionMenu } from "../sessionMenu";
 import { GRID_MAX } from "../CenterPane/paneTree";
 import { labelWithCombo } from "../../hooks/shortcutRegistry";
 import {
@@ -242,7 +246,7 @@ function SidebarTreePane({
   onSplitDown: () => void;
   onClose: () => void;
   onNewCollection: () => void;
-  treeHandlers: Omit<TreeHandlers, "view" | "isPrimary" | "onNewCollection">;
+  treeHandlers: Omit<TreeHandlers, "view" | "isPrimary" | "active" | "onNewCollection">;
 }) {
   const t = useT();
   const setTreeFilter = useTermStore((s) => s.setSidebarTreeViewFilter);
@@ -283,14 +287,23 @@ function SidebarTreePane({
     </button>
   );
 
-  if (fixedLayout && (section === "knowledge" || section === "archive")) {
+  const activePluginId = pluginIdFromSection(section);
+  if (fixedLayout && (section === "knowledge" || section === "archive" || activePluginId)) {
     return (
       <section
         className={"sidebar-tree-pane" + (split ? " split" : "") + (active ? " active" : "")}
         onMouseDown={onActivate}
       >
         <div className="sidebar-tree-body sidebar-knowledge-body">
-          <Suspense fallback={null}>{section === "archive" ? <ArchiveNavigation /> : <KnowledgeNavigation heading={false} />}</Suspense>
+          <Suspense fallback={null}>
+            {section === "archive" ? (
+              <ArchiveNavigation />
+            ) : activePluginId ? (
+              <PluginSidebarHost pluginId={activePluginId} />
+            ) : (
+              <KnowledgeNavigation heading={false} />
+            )}
+          </Suspense>
         </div>
         <div className="sidebar-tree-footer">
           {closeButton}
@@ -336,6 +349,7 @@ function SidebarTreePane({
           view={view}
           section={section}
           isPrimary={isPrimary}
+          active={active}
           onNewCollection={onNewCollection}
           {...treeHandlers}
         />
@@ -530,10 +544,22 @@ export function LeftSidebar() {
   // The shown pane group belongs to one section; the header names it and offers what can be created in it.
   const section = sidebarTabSection(activeTab);
   const typedRoot = fixedLayout && section === "tasks" ? SYSTEM_TASKS : fixedLayout && section === "chat" ? SYSTEM_CHAT : null;
-  const newSessionLabel = t(typedRoot === SYSTEM_TASKS ? "newSession.newTask" : typedRoot === SYSTEM_CHAT ? "newSession.newChat" : "newSession.heading");
+  const newSessionLabel = t(typedRoot === SYSTEM_TASKS ? "newSession.newTask" : typedRoot === SYSTEM_CHAT ? "newSession.newChat" : "tree.newSession");
   const showProjectActions = !fixedLayout || section === "projects";
   const knowledgeSection = fixedLayout && section === "knowledge";
   const archiveSection = fixedLayout && section === "archive";
+  const pluginSectionId = fixedLayout && isPluginRailSection(section) ? pluginIdFromSection(section) : null;
+  const pluginSection = Boolean(pluginSectionId);
+  const pluginsList = usePlugins();
+  const activePlugin = pluginSectionId ? pluginsList.find((p) => p.id === pluginSectionId) ?? null : null;
+  const activePluginLabel = activePlugin
+    ? (() => {
+        const key = activePlugin.ui?.rail?.labelKey ?? "";
+        if (!key) return activePlugin.name;
+        const tr = translatePluginKey(activePlugin.id, key);
+        return tr === key ? activePlugin.name : tr;
+      })()
+    : pluginSectionId ?? "";
   const treeStageRef = useRef<HTMLDivElement>(null);
 
   // Three draft sets route context menus and inline rename to temporary actions and in-memory renameScratch.
@@ -726,6 +752,11 @@ export function LeftSidebar() {
             },
           });
         }
+        // Set Status applies to every selected session at once.
+        const statusItem = sessionStatusItem(
+          selection.filter((s) => s.kind === "session").map((s) => s.id),
+        );
+        if (statusItem) items.push(statusItem);
         // Offer Move Selected To only when every selected session belongs to one project.
         const moveItem = buildMoveToMany(
           selection.filter((s) => s.kind === "session").map((s) => s.id),
@@ -822,6 +853,15 @@ export function LeftSidebar() {
           onClick: (event: React.MouseEvent) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault(); openNewSession({ projectId: node.id });
+          },
+        }, {
+          // Groups let the user sort task and chat sessions; the section stays limited to its session type.
+          label: t("tree.newGroup"),
+          icon: <Icons.newGroup size={14} />,
+          href: newGroupDialogUrl(node.id),
+          onClick: (event: React.MouseEvent) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault(); openDialog({ type: "newGroup", projectId: node.id, parentGroupId: null });
           },
         }] : collectionCreationItems(SYSTEM_PROJECTS)),
         sep,
@@ -1028,9 +1068,9 @@ export function LeftSidebar() {
       e.stopPropagation();
       setFolderDropOver(false);
       void platform.dialog
-        .droppedFolders(e.dataTransfer)
+        .droppedPaths(e.dataTransfer)
         .then(async (paths) => {
-          for (const path of paths) await openProjectPath(path);
+          for (const { path, isDir } of paths) if (isDir) await openProjectPath(path);
         })
         // Failures are already reported by the request error banner.
         .catch(() => {});
@@ -1048,7 +1088,9 @@ export function LeftSidebar() {
         {/* The Knowledge title opens the knowledge-base overview, like the heading of the right panel's knowledge tab. */}
         {knowledgeSection || archiveSection
           ? <MemoryLink className="title" route={archiveSection ? "collections" : "notebooks"} values={knowledgeSelection}>{systemLabel(t, section)}</MemoryLink>
-          : <span className="title">{fixedLayout ? systemLabel(t, section) : "Workspace"}</span>}
+          : pluginSectionId
+            ? <PluginLink className="title" pluginId={pluginSectionId} route={activePlugin?.ui?.rail?.defaultRoute || "overview"}>{activePluginLabel}</PluginLink>
+            : <span className="title">{fixedLayout ? systemLabel(t, section) : "Workspace"}</span>}
         <span className="sp" />
         {knowledgeSection && <>
         <button className="icon-btn sm" title={t("nb.openVault")} aria-label={t("nb.openVault")} onClick={() => showVaultAction("open")}>
@@ -1067,7 +1109,7 @@ export function LeftSidebar() {
           <Icons.restart size={14} />
         </button>
         </>}
-        {!knowledgeSection && !archiveSection && <a
+        {!knowledgeSection && !archiveSection && !pluginSection && <a
           href={newSessionHref({ projectId: typedRoot ?? "" })}
           className="icon-btn sm"
           title={newSessionLabel}
@@ -1080,6 +1122,19 @@ export function LeftSidebar() {
           }}
         >
           <Icons.plus size={14} />
+        </a>}
+        {typedRoot && <a
+          href={newGroupDialogUrl(typedRoot)}
+          className="icon-btn sm"
+          title={t("tree.newGroup")}
+          aria-label={t("tree.newGroup")}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            openDialog({ type: "newGroup", projectId: typedRoot, parentGroupId: null });
+          }}
+        >
+          <Icons.newGroup size={14} />
         </a>}
         {showProjectActions && <>
         <a
@@ -1109,7 +1164,7 @@ export function LeftSidebar() {
           <Icons.projectClone size={14} />
         </button>
         </>}
-        {!knowledgeSection && !archiveSection && <button
+        {!knowledgeSection && !archiveSection && !pluginSection && <button
           className="icon-btn sm"
           title={labelWithCombo(t("tree.globalSearch"), "globalSearch", shortcutOverrides)}
           onClick={() => setGlobalSearchOpen(true)}

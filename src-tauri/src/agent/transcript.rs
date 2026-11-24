@@ -72,11 +72,19 @@ pub fn context_info(kind: SessionKind, agent_session_id: &str) -> Result<AgentCo
     if matches!(kind, SessionKind::Grok) {
         return grok_context_info(agent_session_id);
     }
-    if matches!(kind, SessionKind::Opencode) {
+    if kind.uses_opencode() {
+        if kind == SessionKind::Deepseek
+            && crate::agent::history_store::deepseek_legacy::is_legacy(agent_session_id)
+        {
+            return crate::agent::chat::deepseek_stats::context_info(agent_session_id);
+        }
         return opencode_context_info(agent_session_id);
     }
     if matches!(kind, SessionKind::Pi | SessionKind::Omp) {
         return pi_context_info(kind, agent_session_id);
+    }
+    if matches!(kind, SessionKind::Antigravity) {
+        return crate::agent::antigravity_stats::context_info(agent_session_id);
     }
     if !matches!(kind, SessionKind::Claude) {
         return Err("This session kind does not record model context information".to_string());
@@ -161,6 +169,30 @@ fn grok_context_info(agent_session_id: &str) -> Result<AgentContextInfo, String>
         context_limit,
         current_tool: None,
     })
+}
+
+/// Grok's own conversation title, read from the `summary.json` beside its `updates.jsonl`.
+///
+/// Grok refreshes this as the conversation develops: `generated_title` is the current title and
+/// `session_summary` the fallback for partial or older recordings. None means Grok has not written a
+/// title yet, so the caller keeps the session's provisional name rather than clearing it.
+pub fn grok_generated_title(agent_session_id: &str) -> Option<String> {
+    let updates = resume::find_grok_updates(agent_session_id)?;
+    grok_title_in(updates.parent()?)
+}
+
+/// The title `summary.json` in one Grok session directory carries, capped to the AI title length.
+fn grok_title_in(dir: &Path) -> Option<String> {
+    let summary = read_json_file(&dir.join("summary.json"))?;
+    let field = |name: &str| {
+        summary
+            .get(name)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    let title = field("generated_title").or_else(|| field("session_summary"))?;
+    Some(title.chars().take(80).collect())
 }
 
 /// Reads the model and current context from OpenCode's own store.
@@ -389,7 +421,7 @@ fn widen_to_usage(limit: u64, tokens: Option<u64>) -> u64 {
 }
 
 mod turn_stats;
-pub use turn_stats::{current_turn_stats, TurnStats};
+pub use turn_stats::{current_turn_stats, ChangedFile, TurnStats};
 #[cfg(test)]
 use turn_stats::turn_stats_from_text;
 
@@ -799,6 +831,10 @@ pub fn source_path(kind: SessionKind, agent_session_id: &str) -> Option<std::pat
         SessionKind::Grok => resume::find_grok_updates(agent_session_id),
         SessionKind::Antigravity => crate::agent::antigravity::transcript_path(agent_session_id),
         SessionKind::Pi | SessionKind::Omp => resume::find_pi_session(kind, agent_session_id),
+        // A DeepSeek conversation recorded before OpenCode took over lives only in its dsh log, which
+        // search stats like any other recording.
+        SessionKind::Deepseek if crate::agent::history_store::deepseek_legacy::is_legacy(agent_session_id) =>
+            crate::agent::chat::deepseek_history::find(agent_session_id),
         // Kiro uses identity-aware multi-source reads; other non-file stores and plain terminals have no path.
         _ => None,
     }
@@ -895,7 +931,10 @@ pub fn read(kind: SessionKind, agent_session_id: &str) -> Result<Vec<TranscriptM
             let (_, content) = resume::read_codex_rollout_chain(agent_session_id)?;
             Ok(merge(content.lines().filter_map(parse_codex_line)))
         }
-        SessionKind::Opencode => {
+        SessionKind::Opencode | SessionKind::Deepseek => {
+            if kind == SessionKind::Deepseek && crate::agent::history_store::deepseek_legacy::is_legacy(agent_session_id) {
+                return crate::agent::chat::deepseek_history::transcript(agent_session_id);
+            }
             let messages = crate::agent::opencode_store::messages(agent_session_id)?;
             Ok(merge(opencode_pieces(&messages).into_iter()))
         }
@@ -927,7 +966,6 @@ pub fn read(kind: SessionKind, agent_session_id: &str) -> Result<Vec<TranscriptM
         SessionKind::Kimi => {
             Err("Transcript view is not supported for kimi sessions yet".to_string())
         }
-        SessionKind::Deepseek => crate::agent::chat::deepseek_history::transcript(agent_session_id),
         SessionKind::Kiro => {
             Ok(super::kiro_store::read(agent_session_id)?.messages?.into_iter().map(|message| TranscriptMessage {
                 role: message.role.into(), text: message.text, timestamp: message.timestamp, tools: Vec::new(),
@@ -1496,6 +1534,23 @@ printf '%s\n' '{"id":1,"result":{"outcome":"alreadyRedeemed"}}'
         assert!(!messages
             .iter()
             .any(|m| m.text.contains("private reasoning")));
+    }
+
+    #[test]
+    fn grok_title_comes_from_summary_json_and_falls_back_to_the_session_summary() {
+        let dir = std::env::temp_dir().join(format!("vlx-grok-title-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(grok_title_in(&dir), None, "no summary yet leaves the name alone");
+        std::fs::write(dir.join("summary.json"), r#"{"generated_title":"  Fix the login page  "}"#).unwrap();
+        assert_eq!(grok_title_in(&dir).as_deref(), Some("Fix the login page"));
+        std::fs::write(dir.join("summary.json"), r#"{"session_summary":"Older recording"}"#).unwrap();
+        assert_eq!(grok_title_in(&dir).as_deref(), Some("Older recording"));
+        std::fs::write(dir.join("summary.json"), r#"{"generated_title":"   "}"#).unwrap();
+        assert_eq!(grok_title_in(&dir), None);
+        // Grok's titles can run long; the sidebar title is capped like a generated one.
+        std::fs::write(dir.join("summary.json"), format!(r#"{{"generated_title":"{}"}}"#, "长".repeat(200))).unwrap();
+        assert_eq!(grok_title_in(&dir).map(|title| title.chars().count()), Some(80));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -5,9 +5,10 @@
 //!   from other local processes, and maps the event to `StatusSignal`.
 //! - Emits `pty://status/{sid}` and returns 200 immediately so the agent is never delayed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
@@ -30,6 +31,10 @@ pub struct SpawnRequest {
     pub parent_session_id: String,
     /// Self-contained task description for the child session.
     pub prompt: String,
+    /// Session name from `vspawn --title`; absent derives the name from the prompt. A workflow applies it to
+    /// the planner. Skipped when absent so a retried request stored before this field still matches byte for byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Images added while reviewing the initial task in the launch dialog.
     #[serde(default)]
     pub images: Vec<super::chat::protocol::ChatImage>,
@@ -276,6 +281,7 @@ impl HookServer {
 
 /// Request loop: parse, validate, map, emit, and immediately return 200.
 fn serve_loop(server: tiny_http::Server, app: AppCtx, token: String) {
+    let app_for_signal = app.clone();
     let app_for_db = app.clone();
     let app_for_spawn = app.clone();
     let app_for_prompt = app.clone();
@@ -284,8 +290,9 @@ fn serve_loop(server: tiny_http::Server, app: AppCtx, token: String) {
     serve_with_app(
         server,
         &token,
-        Some(app.clone()),
-        |sid, signal| {
+        Some(app),
+        true,
+        Arc::new(move |sid, signal| {
             // A turn that ends while the session's `vrun` work goes on does not make it idle: report
             // background until that work is over. Everything downstream sees the adjusted state.
             let signal = match signal {
@@ -298,22 +305,21 @@ fn serve_loop(server: tiny_http::Server, app: AppCtx, token: String) {
             };
             // Keep the process-wide status view current before the event goes out, so anything blocked
             // in `status_watch::wait_for_change` (vstat, an orchestration's coordinator) sees the same
-            // change the frontend is about to. Recording is a fast in-memory operation; this closure
-            // runs on the accept loop.
+            // change the frontend is about to. Recording is a fast in-memory operation.
             if let StatusSignal::State { state, .. } = &signal {
                 crate::agent::status_watch::record(&sid, *state);
             }
-            app.emit(&StatusSignal::event_name(&sid), signal);
-        },
-        |sid, prompt| {
+            app_for_signal.emit(&StatusSignal::event_name(&sid), signal);
+        }),
+        Arc::new(move |sid, prompt| {
             // If the first user message arrives while the session still has an automatic name such
             // as `Claude 1`, the **backend alone** condenses it into a meaningful title, writes once,
             // and broadcasts tree://changed. Previously every client received the prompt and called
             // renameNode, multiplying DB writes and tree reloads with multiple clients. Once renamed,
             // later messages no longer match the placeholder; manually chosen names are never changed.
             try_auto_rename(&app_for_prompt, &sid, &prompt);
-        },
-        |sid, agent_session_id| {
+        }),
+        Arc::new(move |sid, agent_session_id| {
             // Persist the agent's session_id from the hook body for exact future resume. Store it
             // under the session's own kind: supported agent hooks return their ID in the body
             // (Cline uses top-level taskId; Crush/Codex use top-level session_id). Skip non-agent kinds.
@@ -375,19 +381,19 @@ fn serve_loop(server: tiny_http::Server, app: AppCtx, token: String) {
                 app_for_db.emit(crate::host::TREE_CHANGED, ());
             }
             verified
-        },
-        |req| {
+        }),
+        Arc::new(move |req| {
             // The production route persists requests before publishing; this callback also serves
             // the transport-only test harness.
             app_for_spawn.emit("spawn://request", req);
-        },
-        |req| {
+        }),
+        Arc::new(move |req| {
             // Forward an in-session `view <file>` request to open a document tab; ws.rs relays it to browsers.
             app_for_view.emit("view://request", req);
-        },
+        }),
         // Read-only endpoints answer their caller directly instead of emitting an event, and run on a
         // dedicated thread per request.
-        std::sync::Arc::new(move |req| match req {
+        Arc::new(move |req| match req {
             ReadRequest::Refer(r) => handle_refer(&app_for_read, r),
             ReadRequest::Search(r) => handle_search(&app_for_read, r),
             ReadRequest::Stat(r) => handle_stat(&app_for_read, r),
@@ -414,6 +420,12 @@ pub(crate) fn try_auto_rename(app: &AppCtx, sid: &str, prompt: &str) -> bool {
         let Ok(conn) = db.conn.lock() else {
             return false;
         };
+        // Grok names its own conversations. Leaving the numbered placeholder in place until that title
+        // arrives makes the sidebar change once instead of taking a condensed first-prompt name first and
+        // then being replaced by Grok's title.
+        if crate::db::repo::get_session_kind(&conn, sid).ok().flatten() == Some(crate::models::SessionKind::Grok) {
+            return false;
+        }
         match crate::db::repo::get_session_name(&conn, sid) {
             Ok(Some(name)) if is_auto_name(&name) => {
                 crate::db::repo::rename_node(&conn, crate::models::NodeKind::Session, sid, &title)
@@ -426,6 +438,110 @@ pub(crate) fn try_auto_rename(app: &AppCtx, sid: &str, prompt: &str) -> bool {
         app.emit(crate::host::TREE_CHANGED, ());
     }
     renamed
+}
+
+/// Longest title an agent may name a session with, matching the AI title limit.
+const AGENT_TITLE_CHARS: usize = 80;
+
+/// Setting holding, by session id, the agent-written title this app last adopted.
+///
+/// A name the agent chose has to keep following the agent's later refreshes, while a name the person
+/// typed must never be overwritten. `is_auto_name` recognises placeholders only, so the adopted title is
+/// remembered here — in the database, so following survives a restart.
+const AGENT_TITLES_SETTING: &str = "session.agentTitle";
+
+/// How many adopted titles are kept; entries belong to old sessions that will never claim them again.
+const AGENT_TITLES_LIMIT: usize = 512;
+
+fn adopted_titles(conn: &rusqlite::Connection) -> HashMap<String, String> {
+    crate::db::repo::get_app_settings(conn).ok()
+        .and_then(|settings| settings.get(AGENT_TITLES_SETTING).cloned())
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// Remember, or with `None` forget, the agent title this app adopted for a session.
+fn remember_adopted_title(conn: &rusqlite::Connection, sid: &str, title: Option<&str>) {
+    let mut titles = adopted_titles(conn);
+    match title {
+        Some(title) => { titles.insert(sid.to_string(), title.to_string()); }
+        None => if titles.remove(sid).is_none() { return; },
+    }
+    if titles.len() > AGENT_TITLES_LIMIT {
+        let mut keys: Vec<String> = titles.keys().cloned().collect();
+        keys.sort();
+        let excess = titles.len() - AGENT_TITLES_LIMIT;
+        for key in keys.into_iter().take(excess) { titles.remove(&key); }
+    }
+    let Ok(value) = serde_json::to_string(&titles) else { return };
+    let _ = crate::db::repo::set_app_settings(conn, &HashMap::from([(AGENT_TITLES_SETTING.to_string(), value)]));
+}
+
+/// The person named this session themselves: stop following any title the agent writes from now on.
+pub(crate) fn forget_adopted_title(app: &AppCtx, sid: &str) {
+    let Ok(conn) = app.db().conn.lock() else { return };
+    remember_adopted_title(&conn, sid, None);
+}
+
+/// Adopt a title the agent chose for itself, unless the person already named the session.
+///
+/// Applies while the session still carries an automatic placeholder or the title this app last adopted
+/// from the agent. Anything else is a name the person typed, and is left alone.
+pub(crate) fn rename_from_agent_title(app: &AppCtx, sid: &str, title: &str) -> bool {
+    let clean: String = title.trim().chars().take(AGENT_TITLE_CHARS).collect();
+    if !crate::agent::session_title::is_valid_title(&clean) {
+        return false;
+    }
+    let renamed = {
+        let db = app.db();
+        let Ok(conn) = db.conn.lock() else {
+            return false;
+        };
+        let current = match crate::db::repo::get_session_name(&conn, sid) {
+            Ok(Some(name)) => name,
+            _ => return false,
+        };
+        if current == clean {
+            remember_adopted_title(&conn, sid, Some(&clean));
+            return false;
+        }
+        let adopted = adopted_titles(&conn).get(sid).cloned();
+        if !is_auto_name(&current) && adopted.as_deref() != Some(current.as_str()) {
+            return false;
+        }
+        if crate::db::repo::rename_node(&conn, crate::models::NodeKind::Session, sid, &clean).is_err() {
+            return false;
+        }
+        remember_adopted_title(&conn, sid, Some(&clean));
+        true
+    };
+    if renamed {
+        app.emit(crate::host::TREE_CHANGED, ());
+    }
+    renamed
+}
+
+/// Mirror Grok's own conversation title into the sidebar.
+///
+/// Grok persists `generated_title` to `summary.json` beside its recording, and refreshes it as the
+/// conversation develops. Reading that file covers terminal turns and resumed chat conversations, which
+/// no longer push `session_info_update` for a title they already have.
+pub(crate) fn sync_grok_title_from_disk(app: &AppCtx, sid: &str) {
+    let native = {
+        let db = app.db();
+        let Ok(conn) = db.conn.lock() else { return };
+        if crate::db::repo::get_session_kind(&conn, sid).ok().flatten()
+            != Some(crate::models::SessionKind::Grok) {
+            return;
+        }
+        match crate::db::repo::get_agent_session_id(&conn, sid) {
+            Ok(Some(id)) if !id.is_empty() => id,
+            _ => return,
+        }
+    };
+    if let Some(title) = crate::agent::transcript::grok_generated_title(&native) {
+        rename_from_agent_title(app, sid, &title);
+    }
 }
 
 /// Suppresses Codex mid-turn callbacks that arrive after their turn already ended.
@@ -469,6 +585,363 @@ impl CodexTurnGuard {
     }
 }
 
+const MAX_HOOK_BODY_BYTES: usize = 512 * 1024;
+
+fn read_body_or_reject(
+    mut request: crate::diagnostics::HttpRequest,
+) -> Option<(crate::diagnostics::HttpRequest, String)> {
+    let mut body = String::new();
+    if request
+        .as_reader()
+        .take(MAX_HOOK_BODY_BYTES as u64 + 1)
+        .read_to_string(&mut body)
+        .is_err()
+        || body.len() > MAX_HOOK_BODY_BYTES
+    {
+        let _ = request.respond(
+            tiny_http::Response::from_string(error_body("Request body exceeds its byte budget"))
+                .with_status_code(413),
+        );
+        return None;
+    }
+    Some((request, body))
+}
+
+fn json_response(body: impl Into<String>) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    tiny_http::Response::from_string(body).with_status_code(200).with_header(
+        tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
+    )
+}
+
+#[derive(Clone)]
+struct HookContext {
+    app: Option<AppCtx>,
+    respond_before_persistence: bool,
+    on_signal: Arc<dyn Fn(String, StatusSignal) + Send + Sync>,
+    on_prompt: Arc<dyn Fn(String, String) + Send + Sync>,
+    on_session_id: Arc<dyn Fn(String, String) -> bool + Send + Sync>,
+    turn_guard: Arc<Mutex<CodexTurnGuard>>,
+    agy_named: Arc<Mutex<HashSet<String>>>,
+}
+
+enum HookJob {
+    Hook {
+        request: crate::diagnostics::HttpRequest,
+        url: String,
+        sid: String,
+        signal: Option<StatusSignal>,
+    },
+    AgyStop {
+        request: crate::diagnostics::HttpRequest,
+        sid: String,
+    },
+}
+
+#[derive(Default)]
+struct HookQueueState {
+    queues: HashMap<String, VecDeque<HookJob>>,
+    active: HashSet<String>,
+}
+
+/// Serializes `/hook` and non-chat `/agy-stop` callbacks per session ID while keeping them off the
+/// accept loop so one slow database write or stalled body cannot delay other sessions or endpoints.
+struct HookQueue {
+    state: Mutex<HookQueueState>,
+    ctx: HookContext,
+}
+
+impl HookQueue {
+    fn new(ctx: HookContext) -> Self {
+        Self {
+            state: Mutex::new(HookQueueState::default()),
+            ctx,
+        }
+    }
+
+    fn enqueue(self: &Arc<Self>, sid: String, job: HookJob) {
+        let should_spawn = {
+            let mut state = self.state.lock().unwrap();
+            state.queues.entry(sid.clone()).or_default().push_back(job);
+            state.active.insert(sid.clone())
+        };
+        if !should_spawn {
+            return;
+        }
+        let queue = Arc::clone(self);
+        let _ = std::thread::Builder::new()
+            .name("hook-worker".into())
+            .spawn(move || loop {
+                let job = {
+                    let mut state = queue.state.lock().unwrap();
+                    let next = state.queues.get_mut(&sid).and_then(VecDeque::pop_front);
+                    if next.is_none() {
+                        state.queues.remove(&sid);
+                        state.active.remove(&sid);
+                        return;
+                    }
+                    next
+                };
+                if let Some(job) = job {
+                    handle_hook_job(&queue.ctx, job);
+                }
+            });
+    }
+}
+
+fn handle_hook_job(ctx: &HookContext, job: HookJob) {
+    match job {
+        HookJob::Hook { request, url, sid, signal } => {
+            handle_hook_request(ctx, request, &url, &sid, signal);
+        }
+        HookJob::AgyStop { request, sid } => {
+            handle_agy_stop_queued(ctx, request, &sid);
+        }
+    }
+}
+
+fn is_chat_ignored(app: Option<&AppCtx>, sid: &str) -> bool {
+    app.is_some_and(|app| app.chat().is_alive(sid) || crate::session_state::has_chat_source(sid))
+}
+
+fn emit_hook_signals(
+    ctx: &HookContext,
+    sid: &str,
+    url: &str,
+    body: &str,
+    signal: Option<StatusSignal>,
+) {
+    if let Some(tool_signal) = parse_tool_signal(body) {
+        (ctx.on_signal)(sid.to_string(), tool_signal);
+    }
+    if let Some(signal) = signal {
+        // Codex callbacks can arrive out of order; drop mid-turn working that lost the race against
+        // its own turn's Stop. Every other agent passes through untouched.
+        let event = parse_url(url).map(|(_, _, e)| e).unwrap_or_default();
+        let admit = ctx.turn_guard.lock().unwrap().admit(sid, &event, Instant::now());
+        if admit {
+            (ctx.on_signal)(sid.to_string(), signal);
+        }
+    }
+}
+
+fn persist_hook_metadata(ctx: &HookContext, sid: &str, url: &str, body: &str) {
+    let mut id_is_foreground = false;
+    if let Some(agent_session_id) = parse_session_id(body) {
+        id_is_foreground = (ctx.on_session_id)(sid.to_string(), agent_session_id);
+    }
+    if let Some(text) = parse_first_prompt(body) {
+        if !is_codex_turn_complete(body) || id_is_foreground {
+            (ctx.on_prompt)(sid.to_string(), text);
+        }
+    } else {
+        maybe_name_from_agy_transcript(ctx, sid, body);
+    }
+    // Grok writes its conversation title to `summary.json`; mirror it once a turn ends. Chat
+    // callbacks returned above, so this only covers terminal (tui) Grok sessions.
+    if let Some(app) = &ctx.app {
+        if parse_url(url).is_some_and(|(_, _, event)| event == "waiting") {
+            sync_grok_title_from_disk(app, sid);
+        }
+    }
+}
+
+fn maybe_name_from_agy_transcript(ctx: &HookContext, sid: &str, body: &str) {
+    if ctx.agy_named.lock().unwrap().contains(sid) {
+        return;
+    }
+    // Antigravity hooks carry no prompt text; read the transcript they name once per session.
+    if let Some(text) = crate::agent::antigravity::first_prompt_from_transcript(body) {
+        ctx.agy_named.lock().unwrap().insert(sid.to_string());
+        (ctx.on_prompt)(sid.to_string(), text);
+    }
+}
+
+fn handle_hook_request(
+    ctx: &HookContext,
+    request: crate::diagnostics::HttpRequest,
+    url: &str,
+    sid: &str,
+    signal: Option<StatusSignal>,
+) {
+    let Some((request, body)) = read_body_or_reject(request) else {
+        return;
+    };
+    // Chat protocols own identity, naming, tooling and lifecycle state. Global hooks from a descendant
+    // CLI inherit the same VLX environment, but describe that CLI, not this chat.
+    if is_chat_ignored(ctx.app.as_ref(), sid) {
+        let _ = request.respond(tiny_http::Response::empty(200));
+        return;
+    }
+    if parse_url(url).is_some_and(|(_, _, event)| event == "cleared") {
+        if ctx.respond_before_persistence {
+            let _ = request.respond(tiny_http::Response::empty(200));
+            if let Some(app) = &ctx.app {
+                forget_cleared_conversation(app, sid, &body);
+            }
+        } else {
+            if let Some(app) = &ctx.app {
+                forget_cleared_conversation(app, sid, &body);
+            }
+            let _ = request.respond(tiny_http::Response::empty(200));
+        }
+        return;
+    }
+    if ctx.respond_before_persistence {
+        emit_hook_signals(ctx, sid, url, &body, signal);
+        let _ = request.respond(tiny_http::Response::empty(200));
+        persist_hook_metadata(ctx, sid, url, &body);
+    } else {
+        persist_hook_metadata(ctx, sid, url, &body);
+        emit_hook_signals(ctx, sid, url, &body, signal);
+        let _ = request.respond(tiny_http::Response::empty(200));
+    }
+}
+
+fn emit_agy_stop_signals(ctx: &HookContext, sid: &str, body: &str) {
+    if let Some(tool_signal) = parse_tool_signal(body) {
+        (ctx.on_signal)(sid.to_string(), tool_signal);
+    }
+    (ctx.on_signal)(
+        sid.to_string(),
+        StatusSignal::State {
+            state: AgentState::Waiting,
+            silent: false,
+            authoritative: false,
+        },
+    );
+}
+
+fn persist_agy_stop_metadata(ctx: &HookContext, sid: &str, body: &str) {
+    if let Some(agent_session_id) = parse_session_id(body) {
+        let _ = (ctx.on_session_id)(sid.to_string(), agent_session_id);
+    }
+    maybe_name_from_agy_transcript(ctx, sid, body);
+}
+
+fn handle_agy_stop_queued(ctx: &HookContext, request: crate::diagnostics::HttpRequest, sid: &str) {
+    let Some((request, body)) = read_body_or_reject(request) else {
+        return;
+    };
+    if is_chat_ignored(ctx.app.as_ref(), sid) {
+        let _ = request.respond(json_response("{\"decision\":\"allow\"}"));
+        return;
+    }
+    if ctx.respond_before_persistence {
+        emit_agy_stop_signals(ctx, sid, &body);
+        let _ = request.respond(json_response("{\"decision\":\"allow\"}"));
+        persist_agy_stop_metadata(ctx, sid, &body);
+    } else {
+        persist_agy_stop_metadata(ctx, sid, &body);
+        emit_agy_stop_signals(ctx, sid, &body);
+        let _ = request.respond(json_response("{\"decision\":\"allow\"}"));
+    }
+}
+
+fn handle_read_request(
+    request: crate::diagnostics::HttpRequest,
+    url: &str,
+    token: &str,
+    handler: &ReadHandler,
+) {
+    let Some((request, body)) = read_body_or_reject(request) else {
+        return;
+    };
+    let req = match parse_read(url, &body, token) {
+        Ok(req) => req,
+        Err((code, reason)) => {
+            let _ = request.respond(tiny_http::Response::from_string(reason).with_status_code(code));
+            return;
+        }
+    };
+    let stream_format = url.split_once('?').and_then(|(_, query)| {
+        query.split('&').find_map(|pair| match pair {
+            "stream=text" => Some("text"),
+            "stream=json" => Some("json"),
+            _ => None,
+        })
+    });
+    if let (Some(format), ReadRequest::Refer(refer)) = (stream_format, &req) {
+        if !refer.list {
+            let (code, payload) = handler(req);
+            let payload = if format == "text" && code == 200 {
+                serde_json::from_str::<serde_json::Value>(&payload)
+                    .map(|value| {
+                        if value.get("answer").is_some() {
+                            super::cli_client::render_answer(&value)
+                        } else {
+                            super::cli_client::render_refer(&value)
+                        }
+                    })
+                    .unwrap_or(payload)
+            } else {
+                payload
+            };
+            let content_type = if format == "text" {
+                "text/plain; charset=utf-8"
+            } else {
+                "application/json; charset=utf-8"
+            };
+            let _ = request.respond(
+                tiny_http::Response::from_string(payload)
+                    .with_status_code(code)
+                    .with_header(tiny_http::Header::from_bytes("Content-Type", content_type).unwrap()),
+            );
+            return;
+        }
+    }
+    let (code, payload) = handler(req);
+    let _ = request.respond(tiny_http::Response::from_string(payload).with_status_code(code));
+}
+
+fn handle_view_request(
+    request: crate::diagnostics::HttpRequest,
+    url: &str,
+    token: &str,
+    on_view: &(dyn Fn(ViewRequest) + Send + Sync),
+) {
+    let Some((request, body)) = read_body_or_reject(request) else {
+        return;
+    };
+    match parse_view(url, &body, token) {
+        Ok(req) => {
+            on_view(req);
+            let _ = request.respond(tiny_http::Response::empty(200));
+        }
+        Err(reason) => {
+            let _ = request.respond(tiny_http::Response::from_string(reason).with_status_code(404));
+        }
+    }
+}
+
+fn handle_spawn_request(
+    request: crate::diagnostics::HttpRequest,
+    url: &str,
+    token: &str,
+    app: Option<&AppCtx>,
+    on_spawn: &(dyn Fn(SpawnRequest) + Send + Sync),
+) {
+    let Some((request, body)) = read_body_or_reject(request) else {
+        return;
+    };
+    let Some(req) = parse_spawn(url, &body, token) else {
+        let _ = request.respond(
+            tiny_http::Response::from_string("Invalid spawn request").with_status_code(400),
+        );
+        return;
+    };
+    if let Some(app) = app {
+        let result = super::spawn_requests::register(app, req);
+        let (code, payload) = match result {
+            Ok(receipt) => (200, serde_json::to_string(&receipt).unwrap_or_default()),
+            Err(error) => (400, error),
+        };
+        let _ = request.respond(tiny_http::Response::from_string(payload).with_status_code(code));
+    } else {
+        on_spawn(req);
+        let _ = request.respond(tiny_http::Response::empty(200));
+    }
+}
+
 /// Core request loop. Pass mapped status to `on_signal`, the first user message to `on_prompt` for
 /// automatic naming, and the agent's parsed session_id to `on_session_id`, then return 200.
 /// Callback extraction permits real-HTTP integration tests without Tauri.
@@ -477,22 +950,28 @@ impl CodexTurnGuard {
 fn serve_with(
     server: tiny_http::Server,
     token: &str,
-    on_signal: impl FnMut(String, StatusSignal),
-    on_prompt: impl FnMut(String, String),
-    on_session_id: impl FnMut(String, String) -> bool,
-    on_spawn: impl FnMut(SpawnRequest),
-    on_view: impl FnMut(ViewRequest),
+    on_signal: impl FnMut(String, StatusSignal) + Send + 'static,
+    on_prompt: impl FnMut(String, String) + Send + 'static,
+    on_session_id: impl FnMut(String, String) -> bool + Send + 'static,
+    on_spawn: impl FnMut(SpawnRequest) + Send + 'static,
+    on_view: impl FnMut(ViewRequest) + Send + 'static,
     on_read: ReadHandler,
 ) {
+    let on_signal = Mutex::new(on_signal);
+    let on_prompt = Mutex::new(on_prompt);
+    let on_session_id = Mutex::new(on_session_id);
+    let on_spawn = Mutex::new(on_spawn);
+    let on_view = Mutex::new(on_view);
     serve_with_app(
         server,
         token,
         None,
-        on_signal,
-        on_prompt,
-        on_session_id,
-        on_spawn,
-        on_view,
+        false,
+        Arc::new(move |a, b| on_signal.lock().unwrap()(a, b)),
+        Arc::new(move |a, b| on_prompt.lock().unwrap()(a, b)),
+        Arc::new(move |a, b| on_session_id.lock().unwrap()(a, b)),
+        Arc::new(move |a| on_spawn.lock().unwrap()(a)),
+        Arc::new(move |a| on_view.lock().unwrap()(a)),
         on_read,
     )
 }
@@ -502,26 +981,43 @@ fn serve_with_app(
     server: tiny_http::Server,
     token: &str,
     app: Option<AppCtx>,
-    mut on_signal: impl FnMut(String, StatusSignal),
-    mut on_prompt: impl FnMut(String, String),
-    mut on_session_id: impl FnMut(String, String) -> bool,
-    mut on_spawn: impl FnMut(SpawnRequest),
-    mut on_view: impl FnMut(ViewRequest),
+    respond_before_persistence: bool,
+    on_signal: Arc<dyn Fn(String, StatusSignal) + Send + Sync>,
+    on_prompt: Arc<dyn Fn(String, String) + Send + Sync>,
+    on_session_id: Arc<dyn Fn(String, String) -> bool + Send + Sync>,
+    on_spawn: Arc<dyn Fn(SpawnRequest) + Send + Sync>,
+    on_view: Arc<dyn Fn(ViewRequest) + Send + Sync>,
     on_read: ReadHandler,
 ) {
-    let mut turn_guard = CodexTurnGuard::default();
-    // Sessions already named from an Antigravity transcript. Their payloads carry no prompt, so the name
-    // comes from a file read; remembering the ones that succeeded keeps it to one read per session.
-    let mut agy_named: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let hook_queue = Arc::new(HookQueue::new(HookContext {
+        app: app.clone(),
+        respond_before_persistence,
+        on_signal,
+        on_prompt,
+        on_session_id,
+        turn_guard: Arc::new(Mutex::new(CodexTurnGuard::default())),
+        agy_named: Arc::new(Mutex::new(HashSet::new())),
+    }));
+    // Keep the accept loop free of TCP body reads, file IO, and database locks so one stalled
+    // caller or contended lock never delays unrelated hook callbacks.
     for request in server.incoming_requests() {
-        let mut request = crate::diagnostics::HttpRequest::new(request);
-        // Copy the URL before borrowing the request to read its body.
+        let request = crate::diagnostics::HttpRequest::new(request);
         let url = request.url().to_string();
         if url == "/tell" {
             if let Some(app) = &app {
                 let app = app.clone();
                 let token = token.to_string();
                 std::thread::spawn(move || super::tell::handle(app, request, token));
+            } else {
+                let _ = request.respond(tiny_http::Response::empty(404));
+            }
+            continue;
+        }
+        if url == "/app" {
+            if let Some(app) = &app {
+                let app = app.clone();
+                let token = token.to_string();
+                std::thread::spawn(move || super::app_cli::handle(app, request, token));
             } else {
                 let _ = request.respond(tiny_http::Response::empty(404));
             }
@@ -547,142 +1043,83 @@ fn serve_with_app(
             }
             continue;
         }
-        // Hook, spawn, and view POST requests all carry JSON bodies.
-        let mut body = String::new();
-        if request.as_reader().take(512*1024+1).read_to_string(&mut body).is_err() || body.len()>512*1024 {
-            let _=request.respond(tiny_http::Response::from_string(error_body("Request body exceeds its byte budget")).with_status_code(413));
+        if let Some(rest) = url.strip_prefix("/plugin/") {
+            if let Some(plugin_id) = rest.strip_suffix("/cli") {
+                if let Some(app) = &app {
+                    let app = app.clone();
+                    let token = token.to_string();
+                    let plugin_id = plugin_id.to_string();
+                    std::thread::spawn(move || {
+                        crate::plugins::cli_bridge::handle_http(app, request, token, plugin_id)
+                    });
+                } else {
+                    let _ = request.respond(tiny_http::Response::empty(404));
+                }
+                continue;
+            }
+        }
+        if is_read_path(&url) {
+            let handler = on_read.clone();
+            let token = token.to_string();
+            std::thread::spawn(move || handle_read_request(request, &url, &token, &handler));
             continue;
         }
-
-        // `/refer` and `/search` read transcripts and query SQLite, which takes tens to hundreds of
-        // milliseconds and can reach seconds while the search index refreshes. This loop is single
-        // threaded and also carries agent status callbacks, the authoritative state machine's lifeline,
-        // so hand the request to its own thread and go straight back to accepting.
-        if is_read_path(&url) {
-            match parse_read(&url, &body, token) {
-                Ok(req) => {
-                    let handler = on_read.clone();
-                    let stream_format=url.split_once('?').and_then(|(_,query)|query.split('&').find_map(|pair|match pair {
-                        "stream=text"=>Some("text"),"stream=json"=>Some("json"),_=>None,
-                    }));
+        if is_view_path(&url) {
+            let on_view = Arc::clone(&on_view);
+            let token = token.to_string();
+            std::thread::spawn(move || handle_view_request(request, &url, &token, &*on_view));
+            continue;
+        }
+        if url.split('?').next() == Some("/spawn") {
+            let app = app.clone();
+            let token = token.to_string();
+            let on_spawn = Arc::clone(&on_spawn);
+            std::thread::spawn(move || {
+                handle_spawn_request(request, &url, &token, app.as_ref(), &*on_spawn);
+            });
+            continue;
+        }
+        if let Some(parsed) = parse_agy_stop(&url, token) {
+            match parsed {
+                Err((code, reason)) => {
                     std::thread::spawn(move || {
-                        if let (Some(format),ReadRequest::Refer(refer))=(stream_format,&req) {
-                            if !refer.list {
-                                let (code,payload)=handler(req);
-                                let payload=if format=="text" && code==200 {
-                                    serde_json::from_str::<serde_json::Value>(&payload).map(|value|if value.get("answer").is_some() {super::cli_client::render_answer(&value)} else {super::cli_client::render_refer(&value)}).unwrap_or(payload)
-                                } else {payload};
-                                let content_type=if format=="text" {"text/plain; charset=utf-8"} else {"application/json; charset=utf-8"};
-                                let _=request.respond(tiny_http::Response::from_string(payload).with_status_code(code)
-                                    .with_header(tiny_http::Header::from_bytes("Content-Type",content_type).unwrap()));
-                                return;
-                            }
-                        }
-                        let (code, payload) = handler(req);
-                        let _ = request.respond(
-                            tiny_http::Response::from_string(payload).with_status_code(code),
-                        );
+                        let _ = request
+                            .respond(tiny_http::Response::from_string(reason).with_status_code(code));
                     });
                 }
-                Err((code, reason)) => {
-                    let _ = request
-                        .respond(tiny_http::Response::from_string(reason).with_status_code(code));
+                Ok(sid) if app.as_ref().is_some_and(|app| app.chat().is_alive(&sid)) => {
+                    let app = app.clone().expect("checked alive chat app");
+                    std::thread::spawn(move || {
+                        let Some((request, body)) = read_body_or_reject(request) else {
+                            return;
+                        };
+                        let reply = app.chat().handle_antigravity_stop(&app, &sid, &body);
+                        let _ = request.respond(json_response(reply));
+                    });
+                }
+                Ok(sid) => {
+                    hook_queue.enqueue(sid.clone(), HookJob::AgyStop { request, sid });
                 }
             }
             continue;
         }
-
-        // `/view` is special: unlike always-200 routes, path validation returns a reason with 404
-        // so the script can report missing files through curl -f.
-        if is_view_path(&url) {
-            match parse_view(&url, &body, token) {
-                Ok(req) => {
-                    on_view(req);
-                    let _ = request.respond(tiny_http::Response::empty(200));
-                }
-                Err(reason) => {
-                    let _ = request
-                        .respond(tiny_http::Response::from_string(reason).with_status_code(404));
-                }
-            }
+        if let Some((sid, signal)) = handle(&url, token) {
+            hook_queue.enqueue(
+                sid.clone(),
+                HookJob::Hook {
+                    request,
+                    url,
+                    sid,
+                    signal,
+                },
+            );
             continue;
         }
-
-        if let Some(req) = parse_spawn(&url, &body, token) {
-            if let Some(app) = &app {
-                let app = app.clone();
-                std::thread::spawn(move || {
-                    let result = super::spawn_requests::register(&app, req);
-                    let (code, payload) = match result {
-                        Ok(receipt) => (200, serde_json::to_string(&receipt).unwrap_or_default()),
-                        Err(error) => (400, error),
-                    };
-                    let _ = request.respond(tiny_http::Response::from_string(payload).with_status_code(code));
-                });
-                continue;
-            }
-            on_spawn(req);
-        } else if url.split('?').next() == Some("/spawn") {
-            let _ = request.respond(tiny_http::Response::from_string("Invalid spawn request").with_status_code(400));
-            continue;
-        } else if let Some((sid, signal)) = handle(&url, token) {
-            // Chat protocols own identity, naming, tooling and lifecycle state. Global hooks from a
-            // descendant CLI inherit the same VLX environment, but describe that CLI, not this chat.
-            // The source also protects stopped chat sessions against callbacks still in flight.
-            if app.as_ref().is_some_and(|app|
-                app.chat().is_alive(&sid) || crate::session_state::has_chat_source(&sid)) {
+        std::thread::spawn(move || {
+            if let Some((request, _body)) = read_body_or_reject(request) {
                 let _ = request.respond(tiny_http::Response::empty(200));
-                continue;
             }
-            // A Claude `/clear` names the conversation it just ended: unbind that ID instead of capturing it.
-            if parse_url(&url).is_some_and(|(_, _, event)| event == "cleared") {
-                if let Some(app) = &app {
-                    forget_cleared_conversation(app, &sid, &body);
-                }
-                let _ = request.respond(tiny_http::Response::empty(200));
-                continue;
-            }
-            // For a valid hook, capture any body session_id before reporting status. The callback
-            // reports whether that ID belongs to the session's own foreground conversation.
-            let mut id_is_foreground = false;
-            if let Some(agent_session_id) = parse_session_id(&body) {
-                id_is_foreground = on_session_id(sid.clone(), agent_session_id);
-            }
-            // UserPromptSubmit carries the original message. Let the backend condense an automatic
-            // session name once instead of asking every client to rename it. Codex notify fires per
-            // thread through a process-wide command, so internal helper threads (title generation,
-            // guardian review) post their input-messages to this same URL; only a verified
-            // foreground thread may name the session, while hook payloads carrying the real prompt
-            // are trusted as before.
-            if let Some(text) = parse_first_prompt(&body) {
-                if !is_codex_turn_complete(&body) || id_is_foreground {
-                    on_prompt(sid.clone(), text);
-                }
-            } else if !agy_named.contains(&sid) {
-                // Antigravity is the one agent whose hooks carry no prompt text; its payload names the
-                // transcript instead. An empty read means the first user step is not flushed yet, so the
-                // session's next event tries again.
-                if let Some(text) = crate::agent::antigravity::first_prompt_from_transcript(&body) {
-                    agy_named.insert(sid.clone());
-                    on_prompt(sid.clone(), text);
-                }
-            }
-            // Emit an additional Tool signal from lifecycle fields so Info can show active tooling.
-            if let Some(tool_signal) = parse_tool_signal(&body) {
-                on_signal(sid.clone(), tool_signal);
-            }
-            // A valid event may have no status signal, such as Copilot `boot`, which only captures its ID.
-            if let Some(signal) = signal {
-                // Codex callbacks can arrive out of order; drop mid-turn working that lost the race
-                // against its own turn's Stop. Every other agent passes through untouched.
-                let event = parse_url(&url).map(|(_, _, e)| e).unwrap_or_default();
-                if turn_guard.admit(&sid, &event, Instant::now()) {
-                    on_signal(sid, signal);
-                }
-            }
-        }
-
-        let _ = request.respond(tiny_http::Response::empty(200));
+        });
     }
 }
 
@@ -834,7 +1271,7 @@ fn non_empty_trimmed(s: Option<&str>) -> Option<String> {
 /// dependency-free equivalent of the frontend AUTO_NAME regex. Prefixes include localized and
 /// legacy defaults for old data. `Pi` still requires whitespace plus digits, so `Pilot 3` is safe.
 pub(crate) fn is_auto_name(name: &str) -> bool {
-    let rest = [
+    [
         "Claude",
         "Codex",
         "OpenCode",
@@ -848,8 +1285,10 @@ pub(crate) fn is_auto_name(name: &str) -> bool {
         "Kimi Code",
         "Kimi",
         "Kiro",
-        "Grok",
+        // `Grok Build` must be tried as well as `Grok`: matching `Grok` first would leave `Build 2`,
+        // which is not a number, so every prefix gets its own attempt below.
         "Grok Build",
+        "Grok",
         "ZCode",
         "DeepSeek",
         // Localized common.session values used as default terminal-session name prefixes.
@@ -865,14 +1304,11 @@ pub(crate) fn is_auto_name(name: &str) -> bool {
                       // French “Session” is identical to English and needs no separate entry.
     ]
     .iter()
-    .find_map(|p| name.strip_prefix(p));
-    match rest {
-        Some(rest) => {
-            let digits = rest.trim_start();
-            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
-        }
-        None => false,
-    }
+    .any(|prefix| {
+        name.strip_prefix(prefix)
+            .map(str::trim_start)
+            .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+    })
 }
 
 /// Condense the first user message into a title: take the first nonempty line, remove leading
@@ -2072,6 +2508,30 @@ fn handle(url: &str, expected_token: &str) -> Option<(String, Option<StatusSigna
     Some((sid, signal))
 }
 
+/// Validate `/agy-stop/<sid>?t=<token>` and return `Ok(sid)` or an HTTP error `(code, reason)`.
+fn parse_agy_stop(url: &str, expected_token: &str) -> Option<Result<String, (u16, &'static str)>> {
+    let (path, query) = match url.split_once('?') {
+        Some((p, q)) => (p, q),
+        None => (url, ""),
+    };
+    let sid = path.strip_prefix("/agy-stop/")?;
+    if sid.is_empty() || sid.contains('/') {
+        return Some(Err((400, "Invalid session id")));
+    }
+    let mut token = None;
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            if k == "t" {
+                token = Some(v);
+            }
+        }
+    }
+    if token != Some(expected_token) {
+        return Some(Err((403, "Forbidden")));
+    }
+    Some(Ok(sid.to_string()))
+}
+
 /// Extract (sid, token, event) from `/hook/<sid>?t=<token>&e=<event>`; require all components.
 fn parse_url(url: &str) -> Option<(String, String, String)> {
     let (path, query) = match url.split_once('?') {
@@ -2096,15 +2556,31 @@ fn parse_url(url: &str) -> Option<(String, String, String)> {
     Some((sid.to_string(), token?, event?))
 }
 
+const NOTIFY_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
+const NOTIFY_IO_TIMEOUT: Duration = Duration::from_secs(2);
+const NOTIFY_RESPONSE_LIMIT: u64 = 64 * 1024;
+
+fn resolve_notify_addr(host: &str, port: u16) -> Option<SocketAddr> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Some(SocketAddr::new(ip, port));
+    }
+    (host, port).to_socket_addrs().ok()?.next()
+}
+
 /// Hidden `vlx-term --notify <url> <json>` forwarding implementation. Send an HTTP/1.1 POST over a
 /// raw TcpStream without an HTTP client dependency. Fail silently because notification is best-effort.
 pub fn forward_notify(url: &str, body: &str) {
     let Some((host, port, path)) = split_http_url(url) else {
         return;
     };
-    let Ok(mut stream) = TcpStream::connect((host.as_str(), port)) else {
+    let Some(addr) = resolve_notify_addr(&host, port) else {
         return;
     };
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, NOTIFY_CONNECT_TIMEOUT) else {
+        return;
+    };
+    let _ = stream.set_write_timeout(Some(NOTIFY_IO_TIMEOUT));
+    let _ = stream.set_read_timeout(Some(NOTIFY_IO_TIMEOUT));
     let req = format!(
         "POST {path} HTTP/1.1\r\n\
          Host: {host}:{port}\r\n\
@@ -2114,11 +2590,20 @@ pub fn forward_notify(url: &str, body: &str) {
          {body}",
         len = body.len()
     );
-    let _ = stream.write_all(req.as_bytes());
-    let _ = stream.flush();
-    // Drain the response before closing to ensure the server finishes processing.
-    let mut sink = Vec::new();
-    let _ = stream.read_to_end(&mut sink);
+    if stream.write_all(req.as_bytes()).is_err() || stream.flush().is_err() {
+        return;
+    }
+    // Drain the response briefly before closing so normal requests complete cleanly while a stalled
+    // server never traps a hook past the agent's timeout.
+    let deadline = Instant::now() + NOTIFY_IO_TIMEOUT;
+    let mut read_total = 0u64;
+    let mut buf = [0u8; 2048];
+    while read_total < NOTIFY_RESPONSE_LIMIT && Instant::now() < deadline {
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => read_total += n as u64,
+        }
+    }
 }
 
 /// Split an HTTP-only URL into (host, port, path+query).
@@ -2363,6 +2848,67 @@ mod tests {
         assert!(handle("/hook/s1?t=wrong&e=notfound", "tok").is_none());
     }
 
+    /// A headless backend holding one session, for the naming rules that read and write the database.
+    fn app_with_session(name: &str, kind: &str, engine: &str) -> (std::path::PathBuf, AppCtx) {
+        let root = std::env::temp_dir().join(format!("vlx-name-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db = crate::db::Db::open(&root.join("test.db")).unwrap();
+        let app = AppCtx::Headless(std::sync::Arc::new(crate::host::HeadlessHost::new(root.clone(), db)));
+        {
+            let conn = app.db().conn.lock().unwrap();
+            conn.execute("INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','P','/w',0)", []).unwrap();
+            conn.execute(
+                "INSERT INTO sessions(id,project_id,name,kind,engine,created_at) VALUES ('s','p',?1,?2,?3,0)",
+                rusqlite::params![name, kind, engine],
+            ).unwrap();
+        }
+        (root, app)
+    }
+
+    fn session_name(app: &AppCtx) -> String {
+        crate::db::repo::get_session_name(&app.db().conn.lock().unwrap(), "s").unwrap().unwrap()
+    }
+
+    /// Grok names its own conversations: a placeholder follows the agent's title, and so does the title
+    /// the agent wrote last, while a name the person typed is never touched.
+    #[test]
+    fn an_agent_title_replaces_a_placeholder_and_keeps_following_its_own_refresh() {
+        let (root, app) = app_with_session("Grok Build 3", "grok", "chat");
+        assert!(rename_from_agent_title(&app, "s", "Fix login"));
+        assert_eq!(session_name(&app), "Fix login");
+        // Grok refines the title as the conversation develops; the adopted name keeps following it.
+        assert!(rename_from_agent_title(&app, "s", "Fix the login page"));
+        assert_eq!(session_name(&app), "Fix the login page");
+        // A person's own name ends the following, for this run and after a restart.
+        {
+            let conn = app.db().conn.lock().unwrap();
+            crate::db::repo::rename_node(&conn, crate::models::NodeKind::Session, "s", "My own name").unwrap();
+        }
+        forget_adopted_title(&app, "s");
+        assert!(!rename_from_agent_title(&app, "s", "Grok's newest title"));
+        assert_eq!(session_name(&app), "My own name");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The first prompt never names a Grok session: Grok's own title arrives instead, so the sidebar
+    /// changes once rather than twice.
+    #[test]
+    fn the_first_prompt_leaves_grok_sessions_to_the_agent_title() {
+        let (root, app) = app_with_session("Grok Build 3", "grok", "chat");
+        assert!(!try_auto_rename(&app, "s", "fix the login page please"));
+        assert_eq!(session_name(&app), "Grok Build 3");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Other agents still take their name from the first prompt.
+    #[test]
+    fn the_first_prompt_still_names_other_agents() {
+        let (root, app) = app_with_session("Claude 2", "claude", "tui");
+        assert!(try_auto_rename(&app, "s", "fix the login page please"));
+        assert_eq!(session_name(&app), "fix the login page p…");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn is_auto_name_matches_placeholder_names() {
         // Automatically numbered placeholders match with optional whitespace.
@@ -2377,6 +2923,8 @@ mod tests {
             "Cline1",
             "Pi 6",
             "Pi7",
+            "Grok 1",
+            "Grok Build 2",
             "Session 4",
             "会话 4",
             "Claude1",
@@ -3250,25 +3798,27 @@ mod tests {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let port = server.server_addr().to_ip().unwrap().port();
         let (tx, rx) = mpsc::channel();
-        let tx_prompt = tx.clone();
-        let tx_id = tx.clone();
+        let tx = Mutex::new(tx);
+        let tx_signal = Arc::new(tx);
+        let tx_prompt = Arc::clone(&tx_signal);
+        let tx_id = Arc::clone(&tx_signal);
         let app_server = app.clone();
         let app_signal = app.clone();
         std::thread::spawn(move || serve_with_app(
-            server, "tok", Some(app_server),
-            move |sid, signal| {
+            server, "tok", Some(app_server), false,
+            Arc::new(move |sid, signal| {
                 if let StatusSignal::State { state, .. } = &signal {
                     crate::agent::status_watch::record(&sid, *state);
                 }
                 app_signal.emit(&StatusSignal::event_name(&sid), &signal);
-                tx.send("signal").unwrap();
-            },
-            move |_, _| { tx_prompt.send("prompt").unwrap(); },
-            move |_, _| { tx_id.send("identity").unwrap(); true },
-            |_| {}, |_| {}, unused_read_handler(),
+                tx_signal.lock().unwrap().send("signal").unwrap();
+            }),
+            Arc::new(move |_, _| { tx_prompt.lock().unwrap().send("prompt").unwrap(); }),
+            Arc::new(move |_, _| { tx_id.lock().unwrap().send("identity").unwrap(); true }),
+            Arc::new(|_| {}), Arc::new(|_| {}), unused_read_handler(),
         ));
 
-        for kind in ["claude", "codex", "opencode", "pi", "omp", "antigravity"] {
+        for kind in ["claude", "codex", "opencode", "pi", "omp", "antigravity", "grok", "copilot", "cursor", "kimi"] {
             let sid = format!("chat-hook-{kind}-{}", Uuid::new_v4());
             let event = StatusSignal::event_name(&sid);
             app.emit(&event, StatusSignal::Agent { agent: Some(kind.into()), state_source: Some("chat".into()) });
@@ -3284,6 +3834,11 @@ mod tests {
             post("asking", r#"{"hook_event_name":"PreToolUse","tool_name":"NestedTool"}"#);
             post("waiting", r#"{"conversationId":"nested-agy","hook_event_name":"Stop"}"#);
             post("boot", r#"{"session_id":"nested-cli"}"#);
+            let stop_resp = ureq::post(&format!("http://127.0.0.1:{port}/agy-stop/{sid}?t=tok"))
+                .send_string(r#"{"conversationId":"nested-agy","hookEventName":"Stop"}"#)
+                .unwrap();
+            assert_eq!(stop_resp.status(), 200);
+            assert_eq!(stop_resp.into_string().unwrap(), r#"{"decision":"allow"}"#);
             assert!(rx.try_recv().is_err(), "{kind}: no hook callback may reach chat consumers");
             let record = crate::session_state::snapshot()[&sid].clone();
             assert_eq!(record.agent_state.as_deref(), Some("working"));
@@ -3476,5 +4031,143 @@ mod tests {
             rx.recv_timeout(Duration::from_millis(500)).is_err(),
             "a /spawn with the wrong token must not trigger on_spawn"
         );
+    }
+
+    #[test]
+    fn forward_notify_times_out_when_server_stalls() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_secs(6));
+        });
+
+        let started = Instant::now();
+        forward_notify(
+            &format!("http://127.0.0.1:{port}/hook/s1?t=tok&e=working"),
+            r#"{"hookEventName":"pre_tool_use"}"#,
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "forward_notify waited {:?} on a stalled server",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn serve_with_accept_loop_does_not_stall_on_slow_body() {
+        use std::sync::mpsc;
+
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            serve_with(
+                server,
+                "tok",
+                move |sid, _sig| {
+                    let _ = tx.send(sid);
+                },
+                |_sid, _prompt| {},
+                |_sid, _id| true,
+                |_req| {},
+                |_req| {},
+                unused_read_handler(),
+            );
+        });
+
+        // Hold an incomplete HTTP body open on another route; the accept loop must keep serving hooks.
+        let mut slow = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        slow.write_all(
+            b"POST /refer?t=tok HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1024\r\n\r\n{",
+        )
+        .unwrap();
+        slow.flush().unwrap();
+
+        let started = Instant::now();
+        forward_notify(
+            &format!("http://127.0.0.1:{port}/hook/s-fast?t=tok&e=working"),
+            r#"{"hookEventName":"pre_tool_use"}"#,
+        );
+        assert_eq!(rx.recv_timeout(Duration::from_millis(500)).unwrap(), "s-fast");
+        assert!(started.elapsed() < Duration::from_millis(500));
+        drop(slow);
+    }
+
+    #[test]
+    fn serve_loop_responds_immediately_while_db_lock_is_held() {
+        let _state_guard = crate::session_state::test_lock();
+        let dir = std::env::temp_dir().join(format!("vlx-hook-db-lock-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = crate::db::Db::open(&dir.join("t.db")).unwrap();
+        let sid = "grok-tui-1";
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','P','/w',0)", [])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO sessions(id,project_id,name,kind,engine,created_at) VALUES (?1,'p','Grok Build 1','grok','tui',0)",
+                [sid],
+            )
+            .unwrap();
+        }
+        let app = AppCtx::Headless(Arc::new(crate::host::HeadlessHost::new(dir.clone(), db)));
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let app_server = app.clone();
+        std::thread::spawn(move || serve_loop(server, app_server, "tok".to_string()));
+
+        // Hold the global database mutex on another thread longer than a normal hook timeout.
+        let held_app = app.clone();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _conn = held_app.db().conn.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        });
+        locked_rx.recv().unwrap();
+
+        let started = Instant::now();
+        forward_notify(
+            &format!("http://127.0.0.1:{port}/hook/{sid}?t=tok&e=working"),
+            r#"{"hookEventName":"pre_tool_use","sessionId":"grok-native-1","toolName":"run_terminal_command"}"#,
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "hook waited {:?} while DB lock was held",
+            started.elapsed()
+        );
+        assert_eq!(
+            crate::agent::status_watch::snapshot()
+                .1
+                .into_iter()
+                .find(|row| row.session_id == sid)
+                .unwrap()
+                .state,
+            AgentState::Working
+        );
+
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let captured = {
+                let conn = app.db().conn.lock().unwrap();
+                crate::db::repo::get_agent_session_id(&conn, sid).ok().flatten()
+            };
+            if captured.as_deref() == Some("grok-native-1") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let final_id = {
+            let conn = app.db().conn.lock().unwrap();
+            crate::db::repo::get_agent_session_id(&conn, sid).unwrap()
+        };
+        assert_eq!(final_id.as_deref(), Some("grok-native-1"));
+        crate::session_state::forget(sid);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

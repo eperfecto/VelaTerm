@@ -533,8 +533,8 @@ describe("empty state with tabs scoped to a project", () => {
       newScratchTab,
     });
     beforeEachRender();
-    expect(screen.getByText(t("center.noSession"))).toBeTruthy();
-    fireEvent.click(screen.getByText(t("center.createTerminal")));
+    expect(screen.getByText(t("center.startTitle"))).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(t("center.createTerminal")) }));
     expect(newScratchTab).toHaveBeenCalledTimes(1);
   });
 });

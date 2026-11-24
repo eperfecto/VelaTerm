@@ -32,9 +32,10 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use super::antigravity_protocol;
+
 mod acp;
-pub use acp::DEEPSEEK_MODELS_SETTING;
-mod antigravity;
+mod antigravity_tasks;
 mod auth;
 mod claude_identity;
 mod codex;
@@ -51,6 +52,7 @@ use super::codex_protocol;
 use super::pi_protocol;
 use super::skills;
 use super::config_schema::{self, ConfigKey};
+use super::deepseek_models;
 use super::opencode_protocol;
 use super::protocol::{self, ChatImage, Delta, DeltaKind, Incoming};
 use crate::host::AppCtx;
@@ -275,6 +277,15 @@ impl Timeline {
         let live=std::mem::take(&mut self.rows);let current=live.iter().map(|row|row.id().to_owned()).collect::<HashSet<_>>();
         history.retain(|row|!current.contains(row.id()));history.extend(live);self.replace_all(history);true
     }
+    /// Put rows from a recording this engine cannot resume in front of its own, replacing the reset.
+    ///
+    /// Unlike [`restore_prefix`](Self::restore_prefix), this also runs after the engine has already
+    /// rebuilt its timeline from its own store, so a reopened conversation keeps what was said under the
+    /// previous provider for as long as the new process is running.
+    fn prepend_history(&mut self,mut history:Vec<ChatRow>) {
+        let live=std::mem::take(&mut self.rows);let current=live.iter().map(|row|row.id().to_owned()).collect::<HashSet<_>>();
+        history.retain(|row|!current.contains(row.id()));history.extend(live);self.replace_all(history);
+    }
     /// Add a row, or replace the one that already carries this id.
     fn upsert(&mut self, row: ChatRow) {
         let id = row.id().to_string();
@@ -298,7 +309,7 @@ impl Timeline {
     /// duration cannot look like several independent measurements. Child-agent answers stay inside their
     /// Task card and are deliberately excluded.
     fn finish_latest_turn(&mut self, duration_ms: u64) {
-        let turn_start = self.rows.iter().rposition(|row| matches!(row, ChatRow::User { .. } | ChatRow::Shell { .. }));
+        let turn_start = self.rows.iter().rposition(|row| matches!(row, ChatRow::User { .. } | ChatRow::Shell { .. } | ChatRow::Wake { .. }));
         let Some(index) = self
             .rows
             .iter()
@@ -415,6 +426,22 @@ impl Timeline {
         self.at.clear();
         for (index, row) in self.rows.iter().enumerate() {
             self.at.insert(row.id().to_string(), index);
+        }
+        self.dirty.clear();
+        self.revision += 1;
+        self.reset_revision = self.revision;
+        self.row_versions.clear();
+        self.replace_pending = true;
+        true
+    }
+
+    /// Remove a single top-level row by id and force a full client-side replacement.
+    pub(super) fn remove_row(&mut self, id: &str) -> bool {
+        let Some(index) = self.at.remove(id) else { return false };
+        self.rows.remove(index);
+        self.at.clear();
+        for (idx, row) in self.rows.iter().enumerate() {
+            self.at.insert(row.id().to_string(), idx);
         }
         self.dirty.clear();
         self.revision += 1;
@@ -690,6 +717,9 @@ pub struct ChatSnapshot {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Whether the running agent accepts image prompts; absent until it has said so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<bool>,
     /// A saved pair, including explicit automatic values, for a conversation without a running peer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selection: Option<crate::agent::session_settings::Selection>,
@@ -762,8 +792,9 @@ const WAKE_GRACE: Duration = Duration::from_millis(150);
 /// first token is expected on a large context; a request that never produces one must not pin the state.
 const WAKE_LIMIT: Duration = Duration::from_secs(300);
 
-/// One background task as the composer and the task tab see it: the inventory entry merged with every
-/// task-protocol frame that named the same task_id. Wire keys stay Claude's snake_case.
+/// One background task as the composer and the task tab see it: Claude's inventory entry merged with every
+/// task-protocol frame that named the same task_id, or an OpenCode background job mapped onto the same
+/// shape. Wire keys stay Claude's snake_case.
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct BackgroundTask {
     pub task_id: String,
@@ -847,10 +878,11 @@ impl BackgroundTask {
     }
 }
 
-/// Live facts the Claude protocol reports outside the conversation, shown by the composer.
+/// Live facts the agent reports outside the conversation, shown by the composer.
 ///
-/// Sent whole on every change under one `extras` event: a client that connects late reads the same
-/// object from the snapshot, and nobody has to merge partial updates.
+/// Claude fills most of them from its control protocol; OpenCode fills the background-task list from its
+/// server. Sent whole on every change under one `extras` event: a client that connects late reads the
+/// same object from the snapshot, and nobody has to merge partial updates.
 #[derive(Clone, Debug, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeExtras {
@@ -876,9 +908,10 @@ pub struct ClaudeExtras {
     /// The subscription rate-limit windows as last reported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<Value>,
-    /// Background tasks merged per task_id from the inventory and the task protocol; finished ones stay
-    /// listed with their final state until the next turn starts. Foreground subagents are held here too
-    /// but only published once an inventory names them (see `published`).
+    /// Background tasks merged per task_id from the agent's own reports; finished ones stay listed with
+    /// their final state until the next turn starts. Claude's foreground subagents are held here too but
+    /// only published once an inventory names them (see `published`); OpenCode promotes the work that
+    /// outlives a turn directly.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub background_tasks: Vec<BackgroundTask>,
     /// Whether fast mode was switched on for this process.
@@ -940,7 +973,17 @@ pub(crate) fn agent_environment_in_shell(app: &AppCtx, session_id: &str, cmd: &m
     let hook = app.hooks().endpoint();
     cmd.env("VLX_SESSION_ID", session_id);
     cmd.env("VLX_TOKEN", &hook.token);
+    // Some harnesses drop inherited names that look like credentials, `VLX_TOKEN` included, from the
+    // shell their tools run in. Mirror the token under `VLX_AUTH` so `vspawn` and the other commands
+    // still reach this instance; see agent/session_env.rs.
+    cmd.env("VLX_AUTH", &hook.token);
     cmd.env("VLX_SPAWN_URL", format!("http://127.0.0.1:{}", hook.port));
+    // Tell global user-level hooks (such as Grok) that this process is driven by the chat protocol,
+    // so status hooks can exit immediately without waiting on stdin or posting ignored callbacks.
+    cmd.env(
+        crate::agent::hook_bridge::CHAT_ENGINE_ENV,
+        crate::agent::hook_bridge::CHAT_ENGINE_VALUE,
+    );
     // Give a spawned session the id of whoever spawned it, matching pty/manager.rs. Absent for
     // top-level sessions; `vself` expands the id into the full ancestry when more than the parent is
     // needed.
@@ -969,7 +1012,10 @@ pub(crate) fn agent_environment_in_shell(app: &AppCtx, session_id: &str, cmd: &m
 
 struct ChatProcess {
     callbacks: RwLock<()>,
-    expected_native: Option<String>,
+    /// The native conversation this process is expected to reopen. Cleared when the engine deliberately
+    /// abandons the recorded conversation (it turned out to be gone) and opens a fresh one, so the
+    /// identity guard accepts the replacement instead of vetoing it.
+    expected_native: Mutex<Option<String>>,
     identity_checked: AtomicBool,
     /// Whether a prompt has been written. A resumed Claude reports its stored title before the first one;
     /// only titles after it are renames.
@@ -1012,7 +1058,6 @@ struct ChatProcess {
     /// The Pi/OMP side of this conversation: its variant, model catalogue, and pending extension dialogs.
     pi: Mutex<pi::PiState>,
     zcode: Mutex<zcode::ZcodeState>,
-    antigravity: Mutex<super::antigravity_protocol::StreamState>,
     /// The ACP side of this conversation: its session catalogue, timeline mapper and pending requests.
     acp: Mutex<acp::AcpState>,
     /// Codex service tier (`fast`, or another id from its model catalogue) for subsequent turns. None
@@ -1237,16 +1282,21 @@ fn initial_mode(kind: SessionKind, stored: Option<&str>) -> String {
             Some("full-access") | Some("skip") => "full-access",
             _ => "auto",
         },
-        SessionKind::Opencode => opencode::initial_mode(stored),
+        SessionKind::Opencode | SessionKind::Deepseek => opencode::initial_mode(stored),
         SessionKind::Omp => crate::agent::permission_catalog::normalize(SessionKind::Omp, stored)
             .unwrap_or("default"),
         SessionKind::Pi => "default",
         SessionKind::Zcode => crate::agent::permission_catalog::normalize(SessionKind::Zcode, stored)
             .unwrap_or("default"),
+        SessionKind::Antigravity => crate::agent::permission_catalog::normalize(SessionKind::Antigravity, stored)
+            .unwrap_or("default"),
         _ => protocol::cli_permission_mode(stored).unwrap_or("default"),
     }
     .to_string()
 }
+
+/// Maximum consecutive automatic process restarts allowed for HTTP 401 recovery within one turn.
+const MAX_ANTIGRAVITY_401_RESTARTS: usize = 2;
 
 /// All chat-engine sessions, keyed by VelaTerm session id.
 #[derive(Default)]
@@ -1258,6 +1308,12 @@ pub struct ChatManager {
     closing: AtomicBool,
     /// The shell command running for each session, at most one per conversation.
     shell_runs: Mutex<HashMap<String, Arc<super::shell::ShellRun>>>,
+    /// Consecutive automatic Antigravity 401 restarts spent on the active turn.
+    antigravity_401_attempts: Mutex<HashMap<String, usize>>,
+    /// Sessions that have already used their one automatic Antigravity stall restart on the active turn.
+    antigravity_stall_attempts: Mutex<HashSet<String>>,
+    /// Cancellation flags for in-flight Antigravity 401 or stall process-restart recoveries.
+    antigravity_401_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 #[derive(Debug)]
@@ -1321,6 +1377,35 @@ impl ChatManager {
     pub fn turn_in_progress(&self, session_id: &str) -> bool {
         self.sessions.lock().unwrap().get(session_id).cloned()
             .is_some_and(|proc| proc.turn.lock().unwrap().running)
+    }
+
+    /// End idle DeepSeek servers so the endpoint or key just saved reaches the next message.
+    ///
+    /// OpenCode reads its configuration when the server starts, so a running server keeps the old
+    /// credentials. A turn already in flight keeps them until it finishes; the next launch uses the
+    /// saved values.
+    pub fn refresh_deepseek(&self, app: &AppCtx) {
+        let running: Vec<(String, Arc<ChatProcess>)> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, proc)| {
+                proc.kind == SessionKind::Deepseek && proc.alive.load(Ordering::Relaxed)
+            })
+            .map(|(id, proc)| (id.clone(), proc.clone()))
+            .collect();
+        for (session_id, proc) in running {
+            // A turn in flight is not interrupted by a settings change.
+            if proc.turn.lock().unwrap().running {
+                continue;
+            }
+            if let Err(error) = self.stop(app, &session_id) {
+                crate::diagnostic_warn!(
+                    "chat: DeepSeek conversation {session_id} kept running after its settings changed: {error}"
+                );
+            }
+        }
     }
 
     // ── Shell mode ──
@@ -1514,6 +1599,11 @@ impl ChatManager {
         // Claude only: switch fast mode on once the handshake completes.
         fast_mode: bool,
     ) -> Result<(), String> {
+        let antigravity_auth_settings = (kind == SessionKind::Antigravity)
+            .then(|| auth::antigravity::settings_args(extra_args));
+        let mut antigravity_gate = antigravity_auth_settings
+            .as_ref()
+            .map(|args| crate::agent::antigravity::acquire_auth_gate(bin, args));
         let _start = self.starts.lock().unwrap();
         if self.closing.load(Ordering::Relaxed) { return Err("The application is shutting down.".into()); }
         {
@@ -1549,6 +1639,14 @@ impl ChatManager {
         } else {
             model
         };
+        // DeepSeek only ever calls its own provider, and older conversations carry the Harness route pair.
+        let deepseek_model = (kind == SessionKind::Deepseek)
+            .then(|| deepseek_models::normalize_model(model));
+        let model = deepseek_model.as_deref().or(model);
+        let deepseek_effort = (kind == SessionKind::Deepseek)
+            .then(|| deepseek_models::normalize_effort(effort))
+            .flatten();
+        let effort = if kind == SessionKind::Deepseek { deepseek_effort.as_deref() } else { effort };
 
         // The mode the view is told about is the mode the process is launched with: one value, two uses.
         let mode = if kind == SessionKind::Claude {
@@ -1561,6 +1659,10 @@ impl ChatManager {
             crate::db::repo::get_fork_pending(&conn, session_id)?
         };
         // ZCode's desktop release runs its bundled agent through the app's own binary; see `agent::zcode`.
+        // Refresh the cached built-in provider config first so newly published models appear immediately.
+        if kind == SessionKind::Zcode {
+            crate::agent::zcode::refresh_builtin_config(bin);
+        }
         let mut cmd = if kind == SessionKind::Zcode { crate::agent::zcode::command(bin) } else { crate::host::command(bin) };
         // OpenCode is reached over HTTP: the port it listens on and the password that guards it.
         let mut opencode_launch: Option<(u16, String)> = None;
@@ -1568,10 +1670,6 @@ impl ChatManager {
             SessionKind::Claude => {
                 cmd.args(protocol::launch_args(resume, fork, model, effort, &mode));
                 cmd.args(extra_args);
-            }
-            SessionKind::Antigravity => {
-                if fork { return Err("Antigravity does not support conversation forks".into()); }
-                cmd.args(super::antigravity_protocol::launch_args(resume, model, effort, &mode, extra_args)?);
             }
             kind if acp_protocol::supported(kind) => {
                 if fork { return Err(format!("{} does not support conversation forks", acp_protocol::label(kind))); }
@@ -1581,7 +1679,7 @@ impl ChatManager {
                 cmd.arg("app-server").arg("--stdio");
                 cmd.args(crate::agent::codex_models::app_server_args(extra_args));
             }
-            SessionKind::Opencode => {
+            kind if kind.uses_opencode() => {
                 // The session's launch arguments belong to its terminal interface (`--agent`, `-m`); the
                 // server accepts none of them, and the same choices reach it as fields of each turn.
                 let port = opencode_protocol::configured_port(app, session_id)?;
@@ -1593,9 +1691,23 @@ impl ChatManager {
                     .arg("127.0.0.1");
                 cmd.env("OPENCODE_SERVER_PASSWORD", &password);
                 cmd.env("OPENCODE_SERVER_USERNAME", "opencode");
-                // A terminal session injects its own status plugin through this variable; it would report
-                // that session's identity on top of what this engine reports itself.
-                cmd.env_remove(crate::agent::inject::OPENCODE_CONFIG_ENV);
+                if kind == SessionKind::Deepseek {
+                    // Pin everything OpenCode does on its own (titles, summaries, subagents) to the
+                    // DeepSeek provider; the user's other providers are never part of this conversation.
+                    // The endpoint and key entered in Settings ride along as provider options.
+                    let (base_url, api_key) = crate::agent::deepseek_config::load(
+                        app.db(),
+                        &crate::command_core::app_identifier(app),
+                    );
+                    cmd.env(
+                        crate::agent::inject::OPENCODE_CONFIG_ENV,
+                        deepseek_models::config(model, base_url.as_deref(), api_key.as_deref()),
+                    );
+                } else {
+                    // A terminal session injects its own status plugin through this variable; it would report
+                    // that session's identity on top of what this engine reports itself.
+                    cmd.env_remove(crate::agent::inject::OPENCODE_CONFIG_ENV);
+                }
                 opencode_launch = Some((port, password));
             }
             SessionKind::Pi | SessionKind::Omp => {
@@ -1609,7 +1721,10 @@ impl ChatManager {
                 cmd.args(extra_args);
             }
             SessionKind::Zcode => {
-                if fork { return Err("ZCode conversations cannot be forked from VelaTerm".into()); }
+                // Opening a conversation another process is running would load it twice; see `zcode_source_busy`.
+                if fork && self.zcode_source_busy(resume) {
+                    return Err("The original conversation is still running. Open this fork again once it has finished.".into());
+                }
                 // The server takes no launch arguments of the session's: model, effort and mode travel with every
                 // message instead.
                 cmd.arg("app-server").arg("--stdio");
@@ -1625,6 +1740,15 @@ impl ChatManager {
             // Its explicit disable switch still wins, so user policy remains authoritative.
             cmd.env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "1");
         }
+        if kind == SessionKind::Antigravity {
+            crate::agent::antigravity::prepare_command_env(&mut cmd);
+            // Install Antigravity's Stop/Pre/Post hook script on disk so ACP turns can park/wake
+            // reliably across background tasks and schedule timers without manual TUI setup.
+            let exe_path = std::env::current_exe().unwrap_or_default();
+            if let Err(e) = crate::agent::antigravity::install(&exe_path) {
+                crate::diagnostic_warn!("failed to install antigravity hooks (antigravity status reporting unavailable): {e}");
+            }
+        }
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let (service_tier, personality) = {
@@ -1632,12 +1756,11 @@ impl ChatManager {
             crate::db::repo::codex_chat_settings(&conn, session_id)?
         };
 
-        let (initial_turn, release_when_idle) = if kind == SessionKind::Antigravity {
-            antigravity::restart_state(self.sessions.lock().unwrap().get(session_id).cloned())
-        } else { (TurnQueue::default(), Arc::new(AtomicBool::new(false))) };
+        let (initial_turn, release_when_idle) = (TurnQueue::default(), Arc::new(AtomicBool::new(false)));
         crate::agent::executable::prepare_command(&mut cmd, bin);
         // Read with the environment the agent gets, which decides where its account is kept.
         let zcode_account = (kind == SessionKind::Zcode).then(|| crate::agent::zcode_account::Account::for_command(&cmd)).flatten();
+        let version = crate::agent::version::installed(bin);
         let mut owner = super::ownership::Owner::acquire(app, session_id,
             resume.filter(|_| !fork).map(|id|format!("{}:{id}",kind.as_str())))?;
         // Read again under the writer lease: another client may have completed a view switch.
@@ -1654,14 +1777,12 @@ impl ChatManager {
         #[cfg(unix)] {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0);
-            owner.inherit(&mut cmd);
         }
         // Sizes only, taken before the agent can append: everything past them is this process's own.
         // A fork writes a new recording, so it has no earlier offset to cut at.
         // ACP agents replay their history through `session/load` instead of a recording offset.
         let history_cut=resume.filter(|_| !fork && !acp_protocol::supported(kind))
             .and_then(|id|crate::agent::history_store::api::ProcessCut::capture(kind,id));
-        let version = crate::agent::version::installed(bin);
         let mut child = match cmd.spawn() {
             Ok(child) => child,
             Err(error) => { owner.retire(app,session_id); return Err(spawn_failure(kind,bin,cwd,&error)); }
@@ -1679,14 +1800,18 @@ impl ChatManager {
             && permission_restart::claude_bypass_capable(Some(&mode), extra_args);
         let proc = Arc::new(ChatProcess {
             callbacks: RwLock::new(()),
-            expected_native: resume.filter(|_| !fork).map(str::to_owned),
+            expected_native: Mutex::new(resume.filter(|_| !fork && kind != SessionKind::Deepseek).map(str::to_owned)),
             identity_checked: AtomicBool::new(false),
             prompted: AtomicBool::new(false),
             owner: Mutex::new(Some(owner)),
             kind,
             bin: bin.to_string(),
             version,
-            auth_settings_args: auth::claude::settings_args(extra_args),
+            auth_settings_args: match kind {
+                SessionKind::Claude => auth::claude::settings_args(extra_args),
+                SessionKind::Antigravity => antigravity_auth_settings.unwrap_or_default(),
+                _ => Vec::new(),
+            },
             auth_restart: AtomicBool::new(false),
             action: Mutex::new(()),
             cwd: cwd.map(str::to_string),
@@ -1706,8 +1831,12 @@ impl ChatManager {
             opencode: Mutex::new(opencode::OpencodeState::default()),
             pi: Mutex::new(pi::PiState::default()),
             zcode: Mutex::new(zcode::ZcodeState::default()),
-            antigravity: Mutex::new(crate::agent::chat::antigravity_protocol::StreamState::default()),
-            acp: Mutex::new(acp::AcpState::default()),
+            acp: Mutex::new(acp::AcpState::with_antigravity_launch(
+                antigravity_gate.take(),
+                (kind == SessionKind::Antigravity)
+                    .then(crate::agent::antigravity::auth_epoch)
+                    .unwrap_or(0),
+            )),
             service_tier: Mutex::new(service_tier),
             personality: Mutex::new(personality),
             codex_turn_error: Mutex::new(None),
@@ -1719,9 +1848,9 @@ impl ChatManager {
             settings_change: Mutex::new(()),
             model: Mutex::new(model.map(str::to_string)),
             effort: Mutex::new(effort.map(str::to_string)),
-            mode: Mutex::new(mode),
+            mode: Mutex::new(mode.clone()),
             // These engines answer approvals themselves in bypass mode, so the selected mode is the one in force.
-            permission_confirmed: AtomicBool::new(matches!(kind, SessionKind::Opencode | SessionKind::Omp | SessionKind::Zcode) || acp_protocol::supported(kind)),
+            permission_confirmed: AtomicBool::new(kind.uses_opencode() || matches!(kind, SessionKind::Omp | SessionKind::Zcode) || acp_protocol::supported(kind)),
             bypass_capable,
             codex_permission_state: Mutex::new(CodexPermissionState::default()),
             collaboration_mode: Mutex::new(match kind {
@@ -1732,9 +1861,12 @@ impl ChatManager {
                     }
                     .to_string(),
                 ),
+                SessionKind::Antigravity => {
+                    Some(antigravity_protocol::acp_mode_for_permission(&mode).to_string())
+                }
                 // An OpenCode agent name or an ACP session mode; checked against the agent's catalogue once
                 // it answers.
-                kind if kind == SessionKind::Opencode || acp_protocol::supported(kind) => collaboration_mode
+                kind if kind.uses_opencode() || acp_protocol::supported(kind) => collaboration_mode
                     .map(str::trim)
                     .filter(|name| !name.is_empty())
                     .map(str::to_string),
@@ -1742,7 +1874,7 @@ impl ChatManager {
             }),
             collaboration_modes: Mutex::new(Vec::new()),
             current_turn: Mutex::new(None),
-            ready: AtomicBool::new(matches!(kind, SessionKind::Claude | SessionKind::Antigravity)),
+            ready: AtomicBool::new(kind == SessionKind::Claude),
             codex_initialized: AtomicBool::new(false),
             buffers: Mutex::new(HashMap::new()),
             current_message: Mutex::new(None),
@@ -1764,12 +1896,12 @@ impl ChatManager {
             compactions: AtomicU64::new(0),
         });
 
-        let restored_auth = self.sessions.lock().unwrap().get(session_id)
-            .is_some_and(|previous| auth::claude::restore(previous, &proc));
-
         if let Some(native) = resume.filter(|_| acp_protocol::supported(kind)) {
             acp::prefill(app, &proc, native);
         }
+
+        let restored_auth = self.sessions.lock().unwrap().get(session_id)
+            .is_some_and(|previous| auth::claude::restore(previous, &proc) || auth::antigravity::restore(previous, &proc));
 
         self.sessions
             .lock()
@@ -1814,7 +1946,6 @@ impl ChatManager {
 
         let init_id = proc.request_id("initialize");
         match kind {
-            SessionKind::Antigravity => start_waiting_message(app, session_id, &proc),
             SessionKind::Claude => {
                 // Ask for the command catalogue straight away; the composer's completions come from the answer.
                 let _ = proc.write(&protocol::control_request(&init_id, protocol::initialize()));
@@ -1834,7 +1965,7 @@ impl ChatManager {
                     return Err(message);
                 }
             }
-            SessionKind::Opencode => {
+            kind if kind.uses_opencode() => {
                 let (port, password) = opencode_launch.expect("an OpenCode launch reserves its port");
                 opencode::bootstrap(
                     app.clone(),
@@ -1849,8 +1980,11 @@ impl ChatManager {
                 proc.pi.lock().unwrap().variant = pi_protocol::PiVariant::of(kind);
                 pi::bootstrap(&proc);
             }
-            SessionKind::Zcode => zcode::bootstrap(&proc, zcode_account),
-            kind if acp_protocol::supported(kind) => acp::bootstrap(app, &proc, resume, cwd, collaboration_mode),
+            SessionKind::Zcode => zcode::bootstrap(&proc, zcode_account, fork),
+            kind if acp_protocol::supported(kind) => {
+                let initial_collab = proc.collaboration_mode.lock().unwrap().clone();
+                acp::bootstrap(app, &proc, resume, cwd, initial_collab.as_deref().or(collaboration_mode));
+            }
             _ => unreachable!(),
         }
         // ZCode delivers its own history through its subscription, and ACP through `session/load`, which the
@@ -1869,6 +2003,19 @@ impl ChatManager {
         }
         let state = proc.opencode.lock().unwrap();
         state.server.clone()
+    }
+
+    /// Whether a live ZCode process is in the middle of a turn on this conversation. A fork reads its source
+    /// through a process of its own, and ZCode's check for a running prompt only sees the process it runs in.
+    fn zcode_source_busy(&self, source: Option<&str>) -> bool {
+        let Some(source) = source else { return false };
+        let procs: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
+        procs.iter().any(|proc| {
+            proc.kind == SessionKind::Zcode
+                && proc.alive.load(Ordering::Relaxed)
+                && proc.agent_session_id.lock().unwrap().as_deref() == Some(source)
+                && zcode::busy(proc)
+        })
     }
 
     /// The model catalogue a running ZCode process reported, or None when none owns the session.
@@ -1891,13 +2038,212 @@ impl ChatManager {
         (!models.is_empty()).then_some(models)
     }
 
-    /// The model catalogue a running ACP session reported, or None when it reported none.
-    pub fn acp_models(&self, session_id: &str) -> Option<Vec<Value>> {
+    /// The model catalogue an ACP session reported, or None when it reported none.
+    pub fn acp_models(&self, app: &AppCtx, session_id: &str) -> Option<Vec<Value>> {
         let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
-        if !proc.alive.load(Ordering::Relaxed) || !acp_protocol::supported(proc.kind) {
+        if !acp_protocol::supported(proc.kind) {
             return None;
         }
-        acp::chat_models(&proc)
+        acp::chat_models(app, &proc)
+    }
+
+    /// Persist a live Antigravity ACP catalogue and tell listeners to refresh their model list.
+    pub fn sync_antigravity_catalog(&self, app: &AppCtx, session_id: &str) {
+        let Some(proc) = self.sessions.lock().unwrap().get(session_id).cloned() else { return };
+        if proc.kind != SessionKind::Antigravity {
+            return;
+        }
+        let catalog = proc.acp.lock().unwrap().catalog.clone();
+        crate::agent::antigravity_models::remember_acp(app, &catalog);
+        if catalog.model_switchable() {
+            emit(app, session_id, json!({"type":"models"}));
+        }
+    }
+
+    /// Tell every running Antigravity conversation to re-read its model catalogue.
+    pub fn notify_antigravity_models_changed(&self, app: &AppCtx) {
+        let ids: Vec<String> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, proc)| {
+                proc.kind == SessionKind::Antigravity && proc.alive.load(Ordering::Relaxed)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            emit(app, &id, json!({"type":"models"}));
+        }
+    }
+
+    /// Whether any live Antigravity ACP session is currently running or starting.
+    pub(crate) fn has_live_antigravity(&self) -> bool {
+        self.sessions.lock().unwrap().values().any(|proc| {
+            proc.kind == SessionKind::Antigravity
+                && proc.alive.load(Ordering::Relaxed)
+                && !proc.released.load(Ordering::Relaxed)
+        })
+    }
+
+    /// Infer Antigravity sign-in state from an existing live ACP session sharing the same credential
+    /// store so multi-pane focus checks do not spawn redundant `agy acp` subprocesses.
+    pub(crate) fn antigravity_live_signed_in(&self, bin: &str, settings_args: &[String]) -> Option<bool> {
+        let target_scope = crate::agent::antigravity::auth_scope_key(bin, settings_args);
+        let current_epoch = crate::agent::antigravity::auth_epoch();
+        let procs: Vec<Arc<ChatProcess>> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|proc| {
+                proc.kind == SessionKind::Antigravity
+                    && proc.alive.load(Ordering::Relaxed)
+                    && !proc.released.load(Ordering::Relaxed)
+                    && crate::agent::antigravity::auth_scope_key(&proc.bin, &proc.auth_settings_args)
+                        == target_scope
+            })
+            .cloned()
+            .collect();
+        let mut saw_healthy = false;
+        for proc in procs {
+            let auth_status = proc.extras.lock().unwrap().auth.as_ref().map(|s| s.status);
+            if matches!(auth_status, Some("required" | "signedOut")) {
+                return Some(false);
+            }
+            if auth_status.is_none()
+                && proc.ready.load(Ordering::Relaxed)
+                && proc.acp.lock().unwrap().auth_epoch_at_launch == current_epoch
+            {
+                saw_healthy = true;
+            }
+        }
+        saw_healthy.then_some(true)
+    }
+
+    fn claim_antigravity_401_recovery(&self, session_id: &str) -> Option<Arc<AtomicBool>> {
+        {
+            let mut attempts = self.antigravity_401_attempts.lock().unwrap();
+            let count = attempts.entry(session_id.to_string()).or_insert(0);
+            if *count >= MAX_ANTIGRAVITY_401_RESTARTS {
+                return None;
+            }
+            *count += 1;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let Some(prev) = self
+            .antigravity_401_cancels
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), cancel.clone())
+        {
+            prev.store(true, Ordering::Relaxed);
+        }
+        Some(cancel)
+    }
+
+    fn claim_antigravity_stall_recovery(&self, session_id: &str) -> Option<Arc<AtomicBool>> {
+        if !self
+            .antigravity_stall_attempts
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string())
+        {
+            return None;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let Some(prev) = self
+            .antigravity_401_cancels
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), cancel.clone())
+        {
+            prev.store(true, Ordering::Relaxed);
+        }
+        Some(cancel)
+    }
+
+    fn clear_antigravity_401_recovery(&self, session_id: &str) {
+        self.antigravity_401_attempts.lock().unwrap().remove(session_id);
+        self.antigravity_stall_attempts.lock().unwrap().remove(session_id);
+        self.antigravity_401_cancels.lock().unwrap().remove(session_id);
+    }
+
+    fn cancel_antigravity_401_recovery(&self, session_id: &str) {
+        if let Some(cancel) = self.antigravity_401_cancels.lock().unwrap().remove(session_id) {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.antigravity_stall_attempts.lock().unwrap().remove(session_id);
+        if let Some(proc) = self.sessions.lock().unwrap().get(session_id).cloned() {
+            if proc.kind == SessionKind::Antigravity {
+                proc.acp.lock().unwrap().pending_401_continuation = None;
+            }
+        }
+    }
+
+    fn should_rotate_idle_antigravity(&self, proc: &Arc<ChatProcess>) -> bool {
+        if proc.kind != SessionKind::Antigravity
+            || !proc.alive.load(Ordering::Relaxed)
+            || proc.released.load(Ordering::Relaxed)
+            || !proc.ready.load(Ordering::Relaxed)
+            || auth::active(proc)
+            || auth::blocks_queue(proc)
+            || proc.shell_running.load(Ordering::Relaxed)
+        {
+            return false;
+        }
+        let (force_error_rotate, needs_rotate) = {
+            let acp = proc.acp.lock().unwrap();
+            let force = acp.needs_error_rotate;
+            let rotate = force
+                || acp.auth_epoch_at_launch != crate::agent::antigravity::auth_epoch();
+            (force, rotate)
+        };
+        if !proc.permissions.lock().unwrap().is_empty()
+            || (!force_error_rotate && proc.agent_session_id.lock().unwrap().is_none())
+        {
+            return false;
+        }
+        {
+            let turn = proc.turn.lock().unwrap();
+            if turn.running
+                || !turn.waiting.is_empty()
+                || !turn.active_tasks.is_empty()
+                || !turn.background_tasks.is_empty()
+            {
+                return false;
+            }
+        }
+        needs_rotate && !acp::has_background_activity(proc)
+    }
+
+    fn try_rotate_idle_antigravity(
+        &self,
+        app: &AppCtx,
+        session_id: &str,
+        proc: &Arc<ChatProcess>,
+    ) -> Result<Arc<ChatProcess>, String> {
+        let (model, effort) = {
+            let _action = proc.action.lock().unwrap();
+            let _callbacks = proc.callbacks.read().unwrap();
+            if !self.owns_process(session_id, proc)
+                || !self.should_rotate_idle_antigravity(proc)
+            {
+                return Ok(proc.clone());
+            }
+            let model = proc.model.lock().unwrap().clone();
+            let effort = proc.effort.lock().unwrap().clone();
+            proc.auth_restart.store(true, Ordering::Relaxed);
+            release_process(app, session_id, proc);
+            (model, effort)
+        };
+        crate::diagnostics::record(
+            "INFO",
+            "agent_chat",
+            json!({"sessionId": session_id, "event": "antigravity_idle_token_rotate"}),
+        );
+        crate::command_core::chat_start(app, session_id, model.as_deref(), effort.as_deref(), false)?;
+        self.get(session_id)
     }
 
     /// Whether a running ACP session switches model and reasoning level itself. When it cannot, the choice
@@ -1959,7 +2305,15 @@ impl ChatManager {
         &self, app: &AppCtx, session_id: &str, text: &str,
         images: Vec<ChatImage>, behavior: &str, message_id: Option<&str>,
     ) -> Result<&'static str, SubmissionFailure> {
-        let proc = self.get(session_id).map_err(SubmissionFailure::Rejected)?;
+        let mut proc = self.get(session_id).map_err(SubmissionFailure::Rejected)?;
+        if proc.kind == SessionKind::Antigravity && behavior != "steer" {
+            self.clear_antigravity_401_recovery(session_id);
+            if self.should_rotate_idle_antigravity(&proc) {
+                proc = self
+                    .try_rotate_idle_antigravity(app, session_id, &proc)
+                    .map_err(SubmissionFailure::Rejected)?;
+            }
+        }
         let mut attempted = false;
         self.send_on_process(app, session_id, &proc, text, images, behavior, message_id, &mut attempted)
             .map_err(|error| if attempted { SubmissionFailure::Uncertain(error) } else { SubmissionFailure::Rejected(error) })
@@ -1981,17 +2335,17 @@ impl ChatManager {
         if auth::active(&proc) {
             return Err("Finish or cancel Codex sign-in before sending a message.".into());
         }
-        if proc.kind!=SessionKind::Opencode && proc.ready.load(Ordering::Relaxed) && proc.stdin.lock().unwrap().is_none() {
+        if !proc.kind.uses_opencode() && proc.ready.load(Ordering::Relaxed) && proc.stdin.lock().unwrap().is_none() {
             return Err("The agent's input stream has closed. Restart its process before sending a message.".into());
-        }
-        if proc.kind == SessionKind::Antigravity {
-            super::antigravity_protocol::validate(text, images.len(), behavior)?;
         }
         if acp_protocol::supported(proc.kind) {
             acp::validate(proc, behavior, images.len())?;
+            if proc.kind == SessionKind::Antigravity && behavior != "steer" {
+                acp::retire_parked_stop_before_send(proc);
+            }
         }
         // Steering is a prompt, never a local command or a queued replacement.
-        if proc.kind == SessionKind::Opencode && behavior != "steer" && proc.ready.load(Ordering::Relaxed) && opencode::is_local_command(text.trim()) {
+        if proc.kind.uses_opencode() && behavior != "steer" && proc.ready.load(Ordering::Relaxed) && opencode::is_local_command(text.trim()) {
             claim_native_writer(app,proc)?;
             if let Some(id) = message_id { super::submissions::begin_dispatch(&app.db().conn.lock().unwrap(), session_id, id)?; }
             *attempted = true;
@@ -2017,6 +2371,53 @@ impl ChatManager {
             }
         }
         if !proc.ready.load(Ordering::Relaxed) {
+            if proc.kind == SessionKind::Antigravity && !turn.running {
+                let sent_at = now_ms();
+                turn.running = true;
+                turn.interrupted = false;
+                turn.started_at = Some(sent_at);
+                drop(turn);
+                proc.extras.lock().unwrap().generation = generation::GenerationTiming::default();
+                let commands = proc.commands.lock().unwrap().clone();
+                let normalized = skills::native_text(text, &commands);
+                let text = normalized.as_ref();
+                let row_id = message_id
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("u-{}", proc.next_request.fetch_add(1, Ordering::Relaxed)));
+                if let Some(id) = message_id {
+                    if let Err(err) = super::submissions::begin_dispatch(&app.db().conn.lock().unwrap(), session_id, id) {
+                        let mut turn = proc.turn.lock().unwrap();
+                        turn.running = false;
+                        turn.started_at = None;
+                        return Err(err);
+                    }
+                }
+                *attempted = true;
+                if prune_finished_tasks(&mut proc.extras.lock().unwrap()) {
+                    emit_extras(app, session_id, proc);
+                }
+                proc.acp.lock().unwrap().startup_prompt = Some(acp::StartupPrompt {
+                    id: row_id.clone(),
+                    text: text.to_string(),
+                    images: images.clone(),
+                    sent_at,
+                });
+                proc.timeline
+                    .lock()
+                    .unwrap()
+                    .upsert(user_row(row_id, text, images, Some(sent_at as i64)));
+                flush_timeline_now(app, session_id, proc);
+                emit(app, session_id, json!({"type":"turnStarted","startedAt":sent_at}));
+                emit_state(app, session_id, AgentState::Working);
+                let receipt = message_id
+                    .map(|id| super::submissions::finish_dispatch(&app.db().conn.lock().unwrap(), session_id, id, "sent"))
+                    .transpose();
+                if !super::shell::is_tagged(text) {
+                    crate::agent::server::try_auto_rename(app, session_id, text);
+                }
+                receipt?;
+                return Ok("sent");
+            }
             drop(turn);
             let item = QueuedMessage {
                 id: message_id.map(str::to_owned).unwrap_or_else(|| format!("q-{}", proc.next_request.fetch_add(1, Ordering::Relaxed))),
@@ -2025,7 +2426,19 @@ impl ChatManager {
             };
             let mut turn=proc.turn.lock().unwrap();
             *attempted = true;
-            turn.waiting.push(item);
+            if behavior == "interrupt" && proc.kind == SessionKind::Antigravity {
+                turn.waiting.insert(0, item);
+                if proc.acp.lock().unwrap().startup_prompt.take().is_some() {
+                    turn.running = false;
+                    turn.started_at = None;
+                    drop(turn);
+                    emit(app, session_id, json!({"type":"turnInterrupted"}));
+                    emit_queue(app, session_id, &proc);
+                    return Ok("queued");
+                }
+            } else {
+                turn.waiting.push(item);
+            }
             drop(turn);
             emit_queue(app, session_id, &proc);
             start_waiting_message(app,session_id,proc);
@@ -2184,6 +2597,7 @@ impl ChatManager {
 
     /// Stop the turn in progress. The conversation stays open.
     pub fn interrupt(&self, app: &AppCtx, session_id: &str) -> Result<(), String> {
+        self.cancel_antigravity_401_recovery(session_id);
         let proc = self.get(session_id)?;
         // Ending the turn can send the next queued message, so this is serialized with sends.
         let _action = proc.action.lock().unwrap();
@@ -2229,7 +2643,7 @@ impl ChatManager {
             .get(request_id)
             .cloned()
             .ok_or("That permission request is no longer waiting for an answer")?;
-        if proc.kind == SessionKind::Opencode {
+        if proc.kind.uses_opencode() {
             let remember = updated_permissions
                 .as_ref()
                 .and_then(Value::as_array)
@@ -2257,7 +2671,16 @@ impl ChatManager {
                 updated_input.as_ref(), message, updated_permissions.as_ref());
         }
         if acp_protocol::supported(proc.kind) {
-            return acp::respond(app, session_id, &proc, request_id, allow, updated_permissions.as_ref());
+            return acp::respond(
+                app,
+                session_id,
+                &proc,
+                request_id,
+                allow,
+                updated_input.as_ref(),
+                message,
+                updated_permissions.as_ref(),
+            );
         }
         // Claim the request so a late answer from another client is refused, and put it back when this
         // answer could not be delivered, so the person can answer again.
@@ -2350,7 +2773,7 @@ impl ChatManager {
         if proc.kind == SessionKind::Codex {
             return Ok(());
         }
-        if proc.kind == SessionKind::Opencode {
+        if proc.kind.uses_opencode() {
             // Nothing to tell the server: the engine answers its questions itself in bypass, starting
             // with the ones already waiting.
             if mode == "bypassPermissions" {
@@ -2374,6 +2797,15 @@ impl ChatManager {
             return Ok(());
         }
         if acp_protocol::supported(proc.kind) {
+            if proc.kind == SessionKind::Antigravity {
+                if proc.ready.load(Ordering::Relaxed) {
+                    acp::sync_antigravity_permission(&proc, mode)?;
+                } else {
+                    let acp_mode = antigravity_protocol::acp_mode_for_permission(mode);
+                    proc.acp.lock().unwrap().desired_mode = Some(acp_mode.to_string());
+                    *proc.collaboration_mode.lock().unwrap() = Some(acp_mode.to_string());
+                }
+            }
             // ACP leaves approvals to the client, which answers them itself in bypass from now on.
             if mode == "bypassPermissions" {
                 acp::approve_pending(app, session_id, &proc);
@@ -2381,6 +2813,18 @@ impl ChatManager {
             return Ok(());
         }
         Ok(())
+    }
+
+    /// Handle an Antigravity `Stop` hook HTTP callback for an active chat session.
+    pub fn handle_antigravity_stop(&self, app: &AppCtx, session_id: &str, body: &str) -> String {
+        let proc = self.sessions.lock().unwrap().get(session_id).cloned();
+        let Some(proc) = proc else {
+            return r#"{"decision":"allow"}"#.to_string();
+        };
+        if proc.kind != SessionKind::Antigravity || !proc.alive.load(Ordering::Relaxed) {
+            return r#"{"decision":"allow"}"#.to_string();
+        }
+        acp::handle_stop_hook(app, session_id, &proc, body)
     }
 
     /// Selected policy and independently confirmed runtime policy, without serializing the timeline.
@@ -2409,7 +2853,11 @@ impl ChatManager {
         mode: &str,
     ) -> Result<(), String> {
         let proc = self.get(session_id)?;
-        if !matches!(proc.kind, SessionKind::Codex | SessionKind::Opencode) && !acp_protocol::supported(proc.kind) {
+        if proc.kind == SessionKind::Antigravity
+            || (proc.kind != SessionKind::Codex
+                && !proc.kind.uses_opencode()
+                && !acp_protocol::supported(proc.kind))
+        {
             return Err(format!(
                 "{} does not support collaboration modes",
                 proc.kind.as_str()
@@ -2418,15 +2866,19 @@ impl ChatManager {
         let supported = proc.collaboration_modes.lock().unwrap();
         if !supported.iter().any(|preset| preset.mode == mode) {
             return Err(match proc.kind {
-                SessionKind::Opencode => format!("OpenCode has no agent named {mode}"),
+                kind if kind.uses_opencode() => format!("OpenCode has no agent named {mode}"),
                 SessionKind::Codex => format!("Codex app-server does not support collaboration mode {mode}"),
                 kind => format!("{} has no mode named {mode}", acp_protocol::label(kind)),
             });
         }
         drop(supported);
-        // An ACP session switches at once; the other agents apply the choice to their next turn.
+        // An ACP session switches at once once ready, or carries the choice through its handshake.
         if acp_protocol::supported(proc.kind) {
-            acp::set_mode(&proc, mode)?;
+            if proc.ready.load(Ordering::Relaxed) {
+                acp::set_mode(&proc, mode)?;
+            } else {
+                proc.acp.lock().unwrap().desired_mode = Some(mode.to_string());
+            }
         }
         *proc.collaboration_mode.lock().unwrap() = Some(mode.to_string());
         emit(
@@ -2481,6 +2933,26 @@ impl ChatManager {
 
     /// Change the model of the running conversation. `None` restores the default.
     pub fn set_model(&self, session_id: &str, model: Option<&str>) -> Result<(), String> {
+        self.set_model_inner(None, session_id, model)
+    }
+
+    /// Change the model of the running conversation, restarting an idle Antigravity process when a
+    /// newly discovered model is unknown to the older process.
+    pub fn set_model_with_app(
+        &self,
+        app: &AppCtx,
+        session_id: &str,
+        model: Option<&str>,
+    ) -> Result<(), String> {
+        self.set_model_inner(Some(app), session_id, model)
+    }
+
+    fn set_model_inner(
+        &self,
+        app: Option<&AppCtx>,
+        session_id: &str,
+        model: Option<&str>,
+    ) -> Result<(), String> {
         let proc = self.get(session_id)?;
         let model = if proc.kind == SessionKind::Claude {
             model.map(crate::agent::claude_models::normalize_id)
@@ -2498,7 +2970,39 @@ impl ChatManager {
             }
         } else if acp_protocol::supported(proc.kind) {
             if let Some(model) = model {
-                acp::set_model(&proc, model)?;
+                if proc.ready.load(Ordering::Relaxed) {
+                    if let Err(err) = acp::set_model(&proc, model) {
+                        if let Some(app) = app.filter(|ctx| {
+                            proc.kind == SessionKind::Antigravity
+                                && err.contains("Unknown model ID")
+                                && crate::agent::antigravity_models::cached(ctx)
+                                    .iter()
+                                    .any(|entry| entry.id == model)
+                        }) {
+                            // Keep lock acquisition order consistent with `restart_claude_bypass_inner`:
+                            // `action` before `settings_change` before `turn`.
+                            drop(_change);
+                            let _action = proc.action.lock().unwrap();
+                            let _change = proc.settings_change.lock().unwrap();
+                            let turn = proc.turn.lock().unwrap();
+                            if turn.running
+                                || !turn.waiting.is_empty()
+                                || proc.shell_running.load(Ordering::Relaxed)
+                                || crate::security::session_active(session_id)
+                                || crate::agent::plan_execute::active(app, session_id)
+                            {
+                                return Err(
+                                    "Wait for the agent to finish before switching to this newly added model"
+                                        .into(),
+                                );
+                            }
+                            *proc.model.lock().unwrap() = Some(model.to_string());
+                            release_process(app, session_id, &proc);
+                            return Ok(());
+                        }
+                        return Err(err);
+                    }
+                }
             }
         }
         *proc.model.lock().unwrap() = model.map(str::to_string);
@@ -2540,7 +3044,12 @@ impl ChatManager {
             }
         } else if acp_protocol::supported(proc.kind) {
             if let Some(level) = effort {
-                acp::set_effort(&proc, level)?;
+                if proc.ready.load(Ordering::Relaxed) {
+                    if let Err(error) = acp::set_effort(&proc, level) {
+                        *proc.effort.lock().unwrap() = previous;
+                        return Err(error);
+                    }
+                }
             }
         }
         Ok(())
@@ -2567,12 +3076,17 @@ impl ChatManager {
 
     fn account_process(&self, session_id: &str) -> Result<Arc<ChatProcess>, String> {
         let proc = self.get(session_id)?;
-        if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex | SessionKind::Zcode) {
-            return Err("Account operations require a Claude, Codex or ZCode conversation.".into());
+        if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex | SessionKind::Zcode | SessionKind::Antigravity) {
+            return Err("Account operations require a Claude, Codex, ZCode or Antigravity conversation.".into());
         }
         if proc.kind == SessionKind::Codex {
             for _ in 0..500 {
                 if proc.codex_initialized.load(Ordering::Relaxed) || !proc.alive.load(Ordering::Relaxed) { break; }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        } else if proc.kind == SessionKind::Antigravity {
+            for _ in 0..500 {
+                if proc.acp.lock().unwrap().initialized || !proc.alive.load(Ordering::Relaxed) { break; }
                 std::thread::sleep(Duration::from_millis(20));
             }
         }
@@ -2593,6 +3107,7 @@ impl ChatManager {
             return Err("An account operation for this provider is already in progress in another conversation.".into());
         }
         match proc.kind {
+            SessionKind::Antigravity => auth::antigravity::start(app, session_id, &proc),
             SessionKind::Claude => auth::claude::start(app, session_id, &proc),
             SessionKind::Zcode => auth::zcode::start(app, session_id, &proc, provider),
             _ => auth::start(app, session_id, &proc),
@@ -2607,6 +3122,7 @@ impl ChatManager {
             return Err("An account operation for this provider is already in progress in another conversation.".into());
         }
         match proc.kind {
+            SessionKind::Antigravity => auth::antigravity::logout(app, session_id, &proc),
             SessionKind::Claude => auth::claude::logout(app, session_id, &proc),
             SessionKind::Zcode => auth::zcode::logout(app, session_id, &proc),
             _ => auth::logout(app, session_id, &proc),
@@ -2617,6 +3133,7 @@ impl ChatManager {
         let proc = self.account_process(session_id)?;
         let _action = proc.action.lock().unwrap();
         match proc.kind {
+            SessionKind::Antigravity => auth::antigravity::cancel(app, session_id, &proc),
             SessionKind::Claude => auth::claude::cancel(app, session_id, &proc),
             SessionKind::Zcode => auth::zcode::cancel(app, session_id, &proc),
             _ => auth::cancel(app, session_id, &proc),
@@ -2624,9 +3141,13 @@ impl ChatManager {
     }
 
     pub fn auth_submit(&self, app: &AppCtx, session_id: &str, code: &str) -> Result<(), String> {
-        let proc = self.claude(session_id)?;
+        let proc = self.account_process(session_id)?;
         let _action = proc.action.lock().unwrap();
-        auth::claude::submit(app, session_id, &proc, code)
+        match proc.kind {
+            SessionKind::Claude => auth::claude::submit(app, session_id, &proc, code),
+            SessionKind::Antigravity => auth::antigravity::submit(app, session_id, &proc, code),
+            _ => Err("Authorization code submission is not supported for this agent.".into()),
+        }
     }
 
     /// `/compact`: ask the agent to summarize the conversation now.
@@ -2715,7 +3236,11 @@ impl ChatManager {
     }
 
     /// Stop one background task. The agent reports the new task set on its own afterwards.
-    pub fn stop_task(&self, session_id: &str, task_id: &str) -> Result<(), String> {
+    pub fn stop_task(&self, app: &AppCtx, session_id: &str, task_id: &str) -> Result<(), String> {
+        let proc = self.get(session_id)?;
+        if proc.kind.uses_opencode() {
+            return opencode::stop_task(app, session_id, &proc, task_id);
+        }
         let proc = self.claude(session_id)?;
         proc.request_and_wait("stop_task", |id| protocol::control_request(id, protocol::stop_task(task_id)))?;
         Ok(())
@@ -2727,7 +3252,11 @@ impl ChatManager {
     }
 
     /// Move every foreground task to the background so the turn continues without waiting on them.
-    pub fn background_tasks(&self, session_id: &str) -> Result<(), String> {
+    pub fn background_tasks(&self, app: &AppCtx, session_id: &str) -> Result<(), String> {
+        let proc = self.get(session_id)?;
+        if proc.kind.uses_opencode() {
+            return opencode::background(app, session_id, &proc);
+        }
         let proc = self.claude(session_id)?;
         proc.request_and_wait("background_tasks", |id| {
             protocol::control_request(id, protocol::background_tasks())
@@ -2794,11 +3323,11 @@ impl ChatManager {
             .filter(|window| *window > 0)
     }
 
-    /// Model and context usage from the running Claude or Codex process, for the Info panel.
+    /// Model and context usage from the running Claude, Codex or ZCode process, for the Info panel.
     pub fn context_info(&self, session_id: &str) -> Option<crate::agent::transcript::AgentContextInfo> {
         let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
         // Codex reports the same two numbers through `thread/tokenUsage/updated`, and ZCode through its
-        // conversation's `usage` state, into the same fields.
+        // conversation's `usage` state, into the same fields. OpenCode-backed kinds read their store instead.
         if !matches!(proc.kind, SessionKind::Claude | SessionKind::Codex | SessionKind::Zcode) {
             return None;
         }
@@ -2887,6 +3416,13 @@ impl ChatManager {
     /// The output path is never taken from the client: it comes from the task's final frame or from the
     /// launching tool's result, and must name this task's own `tasks/<task_id>.output` file.
     pub fn task_output(&self, session_id: &str, task_id: &str) -> Result<TaskOutput, String> {
+        let proc = self.get(session_id)?;
+        if proc.kind.uses_opencode() {
+            return opencode::task_output(&proc, task_id);
+        }
+        if proc.kind == SessionKind::Antigravity {
+            return antigravity_tasks::task_output(&proc, task_id);
+        }
         let proc = self.claude(session_id)?;
         let (tool_use_id, output_file) = {
             let extras = proc.extras.lock().unwrap();
@@ -2914,6 +3450,15 @@ impl ChatManager {
             _ => (None, false),
         };
         Ok(TaskOutput { command, output, truncated })
+    }
+
+    /// Whether the running agent accepts images in a prompt. None when no peer is running or it has not
+    /// answered its handshake yet.
+    pub fn image_support(&self, session_id: &str) -> Option<bool> {
+        let proc = self.sessions.lock().unwrap().get(session_id).cloned()?;
+        if !acp_protocol::supported(proc.kind) { return None; }
+        let state = proc.acp.lock().unwrap();
+        state.images_known.then_some(state.images)
     }
 
     /// A running peer retains its startup version; None means there is no live peer.
@@ -2944,6 +3489,7 @@ impl ChatManager {
                 agent_session_id: None,
                 model: None,
                 effort: None,
+                images: None,
                 selection: None,
                 mode: None,
                 pending_permission_mode: None,
@@ -3017,6 +3563,12 @@ impl ChatManager {
         let agent_session_id = proc.agent_session_id.lock().unwrap().clone();
         let model = proc.model.lock().unwrap().clone();
         let effort = proc.effort.lock().unwrap().clone();
+        let images = if acp_protocol::supported(proc.kind) {
+            let state = proc.acp.lock().unwrap();
+            state.images_known.then_some(state.images)
+        } else {
+            None
+        };
         let (mode, pending_permission_mode) = proc.permission_modes();
         let collaboration_mode = proc.collaboration_mode.lock().unwrap().clone();
         let collaboration_modes = proc.collaboration_modes.lock().unwrap().clone();
@@ -3039,6 +3591,7 @@ impl ChatManager {
             agent_session_id,
             model,
             effort,
+            images,
             selection: None,
             mode: Some(mode),
             pending_permission_mode,
@@ -3087,12 +3640,16 @@ impl ChatManager {
         if proc.kind == SessionKind::Codex {
             return Err("Codex does not expose native file restore through app-server".to_string());
         }
-        if proc.kind == SessionKind::Opencode {
+        if proc.kind.uses_opencode() {
             // OpenCode restores the files along with the conversation and has no dry run; the answer is
             // only whether the message can be named.
             ensure_rewind_idle(&proc)?;
             rewind_target(&proc, row_id)?;
             return Ok(json!({"canRewind":true}));
+        }
+        if proc.kind == SessionKind::Zcode {
+            ensure_rewind_idle(&proc)?;
+            return zcode::rewind_preview(&proc, session_id, row_id);
         }
         if proc.kind != SessionKind::Claude {
             return Err("File rewind is supported only for Claude conversations".to_string());
@@ -3111,7 +3668,7 @@ impl ChatManager {
         if proc.agent_session_id.lock().unwrap().as_deref()!=Some(selection.branch.native_id.as_str()) {return Err("source_changed: running conversation branch changed".into());}
         let mut value=match proc.kind {
             SessionKind::Claude=>proc.request_and_wait("rewind_files",|id|protocol::control_request(id,protocol::rewind_files(&selection.target.message_id,true)))?,
-            SessionKind::Opencode=>json!({"canRewind":true}),
+            kind if kind.uses_opencode()=>json!({"canRewind":true}),
             SessionKind::Codex=>return Err("Codex does not expose native file restore through app-server".into()),
             _=>return Err("Conversation rewind is unavailable for this provider".into()),
         };
@@ -3120,7 +3677,7 @@ impl ChatManager {
 
     pub fn rewind_indexed(&self,app:&AppCtx,session:&str,row:&str,scope:&str,generation:&str) -> Result<Value,String> {
         let proc=self.get(session)?;let _action=proc.action.lock().unwrap();ensure_rewind_idle(&proc)?;
-        let conversation=matches!(scope,"conversation"|"both") || proc.kind==SessionKind::Opencode;
+        let conversation=matches!(scope,"conversation"|"both") || proc.kind.uses_opencode();
         let files=matches!(scope,"files"|"both");
         if !matches!(scope,"conversation"|"files"|"both") {return Err(format!("Unknown rewind scope: {scope}"));}
         if proc.kind==SessionKind::Codex && files {return Err("Codex does not expose native file restore through app-server".into());}
@@ -3144,7 +3701,7 @@ impl ChatManager {
                 SessionKind::Codex=>{
                     let thread=fork_codex_for_rewind(&proc,&selection.target,&[],turns)?;activate_rewound_codex(app,session,&proc,&thread);
                 },
-                SessionKind::Opencode=>opencode::rewind(&proc,&selection.target)?,
+                kind if kind.uses_opencode()=>opencode::rewind(&proc,&selection.target)?,
                 _=>return Err("Conversation rewind is unavailable for this provider".into()),
             }
             // The provider owns the branch mutation. Clients locate a fresh bounded page afterwards.
@@ -3165,13 +3722,28 @@ impl ChatManager {
         let proc = self.get(session_id)?;
         let _action = proc.action.lock().unwrap();
         ensure_rewind_idle(&proc)?;
-        let conversation = matches!(scope, "conversation" | "both");
+        let conversation = matches!(scope, "conversation" | "both") || proc.kind.uses_opencode();
         let files = matches!(scope, "files" | "both");
         if !conversation && !files {
             return Err(format!("Unknown rewind scope: {scope}"));
         }
         if proc.kind == SessionKind::Codex && files {
             return Err("Codex does not expose native file restore through app-server".to_string());
+        }
+        if proc.kind == SessionKind::Zcode {
+            let prefill_text = proc.timeline.lock().unwrap().user_messages().into_iter()
+                .find(|(id, _)| id == row_id).map(|(_, text)| text)
+                .ok_or("That user message is no longer in the conversation")?;
+            // Files are restored at once; the conversation waits for the replacement message.
+            let file_result = zcode::rewind(&proc, session_id, row_id, scope)?;
+            if conversation {
+                if !proc.timeline.lock().unwrap().trim_from_user(row_id) {
+                    zcode::cancel_rewind(&proc);
+                    return Err("That user message is no longer in the conversation".to_string());
+                }
+                emit_state(app, session_id, AgentState::Waiting);
+            }
+            return Ok(json!({"prefillText":conversation.then_some(prefill_text),"files":file_result}));
         }
 
         let target = rewind_target(&proc, row_id)?;
@@ -3196,7 +3768,7 @@ impl ChatManager {
 
         let mut provider_prefill = None;
         // OpenCode has no file-only restore: asking for the files alone still moves the conversation.
-        let conversation = conversation || proc.kind == SessionKind::Opencode;
+        let conversation = conversation || proc.kind.uses_opencode();
         if conversation {
             match proc.kind {
                 SessionKind::Claude => {
@@ -3225,7 +3797,7 @@ impl ChatManager {
                 SessionKind::Codex => rewind_codex(app, session_id, &proc, &target, &drop_rows)?,
                 // One request restores both the conversation and the files; there is no separate
                 // file-only rewind, so any scope that reaches here does both.
-                SessionKind::Opencode => opencode::rewind(&proc, &target)?,
+                kind if kind.uses_opencode() => opencode::rewind(&proc, &target)?,
                 other => {
                     return Err(format!(
                         "Conversation rewind is not supported for {} sessions",
@@ -3265,6 +3837,8 @@ impl ChatManager {
     /// End the conversation and let the process go.
     pub fn stop(&self, app: &AppCtx, session_id: &str) -> Result<(), String> {
         self.check_permission_restart(session_id)?;
+        self.cancel_antigravity_401_recovery(session_id);
+        self.clear_antigravity_401_recovery(session_id);
         let proc = self.sessions.lock().unwrap().get(session_id).cloned();
         let Some(proc) = proc else {
             let _owner = super::ownership::idle_guard(app,session_id)?;
@@ -3292,6 +3866,10 @@ impl ChatManager {
         crate::session_state::set_stopped(app, session_id);
         proc.alive.store(false, Ordering::Relaxed);
         proc.released.store(true, Ordering::Relaxed);
+        if acp_protocol::supported(proc.kind) {
+            acp::release_parked_stop(&proc, "allow");
+            auth::antigravity::abort_login(&proc);
+        }
         emit_queue(app, session_id, &proc);
         end_background_tasks(&mut proc.extras.lock().unwrap());
         emit_extras(app, session_id, &proc);
@@ -3658,6 +4236,10 @@ fn release_process(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>) {
     proc.release_when_idle.store(false, Ordering::Relaxed);
     proc.released.store(true, Ordering::Relaxed);
     proc.alive.store(false, Ordering::Relaxed);
+    if acp_protocol::supported(proc.kind) {
+        acp::release_parked_stop(proc, "allow");
+        auth::antigravity::abort_login(proc);
+    }
     crate::session_state::set_alive(app, session_id, false);
     *proc.stdin.lock().unwrap() = None;
     terminate_owned(&mut proc.child.lock().unwrap());
@@ -3840,7 +4422,9 @@ fn rewind_scopes(kind: SessionKind) -> Vec<&'static str> {
     match kind {
         SessionKind::Claude => vec!["conversation", "files", "both"],
         SessionKind::Codex => vec!["conversation"],
-        SessionKind::Opencode => vec!["both"],
+        kind if kind.uses_opencode() => vec!["both"],
+        // Only from the latest message, and the conversation only by sending a replacement: see `zcode::rewind`.
+        SessionKind::Zcode => vec!["conversation", "files", "both"],
         _ => Vec::new(),
     }
 }
@@ -3888,7 +4472,7 @@ fn rewind_target(proc: &ChatProcess, row_id: &str) -> Result<super::history::Rew
     if let Some(target) = proc.user_targets.lock().unwrap().get(row_id).cloned() {
         return Ok(target);
     }
-    if proc.kind == SessionKind::Opencode {
+    if proc.kind.uses_opencode() {
         if let Some(message_id) = row_id.strip_prefix("u:") {
             let text = match proc.timeline.lock().unwrap().get(row_id) {
                 Some(ChatRow::User { text, .. }) => text.clone(),
@@ -4119,7 +4703,6 @@ fn spawn_stdout_reader(
         }
         auth::claude::exited(&app, &session_id, &proc);
         let _exit_callback = proc.callbacks.read().unwrap();
-        if proc.kind == SessionKind::Antigravity { antigravity::finish_rows(&proc); }
         if acp_protocol::supported(proc.kind) { acp::finish(&proc); }
         proc.alive.store(false, Ordering::Relaxed);
         for (_, waiter) in proc.waiters.lock().unwrap().drain() {
@@ -4131,8 +4714,7 @@ fn spawn_stdout_reader(
             let mut turn = proc.turn.lock().unwrap();
             turn.running = false;
             turn.started_at = None;
-            if !proc.auth_restart.load(Ordering::Relaxed)
-                && !(proc.kind == SessionKind::Antigravity && turn.interrupted) { turn.waiting.clear(); }
+            if !proc.auth_restart.load(Ordering::Relaxed) { turn.waiting.clear(); }
         }
         let code = proc
             .child
@@ -4161,12 +4743,7 @@ fn spawn_stdout_reader(
         emit_extras(&app, &session_id, &proc);
         emit_queue(&app, &session_id, &proc);
         let stderr = proc.stderr.lock().unwrap().clone();
-        let agy_interrupted = proc.kind == SessionKind::Antigravity && proc.turn.lock().unwrap().interrupted;
-        let released = proc.released.load(Ordering::Relaxed) || agy_interrupted;
-        if agy_interrupted {
-            emit(&app, &session_id, json!({"type":"turnInterrupted"}));
-            emit(&app, &session_id, json!({"type":"turnCompleted"}));
-        }
+        let released = proc.released.load(Ordering::Relaxed);
         emit(
             &app,
             &session_id,
@@ -4175,11 +4752,6 @@ fn spawn_stdout_reader(
         // An intentional release settles lifecycle state without announcing another reply.
         emit_state_with(&app, &session_id, AgentState::Waiting, released);
         drop(_exit_callback);
-        if agy_interrupted && !proc.turn.lock().unwrap().waiting.is_empty() {
-            if let Err(message) = crate::command_core::chat_start(&app, &session_id, None, None, false) {
-                emit(&app, &session_id, json!({"type":"error","message":message}));
-            }
-        }
     });
 }
 
@@ -4207,6 +4779,43 @@ fn spawn_stderr_reader(proc: Arc<ChatProcess>, stderr: std::process::ChildStderr
     });
 }
 
+/// Strip ANSI/VT escape sequences from raw agent stderr or RPC error text while preserving UTF-8.
+fn strip_ansi_text(input: &str) -> String {
+    if !input.as_bytes().contains(&0x1b) { return input.to_string(); }
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != 0x1b {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if i >= bytes.len() { break; }
+        match bytes[i] {
+            b'[' => {
+                i += 1;
+                while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) { i += 1; }
+                if i < bytes.len() { i += 1; }
+            }
+            b']' | b'P' | b'_' | b'^' | b'X' => {
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == 0x07 { i += 1; break; }
+                    if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\' { i += 2; break; }
+                    i += 1;
+                }
+            }
+            b'(' | b')' | b'*' | b'+' | b'-' | b'.' | b'/' | b' ' | b'#' | b'%' => {
+                i = (i + 2).min(bytes.len());
+            }
+            _ => { i += 1; }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn drain_stderr(mut reader:impl std::io::Read,limit:usize,mut publish:impl FnMut(String)) -> std::io::Result<()> {
     let mut retained=Vec::with_capacity(limit);let mut block=[0;16*1024];
     loop {
@@ -4215,7 +4824,7 @@ fn drain_stderr(mut reader:impl std::io::Read,limit:usize,mut publish:impl FnMut
         let keep=count.min(limit.saturating_sub(retained.len()));
         if keep==0 {continue;}
         retained.extend_from_slice(&block[..keep]);
-        let mut text=String::from_utf8_lossy(&retained).replace("\r\n","\n");
+        let mut text=strip_ansi_text(&String::from_utf8_lossy(&retained).replace("\r\n","\n"));
         let mut end=text.len().min(limit.saturating_sub(1));while !text.is_char_boundary(end) {end-=1;}text.truncate(end);
         if !text.is_empty() && !text.ends_with('\n') {text.push('\n');}publish(text);
     }
@@ -4224,7 +4833,7 @@ fn drain_stderr(mut reader:impl std::io::Read,limit:usize,mut publish:impl FnMut
 /// Replace the previous process's rows atomically, using the same bounded window as live replacements.
 fn reset_event(proc: &ChatProcess) -> Value {
     let timeline = proc.timeline.lock().unwrap();
-    let start = timeline.rows.len().saturating_sub(SNAPSHOT_PAGE_ROWS);
+    let start = bounded_window_start(&timeline.rows, timeline.rows.len());
     let rows = &timeline.rows[start..];
     let mut positions: HashMap<_, _> = rows.iter().enumerate()
         .map(|(index, row)| (row.id(), start + index)).collect();
@@ -4235,33 +4844,45 @@ fn reset_event(proc: &ChatProcess) -> Value {
         "positions":positions, "hasMore":start > 0 || proc.paged_history_exists()})
 }
 
+/// Emit any pending timeline replacement or dirty rows immediately instead of waiting for the 60 ms tick.
+fn flush_timeline_now(app: &AppCtx, session_id: &str, proc: &ChatProcess) {
+    let (flush, revision, positions, wire_rows, has_more) = {
+        let mut timeline = proc.timeline.lock().unwrap();
+        let flush = timeline.take_flush();
+        if matches!(flush, TimelineFlush::None) {
+            return;
+        }
+        timeline.revision += 1;
+        let rows = match &flush {
+            TimelineFlush::Rows(rows) => rows.as_slice(),
+            TimelineFlush::Replace(rows) => &rows[bounded_window_start(rows, rows.len())..],
+            TimelineFlush::None => &[],
+        };
+        let mut positions: HashMap<_, _> = rows.iter().filter_map(|row| timeline.at.get(row.id()).map(|index| (row.id().to_owned(), *index))).collect();
+        let wire_rows = timeline.wire_window(rows);
+        let has_more = rows.len() < timeline.rows.len() || wire_rows.len() < rows.len()
+            || proc.paged_history_exists();
+        positions.retain(|id, _| wire_rows.iter().any(|row| row["id"].as_str() == Some(id)));
+        (flush, timeline.revision, positions, wire_rows, has_more)
+    };
+    match flush {
+        TimelineFlush::None => {}
+        TimelineFlush::Rows(_) => {
+            emit(app, session_id, json!({"type":"rows","positions":positions,"rows":wire_rows,"protocolVersion":1,"revision":revision,"epoch":proc.started_at}));
+        }
+        TimelineFlush::Replace(rows) => {
+            emit(app, session_id, json!({"type":"replaceRows","userMessages":super::user_messages::outline(&rows),"positions":positions,"rows":wire_rows,"hasMore":has_more,"protocolVersion":1,"revision":revision,"epoch":proc.started_at}));
+        }
+    }
+}
+
 fn spawn_flusher(app: AppCtx, session_id: String, proc: Arc<ChatProcess>) {
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(FLUSH_INTERVAL);
             let _callback = proc.callbacks.read().unwrap();
             if proc.released.load(Ordering::Relaxed) || !app.chat().owns_process(&session_id,&proc) { return; }
-            let (flush, revision, positions,wire_rows,has_more) = {
-                let mut timeline = proc.timeline.lock().unwrap();
-                timeline.revision += 1;
-                let flush = timeline.take_flush();
-                let rows = match &flush { TimelineFlush::Rows(rows) => rows.as_slice(), TimelineFlush::Replace(rows) => &rows[rows.len().saturating_sub(SNAPSHOT_PAGE_ROWS)..], TimelineFlush::None => &[] };
-                let mut positions: HashMap<_, _> = rows.iter().filter_map(|row| timeline.at.get(row.id()).map(|index| (row.id().to_owned(), *index))).collect();
-                let wire_rows=timeline.wire_window(rows);let has_more=rows.len()<timeline.rows.len() || wire_rows.len()<rows.len()
-                    || proc.paged_history_exists();
-                positions.retain(|id,_|wire_rows.iter().any(|row|row["id"].as_str()==Some(id)));
-                (flush, timeline.revision, positions,wire_rows,has_more)
-            };
-            match flush {
-                TimelineFlush::None => {}
-                TimelineFlush::Rows(rows) => {
-                    let _=rows;
-                    emit(&app, &session_id, json!({"type":"rows","positions":positions,"rows":wire_rows,"protocolVersion":1,"revision":revision,"epoch":proc.started_at}));
-                }
-                TimelineFlush::Replace(rows) => {
-                    emit(&app, &session_id, json!({"type":"replaceRows","userMessages":super::user_messages::outline(&rows),"positions":positions,"rows":wire_rows,"hasMore":has_more,"protocolVersion":1,"revision":revision,"epoch":proc.started_at}));
-                }
-            }
+            flush_timeline_now(&app, &session_id, &proc);
             if !proc.alive.load(Ordering::Relaxed) {
                 // One last sweep has just run, so nothing written before exit is lost.
                 return;
@@ -4273,11 +4894,7 @@ fn spawn_flusher(app: AppCtx, session_id: String, proc: Arc<ChatProcess>) {
 // ─────────────────────────── Line handling ───────────────────────────
 
 fn handle_line(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>, line: &str) {
-    if proc.kind == SessionKind::Antigravity {
-        antigravity::handle_line(app, session_id, proc, line);
-        return;
-    }
-    if proc.kind == SessionKind::Opencode {
+    if proc.kind.uses_opencode() {
         return;
     }
     if matches!(proc.kind, SessionKind::Pi | SessionKind::Omp) {
@@ -4763,7 +5380,21 @@ fn handle_codex_response(
             proc.commands.lock().unwrap().clear();
             emit(app, session_id, json!({"type":"commands","commands":[]}));
         }
-        emit(app, session_id, json!({"type":"error","message":message,"request":kind}));
+        let clean_message = strip_ansi_text(&message);
+        let emitted = if matches!(kind, Some("thread_start" | "thread_resume" | "thread_fork_open"))
+            && {
+                let lower = clean_message.to_ascii_lowercase();
+                lower.contains("already has an active writer") || lower.contains("thread-store conflict")
+            }
+        {
+            match proc.agent_session_id.lock().unwrap().as_deref() {
+                Some(thread_id) if !thread_id.is_empty() => format!("codex_thread_active_writer:{thread_id}"),
+                _ => "codex_thread_active_writer".to_string(),
+            }
+        } else {
+            clean_message
+        };
+        emit(app, session_id, json!({"type":"error","message":emitted,"request":kind}));
         if matches!(kind, Some("initialize" | "thread_start" | "thread_resume" | "thread_fork_open")) {
             if matches!(kind, Some("thread_start" | "thread_resume" | "thread_fork_open"))
                 && auth::is_auth_error(&json!(message))
@@ -5048,6 +5679,11 @@ fn start_waiting_message(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>
         turn.started_at = None;
         drop(turn);
         emit_queue(app,session_id,proc);
+        // A queued image can be refused only after the handshake has answered the model's capability.
+        // The queue entry is gone by now, so hand the message back instead of losing it.
+        if !next.images.is_empty() && acp_protocol::supported(proc.kind) {
+            emit(app, session_id, json!({"type":"unsent","id":next.id.clone(),"text":next.text.clone(),"images":next.images.clone()}));
+        }
         emit(app, session_id, json!({"type":"error","message":message.message}));
         emit(app, session_id, json!({"type":"turnCompleted"}));
         emit_state(app, session_id, AgentState::Waiting);
@@ -6040,8 +6676,11 @@ fn report_auto_continue(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>,
                 }
             });
         }
+        SessionKind::Antigravity => {
+            auto_continue::turn_ended(app, session_id, TurnOutcome::LimitReached(acp::take_usage_limit_reset(proc)))
+        }
         // OpenCode Go v2 errors carry no reset time; the pane then says the task will not continue on its own.
-        SessionKind::Opencode => {
+        kind if kind.uses_opencode() => {
             auto_continue::turn_ended(app, session_id, TurnOutcome::LimitReached(opencode::take_usage_limit_reset(proc)))
         }
         _ => auto_continue::turn_ended(app, session_id, TurnOutcome::Other),
@@ -6064,6 +6703,10 @@ fn interrupt_locked(app: &AppCtx, proc: &Arc<ChatProcess>, turn: &mut TurnQueue)
         turn.interrupted = previous;
         return Err(error);
     }
+    if proc.kind == SessionKind::Antigravity && turn.running && !acp::has_active_prompt(proc) {
+        antigravity_tasks::abort_reactive_turn(proc);
+        return Ok(Some(take_turn_end(app, proc, turn)));
+    }
     if proc.kind != SessionKind::Claude || !turn.running {
         return Ok(None);
     }
@@ -6073,19 +6716,7 @@ fn interrupt_locked(app: &AppCtx, proc: &Arc<ChatProcess>, turn: &mut TurnQueue)
 
 fn send_interrupt_locked(proc: &Arc<ChatProcess>, turn: &mut TurnQueue) -> Result<(), String> {
     turn.interrupted = turn.running;
-    if proc.kind == SessionKind::Antigravity {
-        if !turn.running { return Ok(()); }
-        #[cfg(unix)]
-        {
-            let result = unsafe { libc::kill(proc.pid as libc::pid_t, libc::SIGINT) };
-            if result != 0 { return Err(format!("Failed to interrupt Antigravity: {}", std::io::Error::last_os_error())); }
-        }
-        #[cfg(not(unix))]
-        proc.child.lock().unwrap().kill().map_err(|e| format!("Failed to interrupt Antigravity: {e}"))?;
-        proc.ready.store(false, Ordering::Relaxed);
-        return Ok(());
-    }
-    if proc.kind == SessionKind::Opencode {
+    if proc.kind.uses_opencode() {
         if !turn.running {
             return Ok(());
         }
@@ -6151,7 +6782,7 @@ fn terminate_owned(child: &mut std::process::Child) {
 
 fn verify_native_identity(app: &AppCtx, session_id: &str, proc: &Arc<ChatProcess>, id: &str) -> bool {
     if proc.identity_checked.load(Ordering::Relaxed) { return true; }
-    if proc.expected_native.as_ref().is_some_and(|expected|expected!=id) {
+    if proc.expected_native.lock().unwrap().as_ref().is_some_and(|expected|expected!=id) {
         emit(app,session_id,json!({"type":"error","message":"The agent opened a different native conversation. Recovery was stopped to preserve the original history."}));
         fail_codex_start(app,session_id,proc);
         return false;
@@ -6220,9 +6851,6 @@ fn dispatch_steer(
     message_id: Option<&str>,
 ) -> Result<(), String> {
     if app.chat().closing.load(Ordering::Relaxed) { return Err("The application is shutting down.".into()); }
-    if proc.kind == SessionKind::Antigravity {
-        super::antigravity_protocol::validate(text, images.len(), "steer")?;
-    }
     if acp_protocol::supported(proc.kind) {
         acp::validate(proc, "steer", images.len())?;
     }
@@ -6253,15 +6881,19 @@ fn dispatch_steer(
                 message_id: turn_id.clone(), last_message_id: None, turn_id: Some(turn_id), text: text.to_string(),
             });
         }
-        SessionKind::Opencode => opencode::steer(proc, &row_id, text, images)?,
+        kind if kind.uses_opencode() => opencode::steer(proc, &row_id, text, images)?,
         SessionKind::Pi | SessionKind::Omp => pi::steer(proc, text, images)?,
         // `guide` delivery joins the running turn at its next tool boundary; ZCode queues the message
         // itself when the turn has no boundary left, so the receipt below stays honest either way.
         SessionKind::Zcode => zcode::steer(app, session_id, proc, &row_id, text, images)?,
+        SessionKind::Antigravity => {
+            acp::steer(proc, text, images)?;
+            antigravity_tasks::ensure_poller(app, session_id, proc);
+        }
         SessionKind::Claude => write_claude_user_message(app,session_id,proc,&row_id,text,images)?,
         _ => proc.write_source(|writer|outgoing_wire::claude(writer,text,images,None))?,
     }
-    if proc.kind != SessionKind::Opencode && !super::shell::is_tagged(text) {
+    if !proc.kind.uses_opencode() && !super::shell::is_tagged(text) {
         crate::agent::server::try_auto_rename(app, session_id, text);
     }
     let row=user_row(row_id,text,images.to_vec(),Some(sent_at as i64));
@@ -6300,6 +6932,11 @@ fn dispatch(
     message_id: Option<&str>,
 ) -> Result<(), DispatchFailure> {
     if app.chat().closing.load(Ordering::Relaxed) { return Err("The application is shutting down.".into()); }
+    // A message queued while the handshake was still running reaches here once it has answered; check the
+    // model's image capability before anything is recorded as dispatched.
+    if acp_protocol::supported(proc.kind) {
+        acp::validate(proc, "queue", images.len())?;
+    }
     let commands = proc.commands.lock().unwrap().clone();
     let normalized = skills::native_text(text, &commands);
     let text = normalized.as_ref();
@@ -6325,11 +6962,7 @@ fn dispatch(
         emit(app, session_id, json!({"type":"turnStarted","startedAt":turn_started_at}));
     }
     emit_state(app, session_id, AgentState::Working);
-    if proc.kind == SessionKind::Antigravity {
-        super::antigravity_protocol::validate(text, images.len(), "queue")?;
-        proc.antigravity.lock().unwrap().begin_turn();
-        proc.write_source(|writer|outgoing_wire::antigravity(writer,text))?;
-    } else if proc.kind == SessionKind::Opencode {
+    if proc.kind.uses_opencode() {
         opencode::dispatch(app, session_id, proc, &row_id, text, images)?;
     } else if matches!(proc.kind, SessionKind::Pi | SessionKind::Omp) {
         pi::dispatch(proc, text, images)?;
@@ -6337,6 +6970,10 @@ fn dispatch(
         zcode::dispatch(app, session_id, proc, &row_id, text, images)?;
     } else if acp_protocol::supported(proc.kind) {
         acp::dispatch(proc, text, images)?;
+        if proc.kind == SessionKind::Antigravity {
+            antigravity_tasks::ensure_poller(app, session_id, proc);
+            acp::start_prompt_watchdog(app, session_id, proc);
+        }
     } else if proc.kind == SessionKind::Codex {
         let thread_id = proc
             .agent_session_id
@@ -6398,7 +7035,7 @@ fn dispatch(
     // Direct sends and dequeued messages share this path. Rename only after a successful write;
     // OpenCode supplies its own title through session.updated and must retain its placeholder until then.
     // A shell-mode context message is not a title either: the next real prompt names the session.
-    if proc.kind != SessionKind::Opencode && !super::shell::is_tagged(text) {
+    if !proc.kind.uses_opencode() && !super::shell::is_tagged(text) {
         crate::agent::server::try_auto_rename(app, session_id, text);
     }
     receipt.map(|_|())
@@ -7034,7 +7671,7 @@ mod tests {
     pub(super) fn inert_process(kind: SessionKind) -> Arc<ChatProcess> {
         Arc::new(ChatProcess {
             callbacks: RwLock::new(()),
-            expected_native: None,
+            expected_native: Mutex::new(None),
             identity_checked: AtomicBool::new(false),
             prompted: AtomicBool::new(false),
             owner: Mutex::new(None),
@@ -7061,7 +7698,6 @@ mod tests {
             opencode: Mutex::new(opencode::OpencodeState::default()),
             pi: Mutex::new(pi::PiState::default()),
             zcode: Mutex::new(zcode::ZcodeState::default()),
-            antigravity: Mutex::new(crate::agent::chat::antigravity_protocol::StreamState::default()),
             acp: Mutex::new(acp::AcpState::default()),
             service_tier: Mutex::new(None),
             personality: Mutex::new(None),
@@ -7648,8 +8284,6 @@ mod tests {
         );
     }
 
-    /// A forked session's first launch copies its source conversation instead of appending to it; once the
-    /// fork has its own id, later launches resume that id in place.
     #[cfg(unix)]
     #[test]
     fn a_pending_fork_launches_claude_with_fork_session() {
@@ -7763,6 +8397,24 @@ mod tests {
     /// A ZCode turn followed through its V4 frames, shaped like a live `zcode app-server` 0.17.0 run: the
     /// engine's own input is not drawn twice, deltas stream into rows, an approval becomes a card and leaves
     /// with the server's list, and the turn header's terminal state ends the turn.
+    /// A fork opens on its source only to find the reply to branch from. When there is none it stops: drawing
+    /// the source or becoming ready would let a message land in the original conversation.
+    #[test]
+    fn a_zcode_fork_never_draws_its_source_and_stops_without_a_reply_to_branch_from() {
+        let app = ctx("zcode-fork");
+        let proc = inert_process(SessionKind::Zcode);
+        *proc.agent_session_id.lock().unwrap() = Some("sess_1".into());
+        zcode::test_fork(&proc);
+        let line = json!({"method":"v4/conversation/frame","params":{"wireVersion":3,"kind":"complete",
+            "frame":{"topic":"conversation/sess_1","fromSeq":0,"toSeq":2,"payload":{"kind":"snapshot","snapshot":{"revision":1,"logEpoch":"e1",
+                "control":{"phase":"failed","lastError":null},"pendingInteractions":[],
+                "rows":{"window":[{"rowId":1,"kind":"assistantText","text":"from the source","state":"complete","visibility":"visible","entityId":"m1"}],"totalCount":1}}}}}}).to_string();
+        zcode::handle_line(&app, "s", &proc, &line);
+        assert!(proc.timeline.lock().unwrap().rows.is_empty(), "the source's rows are not this conversation's");
+        assert!(!proc.ready.load(Ordering::Relaxed), "a process still on its source must not accept messages");
+        assert!(!proc.alive.load(Ordering::Relaxed), "the process stops");
+    }
+
     #[test]
     fn zcode_frames_build_the_timeline_and_end_the_turn() {
         let app = ctx("zcode-frames");
@@ -7828,6 +8480,77 @@ mod tests {
             if id == "z-4" && name == "Bash" && output.as_deref() == Some("(Bash completed with no output)") && *status == "completed")));
         assert!(rows.iter().any(|row| matches!(row, ChatRow::Assistant { text, streaming: false, .. } if text == "Done.")));
         assert!(!rows.iter().any(|row| row.id() == "z-1"), "turn headers are not drawn");
+    }
+
+    /// ZCode rewinds a conversation only by editing its latest query. The rewind drops the turn from the view
+    /// and waits; the next message becomes a compare-and-set `editUserQuery` naming that query. When ZCode
+    /// refuses the edit its conversation is unchanged, so the dropped rows come back and nothing stays pending.
+    #[test]
+    fn a_zcode_rewind_waits_for_the_edit_and_restores_the_turn_when_refused() {
+        use std::io::BufRead as _;
+        let app = ctx("zcode-rewind");
+        let mut proc = inert_process(SessionKind::Zcode);
+        Arc::get_mut(&mut proc).unwrap().cwd = Some("/w".into());
+        *proc.agent_session_id.lock().unwrap() = Some("sess_1".into());
+        // Signed in: a refusal is reported, not turned into a sign-in prompt.
+        proc.zcode.lock().unwrap().models = vec![json!({"id":"p/m"})];
+        let frame = |from: u64, to: u64, payload: Value| json!({"method":"v4/conversation/frame","params":{"wireVersion":3,"kind":"complete",
+            "frame":{"topic":"conversation/sess_1","fromSeq":from,"toSeq":to,"payload":payload}}}).to_string();
+        zcode::handle_line(&app, "s", &proc, &frame(0, 2, json!({"kind":"snapshot","snapshot":{"revision":27,"logEpoch":"e1",
+            "control":{"phase":"idle","lastError":null},"config":{"mode":"build"},"pendingInteractions":[],"rows":{"window":[
+                {"rowId":1,"kind":"turnHeader","state":"completedSuccess","turnId":"t1","entityId":"t1"},
+                {"rowId":2,"kind":"userInput","origin":"realUser","text":"first","turnId":"t1","entityId":"m1","visibility":"visible"},
+                {"rowId":8,"kind":"turnHeader","state":"completedSuccess","turnId":"t2","entityId":"t2","actions":{"canRewindFiles":true},
+                    "fileChanges":{"additions":1,"deletions":1,"state":"active"}},
+                {"rowId":9,"kind":"userInput","origin":"realUser","text":"second","turnId":"t2","entityId":"m2","visibility":"visible",
+                    "actions":{"canEdit":true,"editDisposition":"rewind"}},
+                {"rowId":10,"kind":"assistantText","text":"done","state":"complete","turnId":"t2","entityId":"a2","visibility":"visible"},
+            ],"totalCount":5}}})));
+        assert_eq!(zcode::rewind(&proc, "s", "z-2", "conversation").unwrap_err(), "ZCode can rewind only its latest message.");
+        assert_eq!(zcode::rewind(&proc, "s", "z-9", "both").unwrap(), None, "the conversation waits for the edit");
+        assert!(proc.timeline.lock().unwrap().trim_from_user("z-9"));
+        // ZCode still holds the turn; an update to it must not bring it back into the view.
+        zcode::handle_line(&app, "s", &proc, &frame(2, 3, json!({"kind":"deltas","deltas":[
+            {"op":"row.upserted","row":{"rowId":10,"kind":"assistantText","text":"done!","state":"complete","turnId":"t2","visibility":"visible"}},
+            {"op":"state.updated","patch":{"revision":28}},
+        ]})));
+        assert!(!proc.timeline.lock().unwrap().rows.iter().any(|row| row.id() == "z-10"));
+
+        let mut child = Command::new("cat").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+        let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+        *proc.stdin.lock().unwrap() = Some(child.stdin.take().unwrap());
+        *proc.child.lock().unwrap() = child;
+        proc.timeline.lock().unwrap().upsert(ChatRow::User { id: "u-1".into(), text: "second, edited".into(), images: Vec::new(), at: None });
+        zcode::dispatch(&app, "s", &proc, "u-1", "second, edited", &[]).unwrap();
+        let mut written = String::new();
+        stdout.read_line(&mut written).unwrap();
+        let request: Value = serde_json::from_str(written.trim()).unwrap();
+        assert_eq!(request["params"]["type"], "editUserQuery");
+        assert_eq!(request["params"]["baseRevision"], 28);
+        assert_eq!(request["params"]["baseLogEpoch"], "e1");
+        assert_eq!(request["params"]["payload"]["target"], json!({"rowId":9,"entityId":"m2"}));
+        assert_eq!(request["params"]["payload"]["newText"], "second, edited");
+        assert_eq!(request["params"]["payload"]["workspaceMode"], "rewind");
+        zcode::handle_line(&app, "s", &proc, &json!({"id": request["id"], "result": {"status":"rejected","reasonCode":"guard.actionUnavailable"}}).to_string());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let restored = |proc: &ChatProcess| {
+            let timeline = proc.timeline.lock().unwrap();
+            timeline.rows.iter().any(|row| row.id() == "z-9") && !timeline.rows.iter().any(|row| row.id() == "u-1")
+        };
+        while !restored(&proc) {
+            assert!(std::time::Instant::now() < deadline, "the dropped turn comes back");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let ids: Vec<String> = proc.timeline.lock().unwrap().rows.iter().map(|row| row.id().to_string()).collect();
+        assert_eq!(ids, ["z-2", "z-9", "z-10"], "the edit's bubble goes back to the composer");
+
+        // Nothing stays pending: the next message is an ordinary one.
+        zcode::dispatch(&app, "s", &proc, "u-2", "another", &[]).unwrap();
+        let mut written = String::new();
+        stdout.read_line(&mut written).unwrap();
+        let request: Value = serde_json::from_str(written.trim()).unwrap();
+        assert_eq!(request["params"]["type"], "sendText");
+        zcode::handle_line(&app, "s", &proc, &json!({"id": request["id"], "result": {"status": "accepted"}}).to_string());
     }
 
     /// A steered message asks ZCode for `guide` delivery, so it joins the turn in flight rather than
@@ -8064,6 +8787,16 @@ mod tests {
     }
 
     #[test]
+    fn prepended_retired_history_stays_in_front_of_a_rebuilt_timeline() {
+        let row=|id:&str,text:&str|ChatRow::User {id:id.into(),text:text.into(),images:vec![],at:None};
+        let mut timeline=Timeline::default();timeline.upsert(row("live","New OpenCode turn"));timeline.replace_all(vec![row("live","New OpenCode turn")]);
+        // A resumed OpenCode store has already replaced the timeline; the retired recording still leads.
+        timeline.prepend_history(vec![row("old","Retired harness turn"),row("live","Stale OpenCode copy")]);
+        assert_eq!(timeline.user_messages(),vec![("old".into(),"Retired harness turn".into()),("live".into(),"New OpenCode turn".into())]);
+        assert!(matches!(timeline.take_flush(),TimelineFlush::Replace(rows) if rows.len()==2));
+    }
+
+    #[test]
     fn codex_reset_includes_restored_history_before_live_rows_arrive() {
         let proc = inert_process(SessionKind::Codex);
         let rows = (0..150).map(|i| ChatRow::User {
@@ -8137,6 +8870,36 @@ mod tests {
     }
 
     #[test]
+    fn drain_stderr_strips_ansi_escape_sequences() {
+        let raw = "\x1b[2m2026-11-22T06:13:11Z\x1b[0m \x1b[31mERROR\x1b[0m \x1b[2mcodex_core::session\x1b[0m: thread-store conflict\r\n";
+        let mut updates = Vec::new();
+        drain_stderr(raw.as_bytes(), 8192, |text| updates.push(text)).unwrap();
+        assert_eq!(updates.last().unwrap(), "2026-11-22T06:13:11Z ERROR codex_core::session: thread-store conflict\n");
+    }
+
+    #[test]
+    fn codex_active_writer_resume_failure_emits_stable_error_code() {
+        let app = ctx("codex-active-writer");
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let seen = events.clone();
+        let _un = app.listen("chat://event/s", move |payload| {
+            if let Ok(value) = serde_json::from_str::<Value>(payload) { seen.lock().unwrap().push(value); }
+        });
+        let proc = inert_process(SessionKind::Codex);
+        *proc.agent_session_id.lock().unwrap() = Some("01a1d769-830a-75a1-a110-67e01b00387e".into());
+        proc.pending.lock().unwrap().insert("resume-1".into(), "thread_resume");
+        handle_codex_line(
+            &app,
+            "s",
+            &proc,
+            &json!({"id":"resume-1","error":{"message":"\x1b[31mFailed to create session: thread-store conflict: thread 01a1d769-830a-75a1-a110-67e01b00387e already has an active writer\x1b[0m"}}).to_string(),
+        );
+        let emitted = events.lock().unwrap();
+        assert!(emitted.iter().any(|e| e["type"] == "error" && e["message"] == "codex_thread_active_writer:01a1d769-830a-75a1-a110-67e01b00387e"));
+        let _ = proc.child.lock().unwrap().wait();
+    }
+
+    #[test]
     fn control_snapshot_does_not_copy_rows_or_build_the_message_directory() {
         let proc = inert_process(SessionKind::Claude);
         let manager = ChatManager::new();
@@ -8203,6 +8966,61 @@ mod tests {
         let reset = manager.snapshot_window("window", Some(&ChatWindow { since: Some(delta.rows_revision), epoch: delta.started_at, ..Default::default() }));
         assert_eq!(reset.page_kind, "recent");
         assert_eq!(reset.rows.len(), 1);
+    }
+
+    #[test]
+    fn running_acp_process_ignores_stale_v2_snapshot_requests() {
+        let app = ctx("dispatch-acp-v2-to-v1-fallback");
+        let session = {
+            let conn = app.db().conn.lock().unwrap();
+            let project = crate::db::repo::create_virtual_project(&conn, "test").unwrap();
+            crate::db::repo::create_session(&conn, &project.id, None, "Antigravity 1", SessionKind::Antigravity, None, None, None, None, None).unwrap()
+        };
+        let proc = inert_process(SessionKind::Antigravity);
+        let user = |i: usize| ChatRow::User { id: format!("acp-u{i}"), text: format!("message {i}"), images: vec![], at: None };
+        for i in 0..150 { proc.timeline.lock().unwrap().upsert(user(i)); }
+        app.chat().sessions.lock().unwrap().insert(session.id.clone(), proc.clone());
+
+        // Live ACP processes keep their timeline under v1 even if the client still holds an idle v2 generation.
+        let recent = crate::web::dispatch::dispatch(
+            &app,
+            "chat_snapshot",
+            &json!({
+                "sessionId": session.id,
+                "preferBounded": true,
+                "protocolVersion": 2,
+                "historyGeneration": "stale-gen",
+                "window": { "protocolVersion": 2, "historyGeneration": "stale-gen" },
+            }),
+            crate::pty::manager::DESKTOP_SOURCE,
+            crate::web::dispatch::CallOrigin::Local,
+        ).unwrap();
+        assert_eq!(recent["pageKind"], "recent");
+        assert_eq!(recent["rows"].as_array().unwrap().len(), 60);
+        assert_eq!(recent["rows"][0]["id"], "acp-u90");
+        assert_eq!(recent["hasMore"], true);
+        assert_ne!(recent.get("protocolVersion").and_then(|v| v.as_u64()), Some(2));
+
+        let history = crate::web::dispatch::dispatch(
+            &app,
+            "chat_snapshot",
+            &json!({
+                "sessionId": session.id,
+                "preferBounded": true,
+                "protocolVersion": 2,
+                "historyGeneration": "stale-gen",
+                "window": { "before": "acp-u90", "epoch": proc.started_at },
+            }),
+            crate::pty::manager::DESKTOP_SOURCE,
+            crate::web::dispatch::CallOrigin::Local,
+        ).unwrap();
+        assert_eq!(history["pageKind"], "history");
+        let rows = history["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 60);
+        assert_eq!(rows[0]["id"], "acp-u30");
+        assert_eq!(rows.last().unwrap()["id"], "acp-u89");
+        assert_eq!(history["hasMore"], true);
+        assert_ne!(history.get("protocolVersion").and_then(|v| v.as_u64()), Some(2));
     }
 
     /// A client away for a long time owes more than one response carries, by row count or by bytes.
@@ -8318,6 +9136,8 @@ mod tests {
         assert_eq!(manager.snapshot("s").rewind_scopes, vec!["conversation"]);
         assert_eq!(rewind_scopes(SessionKind::Claude), vec!["conversation", "files", "both"]);
         assert_eq!(rewind_scopes(SessionKind::Opencode), vec!["both"]);
+        assert_eq!(rewind_scopes(SessionKind::Deepseek), vec!["both"],
+            "DeepSeek uses OpenCode's rewind: conversation and files together");
         assert!(manager.rewind_preview("s", "missing").unwrap_err().contains("native file restore"));
         for scope in ["files", "both"] {
             assert!(manager.rewind(&app, "s", "missing", scope).unwrap_err().contains("native file restore"));
@@ -8465,7 +9285,7 @@ mod tests {
         let stdout = child.stdout.take().unwrap();
         let proc = Arc::new(ChatProcess {
             callbacks: RwLock::new(()),
-            expected_native: None,
+            expected_native: Mutex::new(None),
             identity_checked: AtomicBool::new(false),
             prompted: AtomicBool::new(false),
             owner: Mutex::new(None),
@@ -8492,7 +9312,6 @@ mod tests {
             opencode: Mutex::new(opencode::OpencodeState::default()),
             pi: Mutex::new(pi::PiState::default()),
             zcode: Mutex::new(zcode::ZcodeState::default()),
-            antigravity: Mutex::new(crate::agent::chat::antigravity_protocol::StreamState::default()),
             acp: Mutex::new(acp::AcpState::default()),
             service_tier: Mutex::new(None),
             personality: Mutex::new(None),
@@ -9136,6 +9955,134 @@ mod tests {
     }
 
     #[test]
+    fn tell_delivers_and_steers_antigravity_and_other_chat_agents() {
+        use crate::agent::tell;
+        let _epoch_guard = crate::agent::antigravity::test_auth_epoch_lock();
+        let tag = format!("tell-chat-kinds-{}", uuid::Uuid::new_v4());
+        let app = ctx(&tag);
+        {
+            let conn = app.db().conn.lock().unwrap();
+            conn.execute("INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','test','/tmp',0)", []).unwrap();
+            for (id, kind, engine) in [
+                ("sender", "claude", "chat"),
+                ("agy", "antigravity", "chat"),
+                ("agy-tui", "antigravity", "tui"),
+                ("zcode", "zcode", "chat"),
+                ("deepseek", "deepseek", "chat"),
+                ("copilot", "copilot", "chat"),
+                ("cursor", "cursor", "chat"),
+                ("kimi", "kimi", "chat"),
+                ("grok", "grok", "chat"),
+                ("kiro", "kiro", "chat"),
+            ] {
+                conn.execute(
+                    "INSERT INTO sessions(id,project_id,name,kind,engine,permission_mode,created_at) VALUES (?1,'p',?1,?2,?3,'default',0)",
+                    rusqlite::params![id, kind, engine],
+                ).unwrap();
+            }
+        }
+        let (mut agy_proc, agy_stdout) = cat_process();
+        {
+            let proc_mut = Arc::get_mut(&mut agy_proc).unwrap();
+            proc_mut.kind = SessionKind::Antigravity;
+            proc_mut.started_at = now_ms();
+        }
+        agy_proc.acp.lock().unwrap().auth_epoch_at_launch = crate::agent::antigravity::auth_epoch();
+        *agy_proc.agent_session_id.lock().unwrap() = Some("agy-native-1".into());
+        agy_proc.ready.store(true, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(agy_stdout);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 { line.clear(); }
+        });
+        app.chat().sessions.lock().unwrap().insert("agy".into(), agy_proc.clone());
+
+        // Ordinary send to an idle Antigravity chat session starts a turn and decorates sender origin.
+        let mut req = tell::Request {
+            session_id: "sender".into(),
+            target: Some("agy".into()),
+            text: "Inspect the ACP queue".into(),
+            message_id: format!("msg-{}", uuid::Uuid::new_v4()),
+            ..Default::default()
+        };
+        assert_eq!(tell::send(&app, &req).unwrap()["delivery"], "sent");
+        let raw = serde_json::to_value(app.chat().snapshot("agy")).unwrap();
+        let mut shown = raw.clone();
+        tell::decorate(&app, "agy", &mut shown);
+        assert_eq!(shown["rows"][0]["origin"]["sessionId"], "sender");
+        assert_eq!(shown["rows"][0]["text"], "Inspect the ACP queue");
+
+        // Steering an active Antigravity turn writes into it and reports blocked when waiting on a prompt.
+        req.steer = true;
+        req.text = "Include error paths".into();
+        req.message_id = format!("msg-{}", uuid::Uuid::new_v4());
+        assert_eq!(tell::send(&app, &req).unwrap()["delivery"], "steered");
+        agy_proc.permissions.lock().unwrap().insert("perm-1".into(), json!({"toolName": "confirm"}));
+        req.text = "Hold until answered".into();
+        req.message_id = format!("msg-{}", uuid::Uuid::new_v4());
+        assert_eq!(tell::send(&app, &req).unwrap()["delivery"], "blocked");
+        agy_proc.permissions.lock().unwrap().clear();
+
+        // Ordinary tell while Antigravity is busy queues instead of steering.
+        req.steer = false;
+        req.text = "Follow-up after turn".into();
+        req.message_id = format!("msg-{}", uuid::Uuid::new_v4());
+        assert_eq!(tell::send(&app, &req).unwrap()["delivery"], "queued");
+
+        // All other chat-capable agents accept ordinary tells (queued while handshaking).
+        for (id, kind) in [
+            ("zcode", SessionKind::Zcode),
+            ("deepseek", SessionKind::Deepseek),
+            ("copilot", SessionKind::Copilot),
+            ("cursor", SessionKind::Cursor),
+            ("kimi", SessionKind::Kimi),
+            ("grok", SessionKind::Grok),
+        ] {
+            let proc = inert_process(kind);
+            proc.ready.store(false, Ordering::Relaxed);
+            app.chat().sessions.lock().unwrap().insert(id.into(), proc);
+            let msg = tell::Request {
+                session_id: "sender".into(),
+                target: Some(id.into()),
+                text: format!("Hello {id}"),
+                message_id: format!("msg-{}", uuid::Uuid::new_v4()),
+                ..Default::default()
+            };
+            assert_eq!(tell::send(&app, &msg).unwrap()["delivery"], "queued", "{id}");
+        }
+
+        // ACP agents without native steering reject --steer cleanly.
+        let bad_steer = tell::Request {
+            session_id: "sender".into(),
+            target: Some("copilot".into()),
+            steer: true,
+            text: "Cannot steer".into(),
+            message_id: format!("msg-{}", uuid::Uuid::new_v4()),
+            ..Default::default()
+        };
+        assert!(tell::send(&app, &bad_steer).unwrap_err().contains("does not support steering"));
+
+        // Terminal-view Antigravity and non-chat agents remain rejected.
+        for rejected in ["agy-tui", "kiro"] {
+            let msg = tell::Request {
+                session_id: "sender".into(),
+                target: Some(rejected.into()),
+                text: "Rejected".into(),
+                message_id: format!("msg-{}", uuid::Uuid::new_v4()),
+                ..Default::default()
+            };
+            assert!(tell::send(&app, &msg).unwrap_err().contains("native chat session"), "{rejected}");
+        }
+
+        for id in ["agy", "zcode", "deepseek", "copilot", "cursor", "kimi", "grok"] {
+            let _ = app.chat().stop(&app, id);
+        }
+        let dir = app.data_dir().unwrap();
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn plan_execute_start_failure_retains_one_planner_and_exact_choices() {
         use crate::agent::plan_execute as flow;
         let (app,_,_)=plan_execute_fixture();
@@ -9609,6 +10556,54 @@ mod tests {
         m.stop(&app, "s").unwrap();
     }
 
+    #[test]
+    fn opencode_announces_its_session_only_after_it_can_take_a_turn() {
+        let app = ctx("oc-announce-ready");
+        let (mut proc, _stdout) = cat_process();
+        Arc::get_mut(&mut proc).unwrap().kind = SessionKind::Opencode;
+        proc.ready.store(false, Ordering::Relaxed);
+        // A client waiting for this event sends the first message as soon as it arrives, so a session
+        // announced before `ready` would route that message into the startup queue and back out.
+        let ready_at_event = Arc::new(AtomicBool::new(false));
+        let captured = ready_at_event.clone();
+        let watched = proc.clone();
+        app.listen(&event_name("s"), move |payload| {
+            let event: Value = serde_json::from_str(payload).unwrap();
+            if event["type"] == "session" {
+                captured.store(watched.ready.load(Ordering::Relaxed), Ordering::Relaxed);
+            }
+        });
+        opencode::finish_startup(&app, "s", &proc, "ses_ready");
+        assert!(ready_at_event.load(Ordering::Relaxed));
+        proc.child.lock().unwrap().kill().unwrap();
+        proc.child.lock().unwrap().wait().unwrap();
+    }
+
+    #[test]
+    fn acp_announces_its_session_only_after_it_can_take_a_turn() {
+        let app = ctx("acp-announce-ready");
+        let (mut proc, _stdout) = cat_process();
+        Arc::get_mut(&mut proc).unwrap().kind = SessionKind::Kimi;
+        proc.ready.store(false, Ordering::Relaxed);
+        let announcements = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let ready_at_event = Arc::new(AtomicBool::new(false));
+        let (counted, captured, watched) = (announcements.clone(), ready_at_event.clone(), proc.clone());
+        app.listen(&event_name("s"), move |payload| {
+            let event: Value = serde_json::from_str(payload).unwrap();
+            if event["type"] == "session" {
+                counted.fetch_add(1, Ordering::Relaxed);
+                captured.store(watched.ready.load(Ordering::Relaxed), Ordering::Relaxed);
+            }
+        });
+        acp::finish_startup(&app, "s", &proc, "sess_acp");
+        assert!(ready_at_event.load(Ordering::Relaxed));
+        // Reopening a session on an engine that already takes turns still tells the clients about it.
+        acp::finish_startup(&app, "s", &proc, "sess_acp");
+        assert_eq!(announcements.load(Ordering::Relaxed), 2);
+        proc.child.lock().unwrap().kill().unwrap();
+        proc.child.lock().unwrap().wait().unwrap();
+    }
+
     /// Interrupting means "instead of that, this": the message goes ahead of anything already waiting.
     #[test]
     fn an_interrupting_message_goes_ahead_of_the_queue() {
@@ -10063,7 +11058,6 @@ mod tests {
         let mut owner=super::super::ownership::Owner::acquire(&app,"s",None).unwrap();
         let mut command=std::process::Command::new("sh");
         command.args(["-c","sleep 30 & echo ready; read finish"]).process_group(0).stdin(Stdio::piped()).stdout(Stdio::piped());
-        owner.inherit(&mut command);
         let mut child=command.spawn().unwrap(); let _cleanup=Group(child.id());
         owner.launched(&app,"s",child.id()).unwrap();
         let mut ready=String::new(); BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
@@ -10075,6 +11069,69 @@ mod tests {
         app.chat().sessions.lock().unwrap().insert("s".into(),proc);
         assert!(crate::command_core::set_session_engine(&app,"s","tui").is_err());
         assert_eq!(crate::db::repo::get_session(&app.db().conn.lock().unwrap(),"s").unwrap().unwrap().engine,"chat");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "helper spawned by detached_background_work_does_not_keep_conversation_ownership_after_agent_exits"]
+    fn detached_sleeper_helper() {
+        unsafe { libc::setsid(); }
+        println!("DETACHED_PID={}", std::process::id());
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(Duration::from_secs(30));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detached_background_work_does_not_keep_conversation_ownership_after_agent_exits() {
+        use std::os::unix::process::CommandExt;
+        struct Group(u32);
+        impl Drop for Group { fn drop(&mut self) { unsafe { libc::kill(-(self.0 as i32),libc::SIGKILL); } } }
+        struct Detached(Option<u32>);
+        impl Drop for Detached {
+            fn drop(&mut self) {
+                if let Some(pid)=self.0 { unsafe { libc::kill(pid as i32,libc::SIGKILL); } }
+            }
+        }
+        let app=ctx("detached-bg-release");
+        let native_id=format!("detached-test-{}",uuid::Uuid::new_v4());
+        {
+            let conn=app.db().conn.lock().unwrap();
+            conn.execute_batch("INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','Recovery','/tmp',0);").unwrap();
+            conn.execute("INSERT INTO sessions(id,project_id,name,kind,engine,agent_session_id,created_at) VALUES ('s','p','Recovery','antigravity','chat',?1,0)",[&native_id]).unwrap();
+        }
+        let mut owner=super::super::ownership::Owner::acquire(&app,"s",Some(format!("antigravity:{native_id}"))).unwrap();
+        let mut command=std::process::Command::new("sh");
+        command.args([
+            "-c",
+            r#""$VLX_TEST_EXE" --exact agent::chat::engine::tests::detached_sleeper_helper --ignored --nocapture </dev/null & read finish"#,
+        ])
+        .env("VLX_TEST_EXE",std::env::current_exe().unwrap())
+        .process_group(0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+        let mut child=command.spawn().unwrap();
+        let _group=Group(child.id());
+        let mut detached=Detached(None);
+        owner.launched(&app,"s",child.id()).unwrap();
+        let mut reader=BufReader::new(child.stdout.take().unwrap());
+        let mut line=String::new();
+        while reader.read_line(&mut line).unwrap()>0 {
+            if let Some(pid)=line.trim().strip_prefix("DETACHED_PID=").and_then(|v|v.parse::<u32>().ok()) {
+                detached.0=Some(pid);
+                break;
+            }
+            line.clear();
+        }
+        let detached_pid=detached.0.expect("detached helper did not report its PID");
+        child.stdin.take().unwrap().write_all(b"finish\n").unwrap();
+        child.wait().unwrap();
+        owner.retire(&app,"s");
+        drop(owner);
+        assert_eq!(unsafe { libc::kill(detached_pid as i32,0) },0,"detached background process should still be running");
+        drop(super::super::ownership::idle_guard(&app,"s").unwrap());
+        let reacquired=super::super::ownership::Owner::acquire(&app,"s",Some(format!("antigravity:{native_id}"))).unwrap();
+        reacquired.retire(&app,"s");
     }
 
     #[cfg(unix)]
@@ -10616,6 +11673,161 @@ mod tests {
             proc.child.lock().unwrap().kill().unwrap();
             proc.child.lock().unwrap().wait().unwrap();
         }
+    }
+
+    fn antigravity_auth_fixture(tag: &str, bin: &str) -> (AppCtx, Arc<ChatProcess>, BufReader<std::process::ChildStdout>) {
+        let app = ctx(tag);
+        {
+            let conn = app.db().conn.lock().unwrap();
+            conn.execute("INSERT INTO projects(id,name,root_path,created_at) VALUES ('p','test','/tmp',0)", []).unwrap();
+            conn.execute("INSERT INTO sessions(id,project_id,name,kind,created_at) VALUES ('s','p','Antigravity','antigravity',0)", []).unwrap();
+        }
+        let (mut proc, stdout) = cat_process();
+        {
+            let inner = Arc::get_mut(&mut proc).unwrap();
+            inner.kind = SessionKind::Antigravity;
+            inner.bin = bin.into();
+        }
+        {
+            let mut acp = proc.acp.lock().unwrap();
+            acp.initialized = true;
+            acp.auth_logout_supported = true;
+        }
+        *proc.agent_session_id.lock().unwrap() = Some("agy-original".into());
+        proc.timeline.lock().unwrap().upsert(ChatRow::User { id: "history".into(), text: "Keep this Antigravity conversation".into(), images: vec![], at: None });
+        app.chat().sessions.lock().unwrap().insert("s".into(), proc.clone());
+        (app, proc, BufReader::new(stdout))
+    }
+
+    #[test]
+    fn antigravity_auth_required_keeps_process_alive_and_hands_back_queued_messages() {
+        let (app, proc, mut reader) = antigravity_auth_fixture("agy-auth-required", "true");
+        proc.acp.lock().unwrap().initialized = false;
+        proc.acp.lock().unwrap().auth_logout_supported = false;
+        proc.turn.lock().unwrap().waiting.push(QueuedMessage { id: "q1".into(), text: "Pending turn".into(), images: vec![] });
+        let init_id = proc.request_id("acp_initialize");
+        acp::handle_line(&app, "s", &proc, &json!({
+            "jsonrpc":"2.0",
+            "id":init_id,
+            "result":{
+                "protocolVersion":1,
+                "agentCapabilities":{"loadSession":true,"auth":{"logout":{}}}
+            }
+        }).to_string());
+        assert!(proc.acp.lock().unwrap().initialized);
+        assert!(proc.acp.lock().unwrap().auth_logout_supported);
+        let open_req = read_codex_request(&mut reader);
+        assert_eq!(open_req["method"], "session/new");
+        acp::handle_line(&app, "s", &proc, &json!({
+            "jsonrpc":"2.0",
+            "id":open_req["id"],
+            "error":{"code":-32000,"message":"Authentication required"}
+        }).to_string());
+        assert!(proc.alive.load(Ordering::Relaxed));
+        assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "required");
+        assert!(proc.turn.lock().unwrap().waiting.is_empty());
+        proc.child.lock().unwrap().kill().unwrap();
+        proc.child.lock().unwrap().wait().unwrap();
+    }
+
+    #[test]
+    fn antigravity_auth_logout_uses_acp_logout_and_restores_history() {
+        let (app, proc, mut reader) = antigravity_auth_fixture("agy-auth-logout", "true");
+        let app_bg = app.clone();
+        let proc_bg = proc.clone();
+        let responder = std::thread::spawn(move || {
+            let req = read_codex_request(&mut reader);
+            assert_eq!(req["method"], "logout");
+            acp::handle_line(&app_bg, "s", &proc_bg, &json!({
+                "jsonrpc":"2.0","id":req["id"],"result":{}
+            }).to_string());
+        });
+        app.chat().auth_logout(&app, "s").unwrap();
+        responder.join().unwrap();
+        assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "signedOut");
+        assert!(!proc.alive.load(Ordering::Relaxed));
+        let next = inert_process(SessionKind::Antigravity);
+        assert!(auth::antigravity::restore(&proc, &next));
+        assert_eq!(next.timeline.lock().unwrap().rows[0].id(), "history");
+        assert_eq!(next.agent_session_id.lock().unwrap().as_deref(), Some("agy-original"));
+        assert!(auth::blocks_queue(&next));
+        proc.child.lock().unwrap().wait().unwrap();
+    }
+
+    #[test]
+    fn antigravity_auth_logout_fails_when_server_does_not_advertise_logout() {
+        let (app, proc, _reader) = antigravity_auth_fixture("agy-auth-logout-unsupported", "true");
+        proc.acp.lock().unwrap().auth_logout_supported = false;
+        assert_eq!(app.chat().auth_logout(&app, "s"), Err("antigravity_auth_logout_failed".into()));
+        assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "logoutFailed");
+        assert!(auth::blocks_queue(&proc));
+        proc.child.lock().unwrap().wait().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn antigravity_auth_login_helper_handles_submit_and_cancel() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vlx-agy-auth-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("fake-agy.sh");
+        let oauth_url = "https://accounts.google.com/o/oauth2/auth?client_id=test&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&state=ok";
+        std::fs::write(&script, format!(
+            "#!/bin/sh\nif [ \"$1\" = \"acp\" ] && [ \"$2\" = \"--login\" ]; then\n  printf '%s\\n\\n  %s\\n\\n%s\\n' 'Open this link in a browser to log in with Google:' '{oauth_url}' 'Then paste the authorization code:'\n  read code\n  if [ \"$code\" = \"valid-code\" ]; then exit 0; else exit 1; fi\nfi\nexit 1\n"
+        )).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (app, proc, _reader) = antigravity_auth_fixture("agy-auth-submit", script.to_str().unwrap());
+        app.chat().auth_start(&app, "s", None).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if app.chat().snapshot("s").extras.auth.as_ref().is_some_and(|a| a.status == "pending") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let pending = app.chat().snapshot("s").extras.auth.unwrap();
+        assert_eq!(pending.status, "pending");
+        assert_eq!(pending.verification_url.as_deref(), Some(oauth_url));
+        assert_eq!(app.chat().auth_submit(&app, "s", "bad code"), Err("antigravity_auth_invalid_code".into()));
+        app.chat().auth_submit(&app, "s", " valid-code ").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if app.chat().snapshot("s").extras.auth.as_ref().is_some_and(|a| a.status == "success") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(app.chat().snapshot("s").extras.auth.unwrap().status, "success");
+        assert!(!proc.alive.load(Ordering::Relaxed));
+        let next = inert_process(SessionKind::Antigravity);
+        assert!(auth::antigravity::restore(&proc, &next));
+        assert_eq!(next.agent_session_id.lock().unwrap().as_deref(), Some("agy-original"));
+        proc.child.lock().unwrap().wait().unwrap();
+
+        // Cancel flow kills the login helper and transitions cleanly to canceled.
+        let (app2, proc2, _reader2) = antigravity_auth_fixture("agy-auth-cancel", script.to_str().unwrap());
+        app2.chat().auth_start(&app2, "s", None).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if app2.chat().snapshot("s").extras.auth.as_ref().is_some_and(|a| a.status == "pending") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        app2.chat().auth_cancel(&app2, "s").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if app2.chat().snapshot("s").extras.auth.as_ref().is_some_and(|a| a.status == "canceled") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(app2.chat().snapshot("s").extras.auth.unwrap().status, "canceled");
+        proc2.child.lock().unwrap().kill().unwrap();
+        proc2.child.lock().unwrap().wait().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -383,7 +383,7 @@ pub fn start(app: &AppCtx, request: &super::server::SpawnRequest) -> Result<Valu
     // Read before create_role_bound: its callback runs inside a transaction that holds the connection.
     let language = review::ui_language(app);
     let planner = create_role_bound(app, &role_id(&id, "planner"), &parent.project_id,
-        parent.group_id.as_deref(), Some(&parent), "Plan · Execute", &config.plan, cwd.as_deref(),
+        parent.group_id.as_deref(), Some(&parent), request.title.as_deref().map_or("Plan · Execute", str::trim), &config.plan, cwd.as_deref(),
         config.worktree_mode(request.worktree == Some(true)) != WorktreeMode::None, None, None,
         |tx, planner| {
             let task = format!("{}\n\nWorkflow ID: {id}\nRole: planner\nWorking directory: {}\n\nUser task:\n{}",
