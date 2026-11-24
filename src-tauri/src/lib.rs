@@ -2823,7 +2823,7 @@ mod tests {
         // for hydrate records what its child, the first one of the process, inherits.
         std::env::set_var(SERVE_PASSWORD_ENV, "launcher-pw");
         std::env::set_var(SERVE_PASSWORD_ENV_LEGACY, "legacy-pw");
-        #[cfg_attr(not(unix), allow(unused_mut))]
+        #[cfg(unix)]
         let mut probe_saw: Option<String> = None;
         let got = serve_startup_env(|| {
             #[cfg(unix)]
